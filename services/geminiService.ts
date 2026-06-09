@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { TranslationResponse, CustomTerm, Character, Relationship } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || "" });
 
 // Danh sách các model ưu tiên thử nghiệm theo thứ tự khi gặp lỗi
 const FALLBACK_MODELS = [

@@ -218,7 +218,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const isDone = completedSegments.includes(idx);
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
-                      const cleanLiteral = (seg.literal || '').trim();
+                      const cleanDeepl = (seg.deepl || '').trim();
                       const cleanQuick = (seg.quick || '').trim();
 
                       if (!cleanSource && !cleanNatural) return null;
@@ -246,8 +246,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                            <td className="py-0 px-2 align-top relative pr-6 border-none">
                               <div className="flex flex-col py-0.5">
                                   <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} />
-                                  {cleanLiteral && (
-                                    <div className="text-[8.5px] text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words"><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GT:</span>{cleanLiteral}</div>
+                                  {cleanDeepl && (
+                                    <div className="text-[8.5px] text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words"><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">DeepL:</span>{cleanDeepl}</div>
                                   )}
                               </div>
                               <SegmentCopyBtn text={cleanNatural} />

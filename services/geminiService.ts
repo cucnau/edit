@@ -1,7 +1,8 @@
+
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { TranslationResponse, CustomTerm, Character, Relationship } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || "" });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Danh sách các model ưu tiên thử nghiệm theo thứ tự khi gặp lỗi
 const FALLBACK_MODELS = [
@@ -31,10 +32,9 @@ const translationSchema = {
         properties: {
             source: { type: Type.STRING, description: "Nguyên văn dòng gốc." },
             natural: { type: Type.STRING, description: "Bản dịch mượt." },
-            quick: { type: Type.STRING, description: "Dịch word-by-word." },
-            literal: { type: Type.STRING, description: "Bản dịch thô, máy móc giống Google Translate/Bing (dùng để đối chiếu cấu trúc nếu bản dịch mượt bị sai lệch)." }
+            quick: { type: Type.STRING, description: "Dịch word-by-word." }
         },
-        required: ["source", "natural", "quick", "literal"]
+        required: ["source", "natural", "quick"]
       }
     },
     sinoVietnamese: { type: Type.STRING },
@@ -152,7 +152,7 @@ ${relationships.length > 0 ? `- Quan hệ: ${relationships.map(r => r.charA + " 
           source: originalLine, // Luôn dùng bản gốc từ input, không dùng bản AI trả về
           natural: aiSeg?.natural || "",
           quick: aiSeg?.quick || "",
-          literal: aiSeg?.literal || ""
+          deepl: "" // Sẽ được merge ở App.tsx
       };
   });
 
@@ -161,7 +161,7 @@ ${relationships.length > 0 ? `- Quan hệ: ${relationships.map(r => r.charA + " 
     segments: synchronizedSegments,
     naturalTranslation: synchronizedSegments.map(s => s.natural).join('\n'),
     quickTrans: synchronizedSegments.map(s => s.quick).join('\n'),
-    literalMeaning: synchronizedSegments.map(s => s.literal).join('\n')
+    deeplTranslation: ""
   };
 };
 

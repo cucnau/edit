@@ -77,11 +77,11 @@ const sanitizeResult = (result: TranslationResponse | null): TranslationResponse
                 source: (s.source || "").trim(),
                 natural: (s.natural || "").trim().replace(/\n+$/, ""),
                 quick: (s.quick || "").trim().replace(/\n+$/, ""),
-                literal: (s.literal || "").trim().replace(/\n+$/, "")
+                deepl: (s.deepl || "").trim().replace(/\n+$/, "")
             })),
             naturalTranslation: (result.naturalTranslation || "").trim().replace(/\n+$/, ""),
             quickTrans: (result.quickTrans || "").trim().replace(/\n+$/, ""),
-            literalMeaning: (result.literalMeaning || "").trim().replace(/\n+$/, ""),
+            deeplTranslation: (result.deeplTranslation || "").trim().replace(/\n+$/, ""),
             vocabulary: result.vocabulary || []
         };
     } catch (e) {
@@ -94,6 +94,7 @@ const createNewSession = (): TranslationSession => ({
   id: 'session_main',
   name: `Bản dịch`,
   inputText: '',
+  deeplText: '',
   status: AppStatus.IDLE,
   result: null,
   error: null,
@@ -290,16 +291,19 @@ useEffect(() => {
       );
       
       // --- BƯỚC 3: MERGE KẾT QUẢ ---
-      // Lấy kết quả 'natural' từ AI, nhưng GHI ĐÈ 'quick' bằng Vietphrase
+      // Lấy kết quả 'natural' từ AI, nhưng GHI ĐÈ 'quick' bằng Vietphrase và 'deepl' bằng DeepL input
+      const deeplLines = session.deeplText.split('\n');
       const mergedSegments = data.segments.map((seg, i) => ({
          ...seg,
-         quick: vpSegments[i]?.quick || seg.quick // Ưu tiên Vietphrase Engine
+         quick: vpSegments[i]?.quick || seg.quick, // Ưu tiên Vietphrase Engine
+         deepl: deeplLines[i] || "" // Gắn DeepL theo index
       }));
 
       const mergedResult = {
          ...data,
          segments: mergedSegments,
-         quickTrans: mergedSegments.map(s => s.quick).join('\n')
+         quickTrans: mergedSegments.map(s => s.quick).join('\n'),
+         deeplTranslation: mergedSegments.map(s => s.deepl).join('\n')
       };
 
       const sanitized = sanitizeResult(mergedResult);
@@ -331,6 +335,7 @@ useEffect(() => {
   const handleRestoreHistory = (item: HistoryItem) => {
     updateSession({
       inputText: item.sourceText,
+      deeplText: item.result?.deeplTranslation || "",
       result: sanitizeResult(item.result),
       status: AppStatus.SUCCESS,
       error: null,
@@ -404,18 +409,25 @@ useEffect(() => {
                             </div>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => updateSession({ inputText: EXAMPLE_TEXT })} className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"><Quote size={10} /> Ví dụ</button>
-                            <button onClick={() => updateSession({ inputText: '', result: null, status: AppStatus.IDLE })} disabled={!session.inputText} className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"><Eraser size={10} /> Xóa</button>
+                            <button onClick={() => updateSession({ inputText: EXAMPLE_TEXT, deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người." })} className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"><Quote size={10} /> Ví dụ</button>
+                            <button onClick={() => updateSession({ inputText: '', deeplText: '', result: null, status: AppStatus.IDLE })} disabled={!session.inputText && !session.deeplText} className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"><Eraser size={10} /> Xóa</button>
                         </div>
                     </div>
 
-                    <div className="flex flex-1 min-h-[140px]">
+                    <div className="grid grid-cols-2 flex-1 min-h-[140px] divide-x divide-[#EFEBE9]">
                         <textarea
                             ref={textareaRef}
                             value={session.inputText}
                             onChange={(e) => updateSession({ inputText: e.target.value })}
-                            placeholder="Nhập văn bản cần dịch..."
+                            placeholder="Nhập văn bản nguồn (Trung)..."
                             className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                            spellCheck="false"
+                        />
+                        <textarea
+                            value={session.deeplText}
+                            onChange={(e) => updateSession({ deeplText: e.target.value })}
+                            placeholder="Dán bản dịch DeepL vào đây..."
+                            className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
                             spellCheck="false"
                         />
                     </div>

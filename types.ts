@@ -11,14 +11,14 @@ export interface TranslationSegment {
   source: string; // Text gốc tiếng Trung của đoạn này
   natural: string;
   quick: string;
-  literal: string;
+  deepl: string;
 }
 
 export interface TranslationResponse {
   naturalTranslation: string; // Full text merged
   quickTrans: string;         // Full text merged
   sinoVietnamese: string;
-  literalMeaning: string;     // Full text merged
+  deeplTranslation: string;     // Full text merged
   segments: TranslationSegment[]; // Array for Table View
   vocabulary: VocabItem[];
 }
@@ -65,6 +65,7 @@ export interface TranslationSession {
   id: string;
   name: string;
   inputText: string;
+  deeplText: string;
   status: AppStatus;
   result: TranslationResponse | null;
   error: string | null;

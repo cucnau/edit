@@ -134,10 +134,16 @@ YÊU CẦU NGHIÊM NGẶT VỀ CẤU TRÚC:
 4. Dựa trên độ dài văn bản (${charCount} ký tự), trích xuất khoảng ${vocabTarget} từ vựng vào mảng "vocabulary". 
    ƯU TIÊN TRÍCH XUẤT TRIỆT ĐỂ: Bạn PHẢI quét toàn bộ văn bản và đưa TẤT CẢ các tên riêng (nhân vật chưa có trong danh sách, địa danh, môn phái, chiêu thức, vật phẩm đặc thù) vào vocabulary để người dùng tra cứu. Không được bỏ sót bất kỳ thực thể danh từ riêng nào.
 
-BỐI CẢNH NHÂN VẬT:
-${customDictionary.length > 0 ? `- Từ điển: ${customDictionary.map(i => i.term + ":" + i.meaning).join(', ')}` : ""}
-${characters.length > 0 ? `- Nhân vật đã biết: ${characters.map(c => c.chineseName + " (" + c.vietName + ", " + c.pronouns + ")").join(', ')}` : ""}
-${relationships.length > 0 ? `- Quan hệ: ${relationships.map(r => r.charA + " với " + r.charB + ": " + r.callAtoB + " / " + r.callBtoA).join(', ')}` : ""}
+YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
+Bạn PHẢI sử dụng ĐÚNG các từ vựng, tên nhân vật, đại từ nhân xưng và quy tắc xưng hô được cung cấp dưới đây trong bản dịch "natural". Nếu vi phạm, bản dịch sẽ bị coi là lỗi nghiêm trọng.
+
+BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
+${customDictionary.length > 0 ? `- Từ vựng đặc biệt: ${customDictionary.map(i => `"${i.term}" PHẢI DỊCH LÀ "${i.meaning}"`).join(', ')}` : ""}
+${characters.length > 0 ? `- Nhân vật: ${characters.map(c => `"${c.chineseName}" PHẢI DỊCH LÀ "${c.vietName}" (Đại từ nhân xưng: ${c.pronouns})`).join('\n  ')}
+` : ""}
+${relationships.length > 0 ? `- Xưng hô:
+  ${relationships.map(r => `Giữa "${r.charA}" và "${r.charB}": "${r.charA}" gọi "${r.charB}" là "${r.callAtoB}", và "${r.charB}" gọi "${r.charA}" là "${r.callBtoA}"`).join('\n  ')}
+` : ""}
 `;
 
   const textWithIndex = inputLines.map((line, i) => `[L${i + 1}]: ${line}`).join('\n');

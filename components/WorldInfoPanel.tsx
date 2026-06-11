@@ -318,7 +318,23 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                         <input type="text" value={char.pronouns} onChange={(e) => updateChar(char.id, 'pronouns', e.target.value)} className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent leading-tight h-full min-h-[20px]" placeholder="cậu" />
                       </td>
                       <td className="p-0 align-top relative">
-                        <textarea value={char.description} onChange={(e) => updateChar(char.id, 'description', e.target.value)} className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent resize-none h-full min-h-[20px] focus:h-16 transition-all leading-tight" placeholder="..." rows={1} />
+                        <textarea 
+                          value={char.description} 
+                          onChange={(e) => {
+                            updateChar(char.id, 'description', e.target.value);
+                            e.target.style.height = 'auto';
+                            e.target.style.height = e.target.scrollHeight + 'px';
+                          }}
+                          ref={(el) => {
+                            if (el) {
+                              el.style.height = 'auto';
+                              el.style.height = el.scrollHeight + 'px';
+                            }
+                          }}
+                          className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent resize-none overflow-hidden min-h-[20px] leading-tight" 
+                          placeholder="..." 
+                          rows={1} 
+                        />
                         {/* Delete Button */}
                         <button 
                            onClick={() => deleteChar(char.id)} 
@@ -403,7 +419,23 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                               </div>
                            </td>
                            <td className="p-0 align-top relative">
-                              <textarea value={rel.note} onChange={(e) => updateRel(rel.id, 'note', e.target.value)} className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent resize-none h-full min-h-[2rem] focus:h-12 transition-all leading-tight" placeholder="..." rows={1} />
+                              <textarea 
+                                value={rel.note} 
+                                onChange={(e) => {
+                                  updateRel(rel.id, 'note', e.target.value);
+                                  e.target.style.height = 'auto';
+                                  e.target.style.height = e.target.scrollHeight + 'px';
+                                }} 
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto';
+                                    el.style.height = el.scrollHeight + 'px';
+                                  }
+                                }}
+                                className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent resize-none overflow-hidden min-h-[2rem] leading-tight" 
+                                placeholder="..." 
+                                rows={1} 
+                              />
                               {/* Delete Button */}
                               <button 
                                  onClick={() => deleteRel(rel.id)} 

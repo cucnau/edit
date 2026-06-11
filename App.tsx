@@ -10,7 +10,6 @@ import { WorldInfoPanel } from './components/WorldInfoPanel';
 import { HistoryModal } from './components/HistoryModal'; 
 import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Download, Layers } from 'lucide-react';
 
-const MAX_CHARS = 5000; 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
 // --- ERROR BOUNDARY COMPONENT ---
@@ -434,8 +433,8 @@ useEffect(() => {
 
                     <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">
                         <div className="flex items-center gap-4">
-                            <div className={`text-[10px] font-medium transition-colors ${session.inputText.length > MAX_CHARS ? 'text-red-600 font-bold' : 'text-[#A1887F]'}`}>
-                                {session.inputText.length} / {MAX_CHARS} ký tự
+                            <div className="text-[10px] font-medium transition-colors text-[#A1887F]">
+                                {session.inputText.length} ký tự
                             </div>
                         </div>
 

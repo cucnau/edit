@@ -303,10 +303,18 @@ YÊU CẦU NGHIÊM NGẶT VỀ CẤU TRÚC:
 4. Dựa trên độ dài văn bản (${d} ký tự), trích xuất khoảng ${g} từ vựng vào mảng "vocabulary". 
    ƯU TIÊN TRÍCH XUẤT TRIỆT ĐỂ: Bạn PHẢI quét toàn bộ văn bản và đưa TẤT CẢ các tên riêng (nhân vật chưa có trong danh sách, địa danh, môn phái, chiêu thức, vật phẩm đặc thù) vào vocabulary để người dùng tra cứu. Không được bỏ sót bất kỳ thực thể danh từ riêng nào.
 
-BỐI CẢNH NHÂN VẬT:
-${t.length>0?`- Từ điển: ${t.map(A=>A.term+":"+A.meaning).join(", ")}`:""}
-${o.length>0?`- Nhân vật đã biết: ${o.map(A=>A.chineseName+" ("+A.vietName+", "+A.pronouns+")").join(", ")}`:""}
-${s.length>0?`- Quan hệ: ${s.map(A=>A.charA+" với "+A.charB+": "+A.callAtoB+" / "+A.callBtoA).join(", ")}`:""}
+YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
+Bạn PHẢI sử dụng ĐÚNG các từ vựng, tên nhân vật, đại từ nhân xưng và quy tắc xưng hô được cung cấp dưới đây trong bản dịch "natural". Nếu vi phạm, bản dịch sẽ bị coi là lỗi nghiêm trọng.
+
+BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
+${t.length>0?`- Từ vựng đặc biệt: ${t.map(A=>`"${A.term}" PHẢI DỊCH LÀ "${A.meaning}"`).join(", ")}`:""}
+${o.length>0?`- Nhân vật: ${o.map(A=>`"${A.chineseName}" PHẢI DỊCH LÀ "${A.vietName}" (Đại từ nhân xưng: ${A.pronouns})`).join(`
+  `)}
+`:""}
+${s.length>0?`- Xưng hô:
+  ${s.map(A=>`Giữa "${A.charA}" và "${A.charB}": "${A.charA}" gọi "${A.charB}" là "${A.callAtoB}", và "${A.charB}" gọi "${A.charA}" là "${A.callBtoA}"`).join(`
+  `)}
+`:""}
 `,m=r.map((A,M)=>`[L${M+1}]: ${A}`).join(`
 `),v=`${y}
 

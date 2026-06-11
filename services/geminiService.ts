@@ -120,18 +120,41 @@ export const translateText = async (
   if (!text.trim()) throw new Error("Vui lòng nhập văn bản.");
 
   const inputLines = text.split('\n');
-  const lineCount = inputLines.length;
-  const charCount = text.length;
+  const chunks: string[][] = [];
+  let currentChunk: string[] = [];
+  let currentCharCount = 0;
 
-  // Tính toán số lượng từ vựng mục tiêu, tăng trần để đủ chỗ cho tên riêng
-  const vocabTarget = Math.max(20, Math.min(80, Math.floor(charCount / 40)));
+  for (const line of inputLines) {
+    if (currentChunk.length >= 30 || currentCharCount + line.length > 2000) {
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+        currentChunk = [];
+        currentCharCount = 0;
+      }
+    }
+    currentChunk.push(line);
+    currentCharCount += line.length;
+  }
+  if (currentChunk.length > 0) chunks.push(currentChunk);
 
-  const contextPrompt = `Bạn là chuyên gia dịch thuật Trung-Việt cho tiểu thuyết.
+  let allSegments: any[] = [];
+  let allVocabulary: any[] = [];
+  let allSinoVietnamese = "";
+  let firstModelUsed = "";
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkLines = chunks[i];
+    const chunkLineCount = chunkLines.length;
+    const chunkCharCount = chunkLines.reduce((acc, line) => acc + line.length, 0);
+
+    const vocabTarget = Math.max(5, Math.min(40, Math.floor(chunkCharCount / 40)));
+
+    const contextPrompt = `Bạn là chuyên gia dịch thuật Trung-Việt cho tiểu thuyết.
 YÊU CẦU NGHIÊM NGẶT VỀ CẤU TRÚC:
-1. Văn bản này có đúng CHÍNH XÁC ${lineCount} dòng. Bạn PHẢI trả về mảng "segments" có đúng ${lineCount} phần tử.
+1. Văn bản này có đúng CHÍNH XÁC ${chunkLineCount} dòng. Bạn PHẢI trả về mảng "segments" có đúng ${chunkLineCount} phần tử.
 2. TUYỆT ĐỐI KHÔNG ĐƯỢC GỘP hoặc TÁCH CÁC ĐOẠN. Mỗi dòng gốc tương ứng 1-1 với một segment.
 3. Nếu dòng gốc trống, segment tương ứng vẫn phải tồn tại với nội dung rỗng.
-4. Dựa trên độ dài văn bản (${charCount} ký tự), trích xuất khoảng ${vocabTarget} từ vựng vào mảng "vocabulary". 
+4. Dựa trên độ dài văn bản (${chunkCharCount} ký tự), trích xuất khoảng ${vocabTarget} từ vựng vào mảng "vocabulary". 
    ƯU TIÊN TRÍCH XUẤT TRIỆT ĐỂ: Bạn PHẢI quét toàn bộ văn bản và đưa TẤT CẢ các tên riêng (nhân vật chưa có trong danh sách, địa danh, môn phái, chiêu thức, vật phẩm đặc thù) vào vocabulary để người dùng tra cứu. Không được bỏ sót bất kỳ thực thể danh từ riêng nào.
 
 YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
@@ -139,21 +162,35 @@ Bạn PHẢI sử dụng ĐÚNG các từ vựng, tên nhân vật, đại từ 
 
 BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
 ${customDictionary.length > 0 ? `- Từ vựng đặc biệt: ${customDictionary.map(i => `"${i.term}" PHẢI DỊCH LÀ "${i.meaning}"`).join(', ')}` : ""}
-${characters.length > 0 ? `- Nhân vật: ${characters.map(c => `"${c.chineseName}" PHẢI DỊCH LÀ "${c.vietName}" (Đại từ nhân xưng: ${c.pronouns})`).join('\n  ')}
-` : ""}
-${relationships.length > 0 ? `- Xưng hô:
-  ${relationships.map(r => `Giữa "${r.charA}" và "${r.charB}": "${r.charA}" gọi "${r.charB}" là "${r.callAtoB}", và "${r.charB}" gọi "${r.charA}" là "${r.callBtoA}"`).join('\n  ')}
-` : ""}
+${characters.length > 0 ? `- Nhân vật: ${characters.map(c => `"${c.chineseName}" PHẢI DỊCH LÀ "${c.vietName}" (Đại từ nhân xưng: ${c.pronouns})`).join('\n  ')}` : ""}
+${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "${r.charA}" và "${r.charB}": "${r.charA}" gọi "${r.charB}" là "${r.callAtoB}", và "${r.charB}" gọi "${r.charA}" là "${r.callBtoA}"`).join('\n  ')}` : ""}
 `;
 
-  const textWithIndex = inputLines.map((line, i) => `[L${i + 1}]: ${line}`).join('\n');
-  const prompt = `${contextPrompt}\n\nDịch ${lineCount} dòng sau:\n${textWithIndex}`;
-  
-  const result = await performApiCallWithFallback(prompt);
+    const textWithIndex = chunkLines.map((line, idx) => `[L${idx + 1}]: ${line}`).join('\n');
+    const prompt = `${contextPrompt}\n\nDịch ${chunkLineCount} dòng sau:\n${textWithIndex}`;
     
+    console.log(`Đang xử lý chunk ${i + 1}/${chunks.length} (${chunkLineCount} dòng, ${chunkCharCount} ký tự)`);
+
+    const result = await performApiCallWithFallback(prompt);
+    
+    if (i === 0) firstModelUsed = result.modelUsed;
+    
+    allSegments = allSegments.concat(result.segments || []);
+    
+    for (const v of result.vocabulary || []) {
+      if (!allVocabulary.some(existing => existing.term === v.term)) {
+        allVocabulary.push(v);
+      }
+    }
+    
+    if (result.sinoVietnamese) {
+      allSinoVietnamese += (allSinoVietnamese ? " " : "") + result.sinoVietnamese;
+    }
+  }
+
   // HẬU XỬ LÝ: Đảm bảo số lượng đoạn khớp 100% và khôi phục text gốc để tránh AI tự chế
   const synchronizedSegments = inputLines.map((originalLine, index) => {
-      const aiSeg = result.segments[index];
+      const aiSeg = allSegments[index];
       return {
           source: originalLine, // Luôn dùng bản gốc từ input, không dùng bản AI trả về
           natural: aiSeg?.natural || "",
@@ -163,11 +200,13 @@ ${relationships.length > 0 ? `- Xưng hô:
   });
 
   return {
-    ...result,
     segments: synchronizedSegments,
+    sinoVietnamese: allSinoVietnamese,
+    vocabulary: allVocabulary,
     naturalTranslation: synchronizedSegments.map(s => s.natural).join('\n'),
     quickTrans: synchronizedSegments.map(s => s.quick).join('\n'),
-    deeplTranslation: ""
+    deeplTranslation: "",
+    modelUsed: firstModelUsed || "unknown"
   };
 };
 

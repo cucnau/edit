@@ -75,39 +75,60 @@ const cleanJsonString = (str: string) => {
 
 const performApiCallWithFallback = async (prompt: string): Promise<TranslationResponse & { modelUsed: string }> => {
     let lastError: any = null;
+    const maxRetriesPerModel = 2; // Try up to 3 times per model
     
     for (const modelId of FALLBACK_MODELS) {
-        try {
-            await waitForQuota();
-            const response = await ai.models.generateContent({
-                model: modelId,
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: translationSchema,
-                    safetySettings: SAFETY_SETTINGS,
-                    temperature: 0.1,
-                },
-            });
+        let retries = 0;
+        
+        while (retries <= maxRetriesPerModel) {
+            try {
+                await waitForQuota();
+                const response = await ai.models.generateContent({
+                    model: modelId,
+                    contents: prompt,
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: translationSchema,
+                        safetySettings: SAFETY_SETTINGS,
+                        temperature: 0.1,
+                    },
+                });
 
-            const text = response.text;
-            if (!text) throw new Error("AI không phản hồi");
-            
-            const cleaned = cleanJsonString(text);
-            const parsed = JSON.parse(cleaned) as TranslationResponse;
-            return { ...parsed, modelUsed: modelId };
-        } catch (e: any) {
-            console.warn(`Model ${modelId} thất bại, đang thử model tiếp theo...`, e);
-            lastError = e;
-            // Chờ một chút trước khi đổi sang model tiếp theo
-            await new Promise(r => setTimeout(r, 1000));
-            continue;
+                const text = response.text;
+                if (!text) throw new Error("AI không phản hồi");
+                
+                const cleaned = cleanJsonString(text);
+                const parsed = JSON.parse(cleaned) as TranslationResponse;
+                return { ...parsed, modelUsed: modelId };
+            } catch (e: any) {
+                const message = e?.message || "";
+                console.warn(`Model ${modelId} thất bại (Lần ${retries + 1}):`, message);
+                lastError = e;
+                
+                const isOverloaded = message.includes("503") || message.includes("429") || message.includes("high demand") || message.includes("UNAVAILABLE") || message.includes("quota");
+                
+                if (isOverloaded && retries < maxRetriesPerModel) {
+                    const waitTime = Math.pow(2, retries) * 2000; // 2s, 4s
+                    console.log(`Đang bị quá tải. Đợi ${waitTime}ms trước khi thử lại...`);
+                    await new Promise(r => setTimeout(r, waitTime));
+                    retries++;
+                } else {
+                    // Nếu lỗi khác (hoặc hết lượt retry của model này) thì chuyển sang model khác
+                    await new Promise(r => setTimeout(r, 1000));
+                    break;
+                }
+            }
         }
     }
     
     if (lastError?.message?.includes("Unterminated string") || lastError?.message?.includes("Unexpected end")) {
-        throw new Error("Văn bản quá dài khiến AI bị quá tải dữliche dữ liệu. Hãy chia nhỏ văn bản (tầm 15-20 dòng) để AI dịch đầy đủ nhất.");
+        throw new Error("Văn bản quá dài khiến AI bị quá tải dữ liệu. Hãy chia nhỏ văn bản (tầm 15-20 dòng) để AI dịch đầy đủ nhất.");
     }
+    
+    if (lastError?.message?.includes("503") || lastError?.message?.includes("high demand")) {
+       throw new Error("Hệ thống AI đang quá tải do có nhiều người cùng sử dụng lúc này. Bạn thử ấn dịch lại lần nữa nhé!");
+    }
+    
     throw new Error(lastError?.message || "Tất cả các model AI đều không thể phản hồi lúc này.");
 };
 

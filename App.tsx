@@ -327,7 +327,7 @@ useEffect(() => {
             <div className="text-[#FFECB3]">
               <PenLine size={24} />
             </div>
-            <h1 className="text-2xl font-normal tracking-wide text-[#FFECB3] font-cute pt-1">Edit</h1>
+            <h1 className="text-2xl font-extrabold tracking-wide text-[#FFECB3] font-cute pt-1">Edit</h1>
           </div>
         </div>
         

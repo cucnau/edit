@@ -91,7 +91,7 @@ const sanitizeResult = (result: TranslationResponse | null): TranslationResponse
 
 const createNewSession = (): TranslationSession => ({
   id: 'session_main',
-  name: `Bản dịch`,
+  name: `Bản edit`,
   inputText: '',
   deeplText: '',
   status: AppStatus.IDLE,
@@ -358,7 +358,7 @@ useEffect(() => {
             <div className="text-[#FFECB3]">
               <ChocolateIcon size={24} />
             </div>
-            <h1 className="text-2xl font-normal tracking-wide text-[#FFECB3] font-cute pt-1">Nâu</h1>
+            <h1 className="text-2xl font-normal tracking-wide text-[#FFECB3] font-cute pt-1">Edit</h1>
           </div>
         </div>
         
@@ -443,7 +443,7 @@ useEffect(() => {
                             disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
                             className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
                         >
-                            {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Dịch...</>) : (<><Sparkles size={14} /> Dịch Ngay</>)}
+                            {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích</>)}
                         </button>
                     </div>
                 </div>

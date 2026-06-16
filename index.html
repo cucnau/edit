@@ -4,8 +4,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Edit</title>
-    <link rel="manifest" href="/edit/assets/manifest-CRB9rIjx.json">
+    <title>Nâu</title>
+    <link rel="manifest" href="/edit/assets/manifest-CzytNCAK.json">
     
     <!-- Android / Chrome -->
     <meta name="theme-color" content="#4E342E">
@@ -14,14 +14,14 @@
     <!-- iOS / Safari PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Edit">
+    <meta name="apple-mobile-web-app-title" content="Nâu">
     
     <!-- Icons -->
     <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/263/263142.png">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/263/263142.png">
 
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Noto+Serif+SC:wght@400;700&family=Noto+Sans+Vietnamese:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/index.css">
     <style>
         body {
             font-family: 'Noto Sans Vietnamese', sans-serif;
@@ -67,15 +67,27 @@
     <script>
       window.process = window.process || { env: {} };
     </script>
-  <script type="module" crossorigin src="/edit/assets/index-zktRc4v_.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.42.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.575.0",
+    "react-dom": "https://esm.sh/react-dom@^19.2.4"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/edit/assets/index-pHCSd1t3.js"></script>
 </head>
   <body class="bg-[#F5E6D3] text-[#3E2723] min-h-screen" translate="no">
     <div id="root"></div>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          const swPath = window.location.pathname.startsWith('/edit/') ? '/edit/sw.js' : '/sw.js';
-          navigator.serviceWorker.register(swPath).catch(err => {
+          navigator.serviceWorker.register('/sw.js').catch(err => {
             console.log('ServiceWorker registration failed: ', err);
           });
         });

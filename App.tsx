@@ -8,7 +8,7 @@ import { TranslationOutput } from './components/TranslationOutput';
 import { DictionarySidebar } from './components/DictionarySidebar';
 import { WorldInfoPanel } from './components/WorldInfoPanel';
 import { HistoryModal } from './components/HistoryModal'; 
-import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers } from 'lucide-react';
+import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine } from 'lucide-react';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -53,19 +53,6 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     return this.props.children;
   }
 }
-
-const ChocolateIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="currentColor" 
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-  >
-    <path d="M5 3C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V5C21 3.89543 20.1046 3 19 3H5ZM8 5V9H5V5H8ZM10 5H14V9H10V5ZM16 5H19V9H16V5ZM5 11H8V15H5V11ZM10 11H14V15H10V11ZM16 11H19V15H16V11ZM5 17H8V19H5V17ZM10 17H14V19H10V17ZM16 17H19V19H16V17Z" />
-  </svg>
-);
 
 const sanitizeResult = (result: TranslationResponse | null): TranslationResponse | null => {
     if (!result) return null;
@@ -338,7 +325,7 @@ useEffect(() => {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="text-[#FFECB3]">
-              <ChocolateIcon size={24} />
+              <PenLine size={24} />
             </div>
             <h1 className="text-2xl font-normal tracking-wide text-[#FFECB3] font-cute pt-1">Edit</h1>
           </div>

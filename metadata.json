@@ -1,6 +1,6 @@
 
 {
-  "name": "Nâu",
-  "description": "A specialized Chinese-to-Vietnamese translation tool with a Chocolate theme.",
+  "name": "Edit",
+  "description": "A customized web application for content translation and editing.",
   "requestFramePermissions": []
 }

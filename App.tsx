@@ -8,7 +8,7 @@ import { TranslationOutput } from './components/TranslationOutput';
 import { DictionarySidebar } from './components/DictionarySidebar';
 import { WorldInfoPanel } from './components/WorldInfoPanel';
 import { HistoryModal } from './components/HistoryModal'; 
-import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Download, Layers } from 'lucide-react';
+import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers } from 'lucide-react';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -134,7 +134,6 @@ function AppContent() {
     }
   });
   const [showHistory, setShowHistory] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [vpLoaded, setVpLoaded] = useState(false);
 
   // --- REFS ---
@@ -201,24 +200,7 @@ useEffect(() => {
     }
   }, [history]);
 
-  useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
   // --- ACTIONS ---
-  const handleInstallApp = async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setInstallPrompt(null);
-    }
-  };
 
   const updateSession = (updates: Partial<TranslationSession>) => {
     setSession(prev => ({ ...prev, ...updates }));
@@ -364,12 +346,6 @@ useEffect(() => {
         
         {/* RIGHT CONTROLS */}
         <div className="flex items-center gap-2">
-            {installPrompt && (
-              <button onClick={handleInstallApp} className="flex items-center gap-1.5 text-[10px] font-bold text-[#3E2723] bg-[#FFECB3] hover:bg-[#FFD54F] px-3 py-1 rounded-full border border-[#FFCA28] transition-all shadow-sm animate-pulse">
-                <Download size={14} />
-                <span>Cài App</span>
-              </button>
-            )}
             <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] px-2 py-1 rounded-full border border-[#5D4037] transition-colors">
                <History size={12} />
                <span>Lịch sử</span>

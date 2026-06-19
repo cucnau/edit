@@ -54,6 +54,62 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
   }
 }
 
+// Hàm căn lề bản dịch (nhất là GG Translate thường xuyên gộp đoạn)
+const alignTranslation = (rawLines: string[], translation: string): string[] => {
+    if (!translation.trim()) return new Array(rawLines.length).fill("");
+    
+    const tLines = translation.split('\n').map(l => l.trim()).filter(l => l);
+    const rLinesWithIndices = rawLines.map((l, i) => ({ text: l.trim(), index: i }));
+    const validRLines = rLinesWithIndices.filter(l => l.text);
+    
+    const result = new Array(rawLines.length).fill("");
+
+    const countPunc = (text: string) => {
+        const matches = text.match(/[。！？.!?]/g);
+        return matches ? matches.length : 1; // Mặc định ít nhất 1 câu nếu có chữ
+    };
+
+    if (tLines.length < validRLines.length && tLines.length === 1) {
+        // Tách câu: giữ lại các dấu chấm, chấm than, hỏi chấm kèm dấu nháy nếu có
+        const sentences = tLines[0].match(/[^.!?]+[.!?]+(?:['"])*?(?:\s+|$)|[^.!?]+$/g) || [tLines[0]];
+        const cleanSentences = sentences.map(s => s.trim()).filter(s => s);
+
+        const rawCounts = validRLines.map(r => countPunc(r.text));
+        const totalRaw = rawCounts.reduce((a, b) => a + b, 0);
+        const totalSentences = cleanSentences.length;
+
+        let sentenceIdx = 0;
+        validRLines.forEach((rLine, i) => {
+            const numToAssign = i === validRLines.length - 1 
+                ? cleanSentences.length - sentenceIdx 
+                : Math.round((rawCounts[i] / totalRaw) * totalSentences);
+            
+            const assigned = cleanSentences.slice(sentenceIdx, sentenceIdx + numToAssign);
+            result[rLine.index] = assigned.join(" ");
+            sentenceIdx += numToAssign;
+        });
+    } else {
+        // Gắn 1-1 cho các dòng có text
+        let tIdx = 0;
+        for (let i = 0; i < rawLines.length; i++) {
+            if (rawLines[i].trim() && tIdx < tLines.length) {
+                result[i] = tLines[tIdx++];
+            }
+        }
+        // Dồn phần thừa vào dòng cuối cùng có text
+        if (tIdx < tLines.length) {
+            let lastValid = -1;
+            for (let i = rawLines.length - 1; i >= 0; i--) {
+                if (rawLines[i].trim()) { lastValid = i; break; }
+            }
+            if (lastValid !== -1) {
+                result[lastValid] += " " + tLines.slice(tIdx).join(" ");
+            }
+        }
+    }
+    return result;
+};
+
 const sanitizeResult = (result: TranslationResponse | null): TranslationResponse | null => {
     if (!result) return null;
     try {
@@ -259,8 +315,8 @@ useEffect(() => {
       );
       
       // --- BƯỚC 3: MERGE KẾT QUẢ ---
-      // Lấy kết quả 'natural' từ AI, nhưng GHI ĐÈ 'quick' bằng Vietphrase và 'deepl' bằng DeepL input
-      const deeplLines = session.deeplText.split('\n');
+      // Lấy kết quả 'natural' từ AI, nhưng GHI ĐÈ 'quick' bằng Vietphrase và 'deepl' bằng GG/DeepL input
+      const deeplLines = alignTranslation(inputLines, session.deeplText);
       const mergedSegments = data.segments.map((seg, i) => ({
          ...seg,
          quick: vpSegments[i]?.quick || seg.quick, // Ưu tiên Vietphrase Engine
@@ -327,7 +383,7 @@ useEffect(() => {
             <div className="text-[#FFECB3]">
               <PenLine size={24} />
             </div>
-            <h1 className="text-2xl font-extrabold tracking-wide text-[#FFECB3] font-cute pt-1">Edit</h1>
+            <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1">Edit</h1>
           </div>
         </div>
         
@@ -388,7 +444,7 @@ useEffect(() => {
                         <textarea
                             value={session.deeplText}
                             onChange={(e) => updateSession({ deeplText: e.target.value })}
-                            placeholder="Dán bản dịch DeepL vào đây..."
+                            placeholder="Dán bản dịch GG/DeepL vào đây..."
                             className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
                             spellCheck="false"
                         />

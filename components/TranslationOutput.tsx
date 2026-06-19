@@ -247,7 +247,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                               <div className="flex flex-col py-0.5">
                                   <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} />
                                   {cleanDeepl && (
-                                    <div className="text-[8.5px] text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words"><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">DeepL:</span>{cleanDeepl}</div>
+                                    <div className="text-[8.5px] text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words"><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
                                   )}
                               </div>
                               <SegmentCopyBtn text={cleanNatural} />

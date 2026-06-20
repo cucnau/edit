@@ -26,15 +26,16 @@ const translationSchema = {
   properties: {
     segments: {
       type: Type.ARRAY,
-      description: "Danh sách các đoạn văn tương ứng 1:1 với các dòng của văn bản gốc.",
+      description: "Danh sách các đoạn văn ứng với từng dòng của văn bản gốc.",
       items: {
         type: Type.OBJECT,
         properties: {
+            lineIndex: { type: Type.INTEGER, description: "Số thứ tự dòng tương ứng (1-indexed). Ví dụ dòng [L1] thì lineIndex là 1, dòng [L2] là 2." },
             source: { type: Type.STRING, description: "Nguyên văn dòng gốc." },
             natural: { type: Type.STRING, description: "Bản dịch mượt." },
             quick: { type: Type.STRING, description: "Dịch word-by-word." }
         },
-        required: ["source", "natural", "quick"]
+        required: ["lineIndex", "source", "natural", "quick"]
       }
     },
     sinoVietnamese: { type: Type.STRING },
@@ -172,10 +173,11 @@ export const translateText = async (
 
     const contextPrompt = `Bạn là chuyên gia dịch thuật Trung-Việt cho tiểu thuyết.
 YÊU CẦU NGHIÊM NGẶT VỀ CẤU TRÚC:
-1. Văn bản này có đúng CHÍNH XÁC ${chunkLineCount} dòng. Bạn PHẢI trả về mảng "segments" có đúng ${chunkLineCount} phần tử.
-2. TUYỆT ĐỐI KHÔNG ĐƯỢC GỘP hoặc TÁCH CÁC ĐOẠN. Mỗi dòng gốc tương ứng 1-1 với một segment.
-3. Nếu dòng gốc trống, segment tương ứng vẫn phải tồn tại với nội dung rỗng.
-4. Dựa trên độ dài văn bản (${chunkCharCount} ký tự), trích xuất khoảng ${vocabTarget} từ vựng vào mảng "vocabulary". 
+1. Văn bản này có đúng CHÍNH XÁC ${chunkLineCount} dòng, được đánh dấu từ [L1] đến [L${chunkLineCount}]. Bạn PHẢI dịch từng dòng độc lập và trả về mảng "segments" chứa bản dịch tương ứng.
+2. Với mỗi segment, bạn PHẢI gán đúng "lineIndex" tương ứng với số thứ tự của dòng gốc trong khối văn bản này (từ 1 đến ${chunkLineCount}). Ví dụ: dòng [L1] có lineIndex là 1, dòng [L2] có lineIndex là 2.
+3. TUYỆT ĐỐI KHÔNG ĐƯỢC GỘP hoặc TÁCH CÁC ĐOẠN của các dòng khác nhau. Nếu bạn tách một dòng ra dịch thành nhiều phần, các phần đó phải dùng chung "lineIndex" của dòng đó.
+4. Nếu dòng gốc trống, segment tương ứng vẫn phải tồn tại với nội dung rỗng.
+5. Dựa trên độ dài văn bản (${chunkCharCount} ký tự), trích xuất khoảng ${vocabTarget} từ vựng vào mảng "vocabulary". 
    ƯU TIÊN TRÍCH XUẤT TRIỆT ĐỂ: Bạn PHẢI quét toàn bộ văn bản và đưa TẤT CẢ các tên riêng (nhân vật chưa có trong danh sách, địa danh, môn phái, chiêu thức, vật phẩm đặc thù) vào vocabulary để người dùng tra cứu. Không được bỏ sót bất kỳ thực thể danh từ riêng nào.
 
 YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
@@ -196,7 +198,44 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "
     
     if (i === 0) firstModelUsed = result.modelUsed;
     
-    allSegments = allSegments.concat(result.segments || []);
+    // Khởi tạo danh sách segment đồng bộ cho chunk này để tránh bị lệch dòng
+    const chunkSegments = Array.from({ length: chunkLineCount }, (_, idx) => ({
+      source: chunkLines[idx],
+      natural: "",
+      quick: ""
+    }));
+
+    const apiSegments = result.segments || [];
+    const hasLineIndices = apiSegments.some(seg => typeof seg.lineIndex === 'number' && seg.lineIndex >= 1 && seg.lineIndex <= chunkLineCount);
+
+    if (hasLineIndices) {
+      for (const seg of apiSegments) {
+        const idx = seg.lineIndex - 1;
+        if (idx >= 0 && idx < chunkLineCount) {
+          if (chunkSegments[idx].natural) {
+            chunkSegments[idx].natural += " " + seg.natural;
+          } else {
+            chunkSegments[idx].natural = seg.natural;
+          }
+          if (chunkSegments[idx].quick) {
+            chunkSegments[idx].quick += " " + seg.quick;
+          } else {
+            chunkSegments[idx].quick = seg.quick;
+          }
+        }
+      }
+    } else {
+      // Dự phòng nếu không có lineIndex: map 1-1 theo thứ tự trả về
+      for (let idx = 0; idx < chunkLineCount; idx++) {
+        const seg = apiSegments[idx];
+        if (seg) {
+          chunkSegments[idx].natural = seg.natural || "";
+          chunkSegments[idx].quick = seg.quick || "";
+        }
+      }
+    }
+
+    allSegments = allSegments.concat(chunkSegments);
     
     for (const v of result.vocabulary || []) {
       if (!allVocabulary.some(existing => existing.term === v.term)) {

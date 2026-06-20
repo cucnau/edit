@@ -58,15 +58,38 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 const alignTranslation = (rawLines: string[], translation: string): string[] => {
     if (!translation.trim()) return new Array(rawLines.length).fill("");
     
-    // Tách thành các câu bằng regex mạnh mẽ hỗ trợ cả dấu câu dịch tiếng Trung lẫn tiếng Việt
-    const sentences = translation.match(/[^.!?。！？]+(?:[.!?。！？]+(?:['"”\] \t])*?|(?=\s*$))/g) || [translation];
-    const cleanSentences = sentences.map(s => s.trim()).filter(s => s);
-    
+    const tLines = translation.split('\n').map(l => l.trim()).filter(l => l);
     const rLinesWithIndices = rawLines.map((l, i) => ({ text: l.trim(), index: i }));
     const validRLines = rLinesWithIndices.filter(l => l.text);
     
     const result = new Array(rawLines.length).fill("");
-    if (validRLines.length === 0 || cleanSentences.length === 0) return result;
+    if (validRLines.length === 0 || tLines.length === 0) return result;
+    
+    // TRƯỜNG HỢP 1: Bản dịch dán vào đã có cấu trúc phân dòng tốt (số dòng dịch dán vào nhiều hoặc gần bằng số dòng raw)
+    // Ta ưu tiên map 1-1 theo dòng gốc để giữ nguyên vẹn cấu trúc xuống dòng cực chuẩn của người dùng dán vào
+    if (tLines.length >= validRLines.length * 0.7 || tLines.length > 2) {
+        let tIdx = 0;
+        validRLines.forEach((rLine, i) => {
+            if (tIdx < tLines.length) {
+                // Nếu đây là dòng cuối cùng, gom hết các dòng dịch dán vào còn thừa (nếu có)
+                if (i === validRLines.length - 1) {
+                    result[rLine.index] = tLines.slice(tIdx).join(" ");
+                } else {
+                    result[rLine.index] = tLines[tIdx++];
+                }
+            }
+        });
+        return result;
+    }
+    
+    // TRƯỜNG HỢP 2: Bản dịch thực sự bị dính cục (ví dụ chỉ có 1 hoặc 2 dòng dính liền, trong khi raw có nhiều dòng)
+    // Lúc này mới áp dụng thuật toán tách câu thông minh dựa trên tỷ lệ độ dài ký tự của dòng gốc
+    const translationText = tLines.join(" ");
+    // Tách thành các câu bằng regex mạnh mẽ hỗ trợ cả dấu câu dịch tiếng Trung lẫn tiếng Việt
+    const sentences = translationText.match(/[^.!?。！？]+(?:[.!?。！？]+(?:['"”\] \t])*?|(?=\s*$))/g) || [translationText];
+    const cleanSentences = sentences.map(s => s.trim()).filter(s => s);
+    
+    if (cleanSentences.length === 0) return result;
     
     // Tính toán trọng số dựa trên độ dài ký tự thô của dòng gốc (bỏ dấu cách và dấu câu Trung)
     const rawCleanLengths = validRLines.map(r => {

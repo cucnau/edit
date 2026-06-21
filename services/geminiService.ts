@@ -175,13 +175,14 @@ export const translateText = async (
 YÊU CẦU NGHIÊM NGẶT VỀ CẤU TRÚC:
 1. Văn bản này có đúng CHÍNH XÁC ${chunkLineCount} dòng, được đánh dấu từ [L1] đến [L${chunkLineCount}]. Bạn PHẢI dịch từng dòng độc lập và trả về mảng "segments" chứa bản dịch tương ứng.
 2. Với mỗi segment, bạn PHẢI gán đúng "lineIndex" tương ứng với số thứ tự của dòng gốc trong khối văn bản này (từ 1 đến ${chunkLineCount}). Ví dụ: dòng [L1] có lineIndex là 1, dòng [L2] có lineIndex là 2.
-3. TUYỆT ĐỐI KHÔNG ĐƯỢC GỘP hoặc TÁCH CÁC ĐOẠN của các dòng khác nhau. Nếu bạn tách một dòng ra dịch thành nhiều phần, các phần đó phải dùng chung "lineIndex" của dòng đó.
-4. Nếu dòng gốc trống, segment tương ứng vẫn phải tồn tại với nội dung rỗng.
+3. Mỗi dòng gốc (từ [L1] đến [L${chunkLineCount}]) PHẢI tương ứng với ĐÚNG 1 phần tử (segment) duy nhất trong mảng "segments", có "lineIndex" tương ứng. TUYỆT ĐỐI KHÔNG ĐƯỢC phép tách một dòng gốc thành nhiều segment nhỏ hơn trong mảng, và TUYỆT ĐỐI KHÔNG ĐƯỢC gộp nhiều dòng gốc vào chung một segment. Bản dịch của toàn bộ dòng gốc đó phải nằm trọn vẹn trong thuộc tính "natural" của segment đó.
+4. Nếu dòng gốc trống, segment tương ứng vẫn phải tồn tại trong "segments" với "natural" và "quick" rỗng.
 5. Dựa trên độ dài văn bản (${chunkCharCount} ký tự), trích xuất khoảng ${vocabTarget} từ vựng vào mảng "vocabulary". 
    ƯU TIÊN TRÍCH XUẤT TRIỆT ĐỂ: Bạn PHẢI quét toàn bộ văn bản và đưa TẤT CẢ các tên riêng (nhân vật chưa có trong danh sách, địa danh, môn phái, chiêu thức, vật phẩm đặc thù) vào vocabulary để người dùng tra cứu. Không được bỏ sót bất kỳ thực thể danh từ riêng nào.
 
 YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
-Bạn PHẢI sử dụng ĐÚNG các từ vựng, tên nhân vật, đại từ nhân xưng và quy tắc xưng hô được cung cấp dưới đây trong bản dịch "natural". Nếu vi phạm, bản dịch sẽ bị coi là lỗi nghiêm trọng.
+1. Bạn PHẢI sử dụng ĐÚNG các từ vựng, tên nhân vật, đại từ nhân xưng và quy tắc xưng hô được cung cấp dưới đây trong bản dịch "natural". Nếu vi phạm, bản dịch sẽ bị coi là lỗi nghiêm trọng.
+2. NGUYÊN TẮC DẤU NGOẶC: Nếu dòng gốc có chứa cặp dấu ngoặc 【 và 】, bạn PHẢI giữ GẦN NHƯ NGUYÊN VẸN CẶP DẤU NÀY trong bản dịch "natural" và "quick", không được tự ý đổi sang dấu khác (như [], (), hoặc ""). Ví dụ: raw có 【...】, bản dịch cũng phải có 【...】.
 
 BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
 ${customDictionary.length > 0 ? `- Từ vựng đặc biệt: ${customDictionary.map(i => `"${i.term}" PHẢI DỊCH LÀ "${i.meaning}"`).join(', ')}` : ""}
@@ -206,21 +207,48 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "
     }));
 
     const apiSegments = result.segments || [];
-    const hasLineIndices = apiSegments.some(seg => typeof seg.lineIndex === 'number' && seg.lineIndex >= 1 && seg.lineIndex <= chunkLineCount);
+    
+    // Hàm chuẩn hóa lineIndex từ mọi kiểu dữ liệu (số, chuỗi "L17", "[L17]", "17", v.v.)
+    const getNormalizedLineIndex = (val: any): number | null => {
+      if (typeof val === 'number') return Math.floor(val);
+      if (typeof val === 'string') {
+        const cleaned = val.trim();
+        const match = cleaned.match(/\d+/);
+        if (match) {
+          return parseInt(match[0], 10);
+        }
+      }
+      return null;
+    };
+
+    const hasLineIndices = apiSegments.some(seg => {
+      const idx = getNormalizedLineIndex(seg?.lineIndex);
+      return idx !== null && idx >= 1 && idx <= chunkLineCount;
+    });
 
     if (hasLineIndices) {
       for (const seg of apiSegments) {
-        const idx = seg.lineIndex - 1;
-        if (idx >= 0 && idx < chunkLineCount) {
-          if (chunkSegments[idx].natural) {
-            chunkSegments[idx].natural += " " + seg.natural;
-          } else {
-            chunkSegments[idx].natural = seg.natural;
-          }
-          if (chunkSegments[idx].quick) {
-            chunkSegments[idx].quick += " " + seg.quick;
-          } else {
-            chunkSegments[idx].quick = seg.quick;
+        const rawIdx = getNormalizedLineIndex(seg?.lineIndex);
+        if (rawIdx !== null) {
+          const idx = rawIdx - 1;
+          if (idx >= 0 && idx < chunkLineCount) {
+            const naturalPart = (seg.natural || "").trim();
+            const quickPart = (seg.quick || "").trim();
+            
+            if (naturalPart) {
+              if (chunkSegments[idx].natural) {
+                chunkSegments[idx].natural += " " + naturalPart;
+              } else {
+                chunkSegments[idx].natural = naturalPart;
+              }
+            }
+            if (quickPart) {
+              if (chunkSegments[idx].quick) {
+                chunkSegments[idx].quick += " " + quickPart;
+              } else {
+                chunkSegments[idx].quick = quickPart;
+              }
+            }
           }
         }
       }
@@ -229,8 +257,8 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "
       for (let idx = 0; idx < chunkLineCount; idx++) {
         const seg = apiSegments[idx];
         if (seg) {
-          chunkSegments[idx].natural = seg.natural || "";
-          chunkSegments[idx].quick = seg.quick || "";
+          chunkSegments[idx].natural = (seg.natural || "").trim();
+          chunkSegments[idx].quick = (seg.quick || "").trim();
         }
       }
     }

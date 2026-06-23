@@ -182,7 +182,11 @@ YÊU CẦU NGHIÊM NGẶT VỀ CẤU TRÚC:
 
 YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
 1. Bạn PHẢI sử dụng ĐÚNG các từ vựng, tên nhân vật, đại từ nhân xưng và quy tắc xưng hô được cung cấp dưới đây trong bản dịch "natural". Nếu vi phạm, bản dịch sẽ bị coi là lỗi nghiêm trọng.
-2. NGUYÊN TẮC DẤU NGOẶC: Nếu dòng gốc có chứa cặp dấu ngoặc 【 và 】, bạn PHẢI giữ GẦN NHƯ NGUYÊN VẸN CẶP DẤU NÀY trong bản dịch "natural" và "quick", không được tự ý đổi sang dấu khác (như [], (), hoặc ""). Ví dụ: raw có 【...】, bản dịch cũng phải có 【...】.
+2. NGUYÊN TẮC DẤU NGOẶC:
+- Nếu dòng gốc dùng cặp dấu ngoặc vuông [ và ], bản dịch "natural" và "quick" của dòng đó BẮT BUỘC phải sử dụng đúng cặp dấu ngoặc vuông [ và ] (TUYỆT ĐỐI KHÔNG ĐƯỢC đổi thành 【 và 】 hay bất kỳ dấu nào khác).
+- Nếu dòng gốc dùng cặp dấu ngoặc ô đen 【 và 】, bản dịch "natural" và "quick" của dòng đó BẮT BUỘC phải sử dụng đúng cặp dấu 【 và 】 (TUYỆT ĐỐI KHÔNG ĐƯỢC đổi thành [ và ] hay bất kỳ dấu nào khác).
+- Đảm bảo giữ nguyên vẹn cấu trúc và nội dung đặt trong các dấu ngoặc tương ứng với ngữ cảnh dịch thuật của chúng.
+3. TUYỆT ĐỐI KHÔNG ĐƯỢC GIỮ NGUYÊN HOẶC ĐỂ LẪN bất kỳ ký tự tiếng Trung/chữ Hán nào (như 捕食, 吞噬, v.v.) trong bản dịch "natural" và "quick". Tất cả các từ tiếng Trung xuất hiện trong văn bản gốc (hoặc trong câu hỗn hợp) đều PHẢI được dịch hoàn toàn sang tiếng Việt tự nhiên, phù hợp với ngữ cảnh tiểu thuyết (Ví dụ: "捕食" -> "săn mồi", "吞噬" -> "nuốt chửng" hoặc "thôn phệ"). Bản dịch đầu ra cuối cùng phải hoàn toàn viết bằng chữ Quốc ngữ tiếng Việt.
 
 BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
 ${customDictionary.length > 0 ? `- Từ vựng đặc biệt: ${customDictionary.map(i => `"${i.term}" PHẢI DỊCH LÀ "${i.meaning}"`).join(', ')}` : ""}

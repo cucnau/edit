@@ -8,6 +8,8 @@ import { TranslationOutput } from './components/TranslationOutput';
 import { DictionarySidebar } from './components/DictionarySidebar';
 import { WorldInfoPanel } from './components/WorldInfoPanel';
 import { HistoryModal } from './components/HistoryModal'; 
+import { AuthPanel } from './components/AuthPanel';
+import { NovelSelector } from './components/NovelSelector';
 import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine } from 'lucide-react';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
@@ -434,6 +436,11 @@ useEffect(() => {
         
         {/* RIGHT CONTROLS */}
         <div className="flex items-center gap-2">
+            <NovelSelector 
+              currentNovelId={session.currentNovelId || ''} 
+              onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
+            />
+            <AuthPanel />
             <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] px-2 py-1 rounded-full border border-[#5D4037] transition-colors">
                <History size={12} />
                <span>Lịch sử</span>
@@ -446,6 +453,7 @@ useEffect(() => {
         {/* LEFT SIDEBAR */}
         <div className="w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
             <DictionarySidebar 
+                currentNovelId={session.currentNovelId || ''}
                 terms={session.customTerms} 
                 onUpdateTerms={(terms) => {
                     updateSession({ customTerms: terms });
@@ -549,6 +557,7 @@ useEffect(() => {
         {/* RIGHT SIDEBAR */}
         <div className="w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
             <WorldInfoPanel 
+                currentNovelId={session.currentNovelId || ''}
                 characters={session.characters} 
                 onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
                 relationships={session.relationships} 

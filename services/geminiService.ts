@@ -225,13 +225,13 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "
       return null;
     };
 
-    const hasLineIndices = apiSegments.some(seg => {
+    const hasLineIndices = apiSegments.some((seg: any) => {
       const idx = getNormalizedLineIndex(seg?.lineIndex);
       return idx !== null && idx >= 1 && idx <= chunkLineCount;
     });
 
     if (hasLineIndices) {
-      for (const seg of apiSegments) {
+      for (const seg of apiSegments as any[]) {
         const rawIdx = getNormalizedLineIndex(seg?.lineIndex);
         if (rawIdx !== null) {
           const idx = rawIdx - 1;

@@ -101,13 +101,22 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsSignedIn(!!user);
-      if (user) {
-         // Auto-pull on login
-         handlePullFromCloud(true);
-      }
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch when novel changes
+  useEffect(() => {
+      if (isSignedIn && currentNovelId) {
+          const timer = setTimeout(() => {
+              handlePullFromCloud(true);
+          }, 500);
+          return () => clearTimeout(timer);
+      } else if (!currentNovelId) {
+          onUpdateTerms([]);
+      }
+  }, [currentNovelId, isSignedIn]);
+
   
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
@@ -350,14 +359,23 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                     const lines = bulkText.split('\n');
                     const newItems: CustomTerm[] = [];
                     lines.forEach(line => {
-                      let parts = line.split('=');
-                      if (parts.length < 2) parts = line.split('\t');
+                      if (!line.trim()) return;
+                      let parts = line.split('\t');
+                      if (parts.length < 2) parts = line.split(' = ');
+                      if (parts.length < 2) parts = line.split('=');
+                      if (parts.length < 2) parts = line.split(/\s{2,}/);
+                      if (parts.length < 2) {
+                          // Fallback to first space
+                          const match = line.match(/^(\S+)\s+(.+)$/);
+                          if (match) parts = [match[1], match[2]];
+                      }
+                      
                       if (parts.length >= 2) {
                         newItems.push({
                           id: Date.now().toString() + Math.random().toString(),
                           novelId: currentNovelId,
                           term: parts[0].trim(),
-                          meaning: parts.slice(1).join('=').trim()
+                          meaning: parts.slice(1).join(' ').trim() // Join remaining parts if any
                         });
                       }
                     });

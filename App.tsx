@@ -184,6 +184,7 @@ const createNewSession = (): TranslationSession => ({
   name: `Bản edit`,
   inputText: '',
   deeplText: '',
+  preEditedText: '',
   status: AppStatus.IDLE,
   result: null,
   error: null,
@@ -199,6 +200,21 @@ const createNewSession = (): TranslationSession => ({
 
 function AppContent() {
   // --- STATE ---
+  const [mode, setMode] = useState<'edit' | 'beta'>(() => {
+    try {
+      const savedMode = localStorage.getItem('app_mode');
+      return (savedMode === 'beta' || savedMode === 'edit') ? savedMode : 'edit';
+    } catch (e) {
+      return 'edit';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_mode', mode);
+    } catch (e) {}
+  }, [mode]);
+
   const [session, setSession] = useState<TranslationSession>(() => {
     try {
       const savedSingle = localStorage.getItem('chiVietSingleSession');
@@ -362,17 +378,49 @@ useEffect(() => {
       );
       
       // --- BƯỚC 3: MERGE KẾT QUẢ ---
-      // Lấy kết quả 'natural' từ AI, nhưng GHI ĐÈ 'quick' bằng Vietphrase và 'deepl' bằng GG/DeepL input
-      const deeplLines = alignTranslation(inputLines, session.deeplText);
-      const mergedSegments = data.segments.map((seg, i) => ({
-         ...seg,
-         quick: vpSegments[i]?.quick || seg.quick, // Ưu tiên Vietphrase Engine
-         deepl: deeplLines[i] || "" // Gắn DeepL theo index
-      }));
+      let mergedSegments = [];
+      const hasPreEdited = !!(session.preEditedText && session.preEditedText.trim());
+
+      if (mode === 'beta' && hasPreEdited) {
+         // Align pre-edited text to source lines
+         const preEditedLines = alignTranslation(inputLines, session.preEditedText || "");
+         
+         // Align GG/DeepL text to source lines if it was provided
+         const hasDeepl = !!(session.deeplText && session.deeplText.trim());
+         const deeplLines = hasDeepl ? alignTranslation(inputLines, session.deeplText) : [];
+
+         mergedSegments = inputLines.map((line, i) => {
+             // In Beta mode:
+             // - If GG/DeepL is NOT pasted, we use the AI natural translation as "deepl" reference
+             // - If GG/DeepL IS pasted, we use the aligned GG/DeepL as "deepl" reference
+             let refDeepl = "";
+             if (hasDeepl) {
+                 refDeepl = deeplLines[i] || "";
+             } else {
+                 refDeepl = (data.segments && data.segments[i]) ? data.segments[i].natural : "";
+             }
+
+             return {
+                 source: line,
+                 natural: preEditedLines[i] || "", // Main translation is replaced with aligned pre-edited text
+                 quick: vpSegments[i]?.quick || ((data.segments && data.segments[i]) ? data.segments[i].quick : ""),
+                 deepl: refDeepl
+             };
+         });
+      } else {
+         // Standard Edit Mode
+         const deeplLines = alignTranslation(inputLines, session.deeplText);
+         mergedSegments = data.segments.map((seg, i) => ({
+            ...seg,
+            quick: vpSegments[i]?.quick || seg.quick, // Prefer local Vietphrase
+            deepl: deeplLines[i] || "" // Set DeepL reference
+         }));
+      }
 
       const mergedResult = {
          ...data,
          segments: mergedSegments,
+         naturalTranslation: mergedSegments.map(s => s.natural).join('\n'),
          quickTrans: mergedSegments.map(s => s.quick).join('\n'),
          deeplTranslation: mergedSegments.map(s => s.deepl).join('\n')
       };
@@ -407,6 +455,7 @@ useEffect(() => {
     updateSession({
       inputText: item.sourceText,
       deeplText: item.result?.deeplTranslation || "",
+      preEditedText: item.result?.naturalTranslation || "",
       result: sanitizeResult(item.result),
       status: AppStatus.SUCCESS,
       error: null,
@@ -431,6 +480,23 @@ useEffect(() => {
               <PenLine size={24} />
             </div>
             <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1">Edit</h1>
+          </div>
+
+          {/* Segmented Mode Control */}
+          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037] ml-2">
+            <button
+              onClick={() => setMode('edit')}
+              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+            >
+              Chế độ Edit
+            </button>
+            <button
+              onClick={() => setMode('beta')}
+              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+            >
+              Chế độ Beta
+              <span className={`text-[8px] font-mono font-black px-1 rounded-full uppercase bg-[#E64A19] text-white`}>New</span>
+            </button>
           </div>
         </div>
         
@@ -473,34 +539,69 @@ useEffect(() => {
                 <div className="mt-2 bg-white rounded-xl shadow-sm border border-[#D7CCC8] overflow-hidden transition-all focus-within:ring-2 focus-within:ring-[#8D6E63]/20 focus-within:border-[#8D6E63]/50 mb-2 flex flex-col">
                     <div className="flex justify-between items-center bg-[#EFEBE9]/50 px-3 py-1.5 border-b border-[#EFEBE9]">
                         <div className="flex items-center gap-2">
-                            <span className="bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">Nguồn</span>
+                            <span className="bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                                {mode === 'beta' ? 'Nguồn & Tham chiếu (Beta)' : 'Nguồn & Tham chiếu'}
+                            </span>
                             <div className="flex items-center gap-1 text-[10px] font-bold text-[#8D6E63]">
                                 <Layers size={10} />
                                 <span>{segmentCount} đoạn văn</span>
                             </div>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={() => updateSession({ inputText: EXAMPLE_TEXT, deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người." })} className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"><Quote size={10} /> Ví dụ</button>
-                            <button onClick={() => updateSession({ inputText: '', deeplText: '', result: null, status: AppStatus.IDLE })} disabled={!session.inputText && !session.deeplText} className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"><Eraser size={10} /> Xóa</button>
+                            <button 
+                                onClick={() => updateSession({ 
+                                    inputText: EXAMPLE_TEXT, 
+                                    deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
+                                    preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
+                                })} 
+                                className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"
+                            >
+                                <Quote size={10} /> Ví dụ
+                            </button>
+                            <button 
+                                onClick={() => updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE })} 
+                                disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                                className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
+                            >
+                                <Eraser size={10} /> Xóa
+                            </button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 flex-1 min-h-[140px] divide-x divide-[#EFEBE9]">
-                        <textarea
-                            ref={textareaRef}
-                            value={session.inputText}
-                            onChange={(e) => updateSession({ inputText: e.target.value })}
-                            placeholder="Nhập văn bản nguồn (Trung)..."
-                            className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
-                            spellCheck="false"
-                        />
-                        <textarea
-                            value={session.deeplText}
-                            onChange={(e) => updateSession({ deeplText: e.target.value })}
-                            placeholder="Dán bản dịch GG/DeepL vào đây..."
-                            className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
-                            spellCheck="false"
-                        />
+                    <div className={`grid ${mode === 'beta' ? 'grid-cols-3' : 'grid-cols-2'} flex-1 min-h-[140px] divide-x divide-[#EFEBE9]`}>
+                        <div className="flex flex-col flex-1">
+                            <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">1. Văn bản gốc (Trung)</div>
+                            <textarea
+                                ref={textareaRef}
+                                value={session.inputText}
+                                onChange={(e) => updateSession({ inputText: e.target.value })}
+                                placeholder="Nhập văn bản nguồn (Trung)..."
+                                className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                                spellCheck="false"
+                            />
+                        </div>
+                        <div className="flex flex-col flex-1">
+                            <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">2. Bản dịch GG / DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
+                            <textarea
+                                value={session.deeplText}
+                                onChange={(e) => updateSession({ deeplText: e.target.value })}
+                                placeholder="Dán bản dịch GG/DeepL vào đây..."
+                                className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                                spellCheck="false"
+                            />
+                        </div>
+                        {mode === 'beta' && (
+                            <div className="flex flex-col flex-1">
+                                <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40 flex items-center gap-1">3. Bản edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
+                                <textarea
+                                    value={session.preEditedText || ''}
+                                    onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                                    placeholder="Dán bản edit sẵn vào đây..."
+                                    className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed font-medium text-[#4E342E]"
+                                    spellCheck="false"
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">

@@ -23,14 +23,21 @@ export interface TranslationResponse {
   vocabulary: VocabItem[];
 }
 
+export interface Novel {
+  id: string;
+  name: string;
+}
+
 export interface CustomTerm {
   id: string;
+  novelId: string;
   term: string;
   meaning: string;
 }
 
 export interface Character {
   id: string;
+  novelId: string;
   chineseName: string; // Trung
   vietName: string;    // Tên Việt
   pronouns: string;    // ĐTNX (Đại từ nhân xưng - Ngôi 3)
@@ -39,6 +46,7 @@ export interface Character {
 
 export interface Relationship {
   id: string;
+  novelId: string;
   charA: string;    // Nhân vật A
   charB: string;    // Nhân vật B
   callAtoB: string; // A gọi B
@@ -75,6 +83,7 @@ export interface TranslationSession {
   // Data
   customTerms: CustomTerm[];
   sheetUrl: string;
+  currentNovelId?: string;
   
   // World Info (Table Data)
   characters: Character[];

@@ -91,4 +91,5 @@ export interface TranslationSession {
   
   notes: string; // Scratchpad
   completedSegments: number[]; // Lưu danh sách index các đoạn đã làm xong
+  preEditedText?: string; // Bản edit sẵn cho chế độ Beta
 }

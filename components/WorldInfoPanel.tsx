@@ -49,14 +49,23 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsSignedIn(!!user);
-      if (user) {
-        // Auto pull on login
-        syncData('char', 'GET', true);
-        syncData('rel', 'GET', true);
-      }
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch when novel changes
+  useEffect(() => {
+      if (isSignedIn && currentNovelId) {
+          const timer = setTimeout(() => {
+              syncData('char', 'GET', true);
+              syncData('rel', 'GET', true);
+          }, 500);
+          return () => clearTimeout(timer);
+      } else if (!currentNovelId) {
+          onUpdateCharacters([]);
+          onUpdateRelationships([]);
+      }
+  }, [currentNovelId, isSignedIn]);
 
   // Persist autoSync preference
   useEffect(() => {
@@ -276,10 +285,22 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                      onClick={() => {
                        if (!bulkText.trim() || !currentNovelId) return;
                        const lines = bulkText.split('\n');
+                       const getParts = (line: string) => {
+                          let p = line.split('\t');
+                          if (p.length < 2) p = line.split('|');
+                          if (p.length < 2) p = line.split(' = ');
+                          if (p.length < 2) p = line.split(/\s{2,}/);
+                          if (p.length < 2) {
+                              const match = line.match(/^(\S+)\s+(.+)$/);
+                              if (match) p = [match[1], match[2]];
+                          }
+                          return p;
+                       };
                        if (activeTab === 'char') {
                          const newItems: Character[] = [];
                          lines.forEach(line => {
-                           const p = line.split('\t');
+                           if (!line.trim()) return;
+                           const p = getParts(line);
                            if (p.length >= 2) {
                              newItems.push({
                                id: Date.now().toString() + Math.random().toString(),
@@ -296,7 +317,8 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                        } else {
                          const newItems: Relationship[] = [];
                          lines.forEach(line => {
-                           const p = line.split('\t');
+                           if (!line.trim()) return;
+                           const p = getParts(line);
                            if (p.length >= 2) {
                              newItems.push({
                                id: Date.now().toString() + Math.random().toString(),

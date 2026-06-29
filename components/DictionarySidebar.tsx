@@ -2,10 +2,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomTerm } from '../types';
 import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle } from 'lucide-react';
-import { syncSheetData } from '../services/sheetService';
+import { syncFirestoreData } from '../services/firestoreService';
+import { auth } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from '../services/vietphraseService';
 
 interface DictionarySidebarProps {
+  currentNovelId: string;
   terms: CustomTerm[];
   onUpdateTerms: (terms: CustomTerm[]) => void;
   sheetUrl: string;
@@ -74,6 +77,7 @@ function getHeaders(type) {
 }`;
 
 export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
+  currentNovelId,
   terms,
   onUpdateTerms,
   sheetUrl,
@@ -85,13 +89,25 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showCode, setShowCode] = useState(false);
-  const [tempUrl, setTempUrl] = useState(sheetUrl);
+  const [bulkText, setBulkText] = useState('');
   const [vpCount, setVpCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Sync States
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [isSignedIn, setIsSignedIn] = useState(!!auth.currentUser);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsSignedIn(!!user);
+      if (user) {
+         // Auto-pull on login
+         handlePullFromCloud(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
   
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
@@ -110,20 +126,20 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
      setVpCount(vietphraseEngine.getSize());
   }, [refreshTrigger]);
 
-  // Auto-Pull on mount if empty but Sheet URL exists
+  // Auto-Pull on mount if empty
   useEffect(() => {
-      // Only run if we have a URL, no terms, and not currently syncing
-      if (sheetUrl && terms.length === 0 && !isSyncing && !isPullingRef.current) {
+      // Only run if we have a user, no terms, and not currently syncing
+      if (isSignedIn && terms.length === 0 && !isSyncing && !isPullingRef.current) {
           // Add a small delay to allow DB load to finish first (if any)
           const timer = setTimeout(() => {
               if (terms.length === 0) { // Check again
-                  console.log("Auto-pulling from Sheet due to empty local terms...");
-                  handlePullFromSheet();
+                  console.log("Auto-pulling from Cloud due to empty local terms...");
+                  handlePullFromCloud();
               }
           }, 1000);
           return () => clearTimeout(timer);
       }
-  }, [sheetUrl, terms.length]); // Re-check if terms length changes (e.g. from 0 to N via DB load)
+  }, [isSignedIn, terms.length]); // Re-check if terms length changes (e.g. from 0 to N via DB load)
 
   // AUTO SYNC LOGIC (Push)
     useEffect(() => {
@@ -133,16 +149,16 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     }
     
     // SAFETY: Never auto-push empty list. 
-    // This prevents wiping the sheet if the local DB hasn't loaded yet or is empty.
-    // User must manually "Push" if they really want to clear the sheet.
-    if (!autoSync || !sheetUrl || isPullingRef.current || terms.length === 0) return;
+    // This prevents wiping the cloud if the local DB hasn't loaded yet or is empty.
+    // User must manually "Push" if they really want to clear it.
+    if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0) return;
     
     const timer = setTimeout(() => {
-      handlePushToSheet(true);
+      handlePushToCloud(true);
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [terms, autoSync, sheetUrl]);
+  }, [terms, autoSync, isSignedIn]);
 
 
   const filteredTerms = terms.filter(t => 
@@ -151,10 +167,11 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   );
 
   const handleAdd = () => {
-    if (!newTerm.trim() || !newMeaning.trim()) return;
+    if (!newTerm.trim() || !newMeaning.trim() || !currentNovelId) return;
     
     const newItem: CustomTerm = {
       id: Date.now().toString(),
+      novelId: currentNovelId,
       term: newTerm.trim(),
       meaning: newMeaning.trim(),
     };
@@ -168,41 +185,37 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     onUpdateTerms(terms.filter(t => t.id !== id));
   };
 
-  const handleSaveUrl = () => {
-    onUpdateSheetUrl(tempUrl);
-    setSyncMessage({ type: 'success', text: 'Đã lưu URL!' });
-    setTimeout(() => setSyncMessage(null), 3000);
-  };
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(APPS_SCRIPT_CODE);
-    setSyncMessage({ type: 'success', text: 'Đã sao chép mã!' });
-    setTimeout(() => setSyncMessage(null), 2000);
-  };
-
-  const handlePullFromSheet = async () => {
-    if (!sheetUrl) {
-        setSyncMessage({ type: 'error', text: 'Chưa có URL Sheet!' });
+  const handlePullFromCloud = async (silent = false) => {
+    if (!isSignedIn) {
+        if (!silent) setSyncMessage({ type: 'error', text: 'Chưa đăng nhập!' });
+        return;
+    }
+    if (!currentNovelId) {
+        if (!silent) setSyncMessage({ type: 'error', text: 'Chưa chọn truyện!' });
         return;
     }
     setIsSyncing(true);
     isPullingRef.current = true;
-    setSyncMessage(null);
+    if (!silent) setSyncMessage(null);
     try {
-      const data = await syncSheetData<CustomTerm>(sheetUrl, 'vocab', 'GET');
+      const data = await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'GET');
       onUpdateTerms(data);
-      setSyncMessage({ type: 'success', text: `Đã tải ${data.length} từ!` });
+      if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${data.length} từ!` });
     } catch (e: any) {
-      setSyncMessage({ type: 'error', text: e.message || "Lỗi tải dữ liệu" });
+      if (!silent) setSyncMessage({ type: 'error', text: e.message || "Lỗi tải dữ liệu" });
     } finally {
       setIsSyncing(false);
       setTimeout(() => { isPullingRef.current = false; }, 500);
     }
   };
 
-  const handlePushToSheet = async (silent = false) => {
-    if (!sheetUrl) {
-        if (!silent) setSyncMessage({ type: 'error', text: 'Chưa có URL Sheet!' });
+  const handlePushToCloud = async (silent = false) => {
+    if (!isSignedIn) {
+        if (!silent) setSyncMessage({ type: 'error', text: 'Chưa đăng nhập!' });
+        return;
+    }
+    if (!currentNovelId) {
+        if (!silent) setSyncMessage({ type: 'error', text: 'Chưa chọn truyện!' });
         return;
     }
     
@@ -212,8 +225,8 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     if (!silent) setSyncMessage(null);
     
     try {
-      await syncSheetData<CustomTerm>(sheetUrl, 'vocab', 'POST', terms);
-      if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên Sheet!' });
+      await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', terms);
+      if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
       else setSyncMessage({ type: 'success', text: 'Đã tự động lưu!' });
     } catch (e: any) {
       setSyncMessage({ type: 'error', text: e.message || "Lỗi lưu dữ liệu" });
@@ -301,26 +314,15 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 />
              </div>
 
-             {/* GOOGLE SHEET SECTION */}
+             {/* CLOUD SYNC SECTION */}
              <div className="border-t border-[#D7CCC8] pt-3">
-                <label className="block text-[10px] font-bold text-[#5D4037] uppercase mb-1 flex items-center gap-1"><Settings size={12}/> Google Sheet Sync</label>
-                <div className="flex gap-1 mb-2">
-                <input 
-                    type="text" 
-                    value={tempUrl}
-                    onChange={(e) => setTempUrl(e.target.value)}
-                    className="flex-1 px-2 py-1 text-xs border border-[#D7CCC8] rounded outline-none placeholder:text-[#D7CCC8]"
-                    placeholder="URL Google Apps Script..."
-               />
-               <button onClick={handleSaveUrl} className="bg-[#3E2723] text-white px-2 rounded hover:bg-[#4E342E]"><Save size={14} /></button>
-             </div>
+             <label className="block text-[10px] font-bold text-[#5D4037] uppercase mb-1 flex items-center gap-1"><Settings size={12}/> Đồng bộ Đám mây</label>
 
              {/* Auto Sync Toggle */}
-             {sheetUrl && (
-               <div className="flex items-center justify-between bg-white border border-[#D7CCC8] p-2 rounded mb-2">
+             <div className="flex items-center justify-between bg-white border border-[#D7CCC8] p-2 rounded mb-2">
                  <div className="flex items-center gap-2">
                    <RefreshCw size={14} className={autoSync ? "text-green-600 animate-spin-slow" : "text-[#A1887F]"} />
-                   <span className="text-xs font-medium text-[#5D4037]">Tự động đẩy lên Sheet</span>
+                   <span className="text-xs font-medium text-[#5D4037]">Tự động đồng bộ</span>
                  </div>
                  <button 
                    onClick={() => setAutoSync(!autoSync)}
@@ -329,39 +331,58 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${autoSync ? 'left-4.5' : 'left-0.5'}`} style={{left: autoSync ? '18px' : '2px'}} />
                  </button>
                </div>
-             )}
-             
-             <div className="bg-blue-50 border border-blue-100 p-2 rounded mb-2">
-                <p className="text-[10px] text-blue-800 mb-1 font-bold flex items-center gap-1"><AlertCircle size={10}/> Cập nhật Script mới!</p>
-                <p className="text-[10px] text-blue-700 leading-tight">Code mới hỗ trợ lưu Nhân vật & Quan hệ sang các tab riêng biệt.</p>
+               
+               {!isSignedIn && <div className="text-[10px] text-red-500 mt-1">Đăng nhập để đồng bộ dữ liệu.</div>}
              </div>
 
-             <button 
-                onClick={() => setShowCode(!showCode)}
-                className="text-xs text-blue-600 hover:underline flex items-center gap-1 mb-1"
-             >
-               <Code size={12} /> {showCode ? 'Ẩn Script' : 'Hiện Script Mới'}
-             </button>
-
-             {showCode && (
-               <div className="relative mt-1">
-                 <pre className="bg-[#3E2723] text-[#F5E6D3] p-2 rounded text-[10px] h-24 overflow-auto font-mono">
-                   {APPS_SCRIPT_CODE}
-                 </pre>
-                 <button onClick={handleCopyCode} className="absolute top-1 right-1 p-1 bg-white/10 text-white rounded"><Copy size={12} /></button>
-               </div>
-             )}
+             {/* BULK IMPORT SECTION */}
+             <div className="border-t border-[#D7CCC8] pt-3 mt-3">
+                <label className="block text-[10px] font-bold text-[#5D4037] uppercase mb-1 flex items-center gap-1"><FileText size={12}/> Import hàng loạt</label>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  placeholder="Trung = Việt&#10;Hoặc copy từ Excel (cột Trung, cột Việt)"
+                  className="w-full h-20 text-[10px] p-2 border border-[#D7CCC8] rounded bg-white outline-none resize-none mb-1"
+                />
+                <button 
+                  onClick={() => {
+                    if (!bulkText.trim() || !currentNovelId) return;
+                    const lines = bulkText.split('\n');
+                    const newItems: CustomTerm[] = [];
+                    lines.forEach(line => {
+                      let parts = line.split('=');
+                      if (parts.length < 2) parts = line.split('\t');
+                      if (parts.length >= 2) {
+                        newItems.push({
+                          id: Date.now().toString() + Math.random().toString(),
+                          novelId: currentNovelId,
+                          term: parts[0].trim(),
+                          meaning: parts.slice(1).join('=').trim()
+                        });
+                      }
+                    });
+                    if (newItems.length > 0) {
+                        onUpdateTerms([...terms, ...newItems]);
+                        setBulkText('');
+                        setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} từ!` });
+                        setTimeout(() => setSyncMessage(null), 3000);
+                    }
+                  }}
+                  className="w-full bg-[#5D4037] text-white text-[10px] py-1 rounded hover:bg-[#4E342E] transition-colors"
+                >
+                  Thêm vào từ điển
+                </button>
              </div>
           </div>
       )}
 
       {/* Sync Buttons */}
-      {sheetUrl && !showSettings && (
+      {!showSettings && (
           <div className="px-2 py-1.5 border-b border-[#D7CCC8] flex gap-2 justify-center bg-[#EFE5D9]">
-             <button onClick={handlePullFromSheet} disabled={isSyncing} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-blue-200 text-blue-700 py-1 rounded hover:bg-blue-50 shadow-sm">
+             <button onClick={() => handlePullFromCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-blue-200 text-blue-700 py-1 rounded hover:bg-blue-50 shadow-sm disabled:opacity-50">
                 {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Download size={12} />} Tải về
              </button>
-             <button onClick={() => handlePushToSheet(false)} disabled={isSyncing} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-green-200 text-green-700 py-1 rounded hover:bg-green-50 shadow-sm">
+             <button onClick={() => handlePushToCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-green-200 text-green-700 py-1 rounded hover:bg-green-50 shadow-sm disabled:opacity-50">
                 {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Upload size={12} />} Đẩy lên
              </button>
           </div>

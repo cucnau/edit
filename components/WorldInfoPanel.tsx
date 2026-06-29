@@ -2,9 +2,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Character, Relationship } from '../types';
 import { Users, Network, Plus, Trash2, Search, Settings, Save, Download, Upload, Loader2, RefreshCw } from 'lucide-react';
-import { syncSheetData } from '../services/sheetService';
+import { syncFirestoreData } from '../services/firestoreService';
+import { auth } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface WorldInfoPanelProps {
+  currentNovelId: string;
   characters: Character[];
   onUpdateCharacters: (chars: Character[]) => void;
   relationships: Relationship[];
@@ -16,21 +19,25 @@ interface WorldInfoPanelProps {
 }
 
 export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
+  currentNovelId,
   characters,
   onUpdateCharacters,
   relationships,
   onUpdateRelationships,
+  notes,
+  onUpdateNotes,
   sheetUrl,
   onUpdateSheetUrl
 }) => {
   const [activeTab, setActiveTab] = useState<'char' | 'rel'>('char');
   const [searchTerm, setSearchTerm] = useState('');
   const [showSettings, setShowSettings] = useState(false);
-  const [tempUrl, setTempUrl] = useState(sheetUrl);
+  const [bulkText, setBulkText] = useState('');
   
   // Sync States
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [isSignedIn, setIsSignedIn] = useState(!!auth.currentUser);
 
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
@@ -38,6 +45,18 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   });
   const isInitialMount = useRef(true);
   const isPullingRef = useRef(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setIsSignedIn(!!user);
+      if (user) {
+        // Auto pull on login
+        syncData('char', 'GET', true);
+        syncData('rel', 'GET', true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Persist autoSync preference
   useEffect(() => {
@@ -51,45 +70,45 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       return;
     }
 
-    if (!autoSync || !sheetUrl || isPullingRef.current) return;
+    if (!autoSync || !isSignedIn || isPullingRef.current) return;
 
     const timer = setTimeout(() => {
     }, 2500);
 
     return () => clearTimeout(timer);
-  }, [characters, relationships, autoSync, sheetUrl]); 
+  }, [characters, relationships, autoSync, isSignedIn]); 
 
   // Dedicated Effect for Characters
   useEffect(() => {
-    if (isInitialMount.current || !autoSync || !sheetUrl || isPullingRef.current) return;
+    if (isInitialMount.current || !autoSync || !isSignedIn || isPullingRef.current) return;
     const timer = setTimeout(() => {
         syncData('char', 'POST', true);
     }, 2000);
     return () => clearTimeout(timer);
-  }, [characters, autoSync, sheetUrl]);
+  }, [characters, autoSync, isSignedIn]);
 
   // Dedicated Effect for Relationships
   useEffect(() => {
-    if (isInitialMount.current || !autoSync || !sheetUrl || isPullingRef.current) return;
+    if (isInitialMount.current || !autoSync || !isSignedIn || isPullingRef.current) return;
     const timer = setTimeout(() => {
         syncData('rel', 'POST', true);
     }, 2000);
     return () => clearTimeout(timer);
-  }, [relationships, autoSync, sheetUrl]);
+  }, [relationships, autoSync, isSignedIn]);
 
 
   // --- SYNC HANDLERS ---
-  const handleSaveUrl = () => {
-    onUpdateSheetUrl(tempUrl);
-    setSyncMessage({ type: 'success', text: 'Đã lưu URL!' });
-    setTimeout(() => setSyncMessage(null), 3000);
-  };
-
   const syncData = async (type: 'char' | 'rel', action: 'GET' | 'POST', silent = false) => {
-    if (!sheetUrl) {
+    if (!isSignedIn) {
       if (!silent) {
-          setSyncMessage({ type: 'error', text: 'Chưa cài đặt Sheet URL!' });
+          setSyncMessage({ type: 'error', text: 'Bạn cần đăng nhập!' });
           setShowSettings(true);
+      }
+      return;
+    }
+    if (!currentNovelId) {
+      if (!silent) {
+          setSyncMessage({ type: 'error', text: 'Chưa chọn truyện!' });
       }
       return;
     }
@@ -102,7 +121,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
     try {
       if (action === 'GET') {
-        const data = await syncSheetData<any>(sheetUrl, type, 'GET');
+        const data = await syncFirestoreData<any>(type, currentNovelId, 'GET');
         
         if (type === 'char') {
           onUpdateCharacters(data as Character[]);
@@ -112,11 +131,11 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
         setSyncMessage({ type: 'success', text: `Đã tải ${data.length} mục!` });
       } else {
         if (type === 'char') {
-          await syncSheetData<Character>(sheetUrl, type, 'POST', characters);
+          await syncFirestoreData<Character>(type, currentNovelId, 'POST', characters);
         } else {
-          await syncSheetData<Relationship>(sheetUrl, type, 'POST', relationships);
+          await syncFirestoreData<Relationship>(type, currentNovelId, 'POST', relationships);
         }
-        if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên Sheet!' });
+        if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
         else setSyncMessage({ type: 'success', text: `Đã tự động lưu (${type === 'char' ? 'NV' : 'QH'})` });
       }
     } catch (e: any) {
@@ -133,8 +152,10 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   // --- CHARACTER HANDLERS ---
   const handleAddChar = () => {
+    if (!currentNovelId) return;
     const newChar: Character = {
       id: Date.now().toString(),
+      novelId: currentNovelId,
       chineseName: '',
       vietName: '',
       pronouns: '',
@@ -153,8 +174,10 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   // --- RELATIONSHIP HANDLERS ---
   const handleAddRel = () => {
+    if (!currentNovelId) return;
     const newRel: Relationship = {
       id: Date.now().toString(),
+      novelId: currentNovelId,
       charA: '',
       charB: '',
       callAtoB: '',
@@ -221,33 +244,82 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
         <div className="bg-[#EFEBE9] border-b border-[#D7CCC8]">
            {showSettings ? (
              <div className="p-2 animate-in slide-in-from-top-2">
-                 <label className="block text-[10px] font-bold text-[#5D4037] uppercase mb-1">Google Apps Script URL</label>
-                 <div className="flex gap-1 mb-2">
-                   <input 
-                     type="text" 
-                     value={tempUrl}
-                     onChange={(e) => setTempUrl(e.target.value)}
-                     className="flex-1 px-2 py-1 text-xs border border-[#D7CCC8] rounded outline-none"
-                     placeholder="https://script.google.com..."
-                   />
-                   <button onClick={handleSaveUrl} className="bg-[#3E2723] text-white px-2 rounded hover:bg-[#4E342E]"><Save size={14} /></button>
-                 </div>
-                 
                  {/* Auto Sync Toggle */}
-                 {sheetUrl && (
-                   <div className="flex items-center justify-between bg-white border border-[#D7CCC8] p-1.5 rounded">
-                     <div className="flex items-center gap-2">
-                       <RefreshCw size={12} className={autoSync ? "text-green-600 animate-spin-slow" : "text-[#A1887F]"} />
-                       <span className="text-[10px] font-medium text-[#5D4037]">Tự động đẩy lên Sheet</span>
-                     </div>
-                     <button 
-                       onClick={() => setAutoSync(!autoSync)}
-                       className={`w-7 h-3.5 rounded-full relative transition-colors ${autoSync ? 'bg-green-500' : 'bg-[#D7CCC8]'}`}
-                     >
-                       <div className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full transition-all ${autoSync ? 'left-4' : 'left-0.5'}`} style={{left: autoSync ? '16px' : '2px'}} />
-                     </button>
+                 <div className="flex items-center justify-between bg-white border border-[#D7CCC8] p-1.5 rounded">
+                   <div className="flex items-center gap-2">
+                     <RefreshCw size={12} className={autoSync ? "text-green-600 animate-spin-slow" : "text-[#A1887F]"} />
+                     <span className="text-[10px] font-medium text-[#5D4037]">Tự động đồng bộ</span>
                    </div>
-                 )}
+                   <button 
+                     onClick={() => setAutoSync(!autoSync)}
+                     className={`w-7 h-3.5 rounded-full relative transition-colors ${autoSync ? 'bg-green-500' : 'bg-[#D7CCC8]'}`}
+                   >
+                     <div className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full transition-all ${autoSync ? 'left-4' : 'left-0.5'}`} style={{left: autoSync ? '16px' : '2px'}} />
+                   </button>
+                 </div>
+                 {!isSignedIn && <div className="text-[10px] text-red-500 mt-1">Đăng nhập để đồng bộ dữ liệu.</div>}
+                 
+                 {/* BULK IMPORT */}
+                 <div className="mt-2 pt-2 border-t border-[#D7CCC8]">
+                   <label className="block text-[10px] font-bold text-[#5D4037] mb-1">
+                     Import {activeTab === 'char' ? 'Nhân vật' : 'Quan hệ'} (từ Excel)
+                   </label>
+                   <textarea
+                     value={bulkText}
+                     onChange={(e) => setBulkText(e.target.value)}
+                     placeholder={activeTab === 'char' 
+                       ? "Trung \t Việt \t Ngôi xưng \t Chi tiết" 
+                       : "NV A \t NV B \t A gọi B \t B gọi A \t Ghi chú"}
+                     className="w-full h-16 text-[10px] p-1 border border-[#D7CCC8] rounded bg-white outline-none resize-none mb-1"
+                   />
+                   <button 
+                     onClick={() => {
+                       if (!bulkText.trim() || !currentNovelId) return;
+                       const lines = bulkText.split('\n');
+                       if (activeTab === 'char') {
+                         const newItems: Character[] = [];
+                         lines.forEach(line => {
+                           const p = line.split('\t');
+                           if (p.length >= 2) {
+                             newItems.push({
+                               id: Date.now().toString() + Math.random().toString(),
+                               novelId: currentNovelId,
+                               chineseName: p[0]?.trim() || '',
+                               vietName: p[1]?.trim() || '',
+                               pronouns: p[2]?.trim() || '',
+                               description: p.slice(3).join(' ').trim()
+                             });
+                           }
+                         });
+                         onUpdateCharacters([...characters, ...newItems]);
+                         setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} NV!` });
+                       } else {
+                         const newItems: Relationship[] = [];
+                         lines.forEach(line => {
+                           const p = line.split('\t');
+                           if (p.length >= 2) {
+                             newItems.push({
+                               id: Date.now().toString() + Math.random().toString(),
+                               novelId: currentNovelId,
+                               charA: p[0]?.trim() || '',
+                               charB: p[1]?.trim() || '',
+                               callAtoB: p[2]?.trim() || '',
+                               callBtoA: p[3]?.trim() || '',
+                               note: p.slice(4).join(' ').trim()
+                             });
+                           }
+                         });
+                         onUpdateRelationships([...relationships, ...newItems]);
+                         setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} QH!` });
+                       }
+                       setBulkText('');
+                       setTimeout(() => setSyncMessage(null), 3000);
+                     }}
+                     className="w-full bg-[#5D4037] text-white text-[10px] py-1 rounded hover:bg-[#4E342E] transition-colors"
+                   >
+                     Thêm vào
+                   </button>
+                 </div>
              </div>
            ) : null}
 
@@ -279,13 +351,13 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                
                {/* Sync Tools */}
                <div className="flex items-center gap-0.5 border-l border-[#D7CCC8] pl-1">
-                  <button onClick={() => setShowSettings(!showSettings)} className={`p-1 rounded hover:bg-[#D7CCC8] ${!sheetUrl ? 'text-red-500 animate-pulse' : 'text-[#A1887F]'}`} title="Cài đặt Sheet">
+                  <button onClick={() => setShowSettings(!showSettings)} className={`p-1 rounded hover:bg-[#D7CCC8] text-[#A1887F]`} title="Cài đặt đồng bộ">
                      <Settings size={14} />
                   </button>
-                  <button onClick={() => syncData('char', 'GET')} disabled={isSyncing} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50" title="Tải từ Sheet">
+                  <button onClick={() => syncData('char', 'GET')} disabled={isSyncing || !isSignedIn} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50" title="Tải từ Cloud">
                      {isSyncing ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
                   </button>
-                  <button onClick={() => syncData('char', 'POST')} disabled={isSyncing} className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50" title="Lưu lên Sheet">
+                  <button onClick={() => syncData('char', 'POST')} disabled={isSyncing || !isSignedIn} className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50" title="Lưu lên Cloud">
                      {isSyncing ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
                   </button>
                </div>
@@ -361,13 +433,13 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
             <div className="p-1 border-b border-[#D7CCC8] bg-[#EFE5D9] flex justify-end sticky top-0 z-20 items-center gap-1">
                {/* Sync Tools */}
                <div className="flex items-center gap-0.5 border-r border-[#D7CCC8] pr-1 mr-0.5">
-                  <button onClick={() => setShowSettings(!showSettings)} className={`p-1 rounded hover:bg-[#D7CCC8] ${!sheetUrl ? 'text-red-500 animate-pulse' : 'text-[#A1887F]'}`} title="Cài đặt Sheet">
+                  <button onClick={() => setShowSettings(!showSettings)} className={`p-1 rounded hover:bg-[#D7CCC8] text-[#A1887F]`} title="Cài đặt đồng bộ">
                      <Settings size={14} />
                   </button>
-                  <button onClick={() => syncData('rel', 'GET')} disabled={isSyncing} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50" title="Tải từ Sheet">
+                  <button onClick={() => syncData('rel', 'GET')} disabled={isSyncing || !isSignedIn} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50" title="Tải từ Cloud">
                      {isSyncing ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
                   </button>
-                  <button onClick={() => syncData('rel', 'POST')} disabled={isSyncing} className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50" title="Lưu lên Sheet">
+                  <button onClick={() => syncData('rel', 'POST')} disabled={isSyncing || !isSignedIn} className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50" title="Lưu lên Cloud">
                      {isSyncing ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
                   </button>
                </div>

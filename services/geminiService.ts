@@ -6,9 +6,11 @@ const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || "" }
 
 // Danh sách các model ưu tiên thử nghiệm theo thứ tự khi gặp lỗi
 const FALLBACK_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite',
   'gemini-3-flash-preview',
-  'gemini-3-pro-preview',
-  'gemini-flash-lite-latest'
+  'gemini-3-pro-preview'
 ];
 
 // --- CONFIGURATION ---
@@ -74,11 +76,21 @@ const cleanJsonString = (str: string) => {
     .trim();
 };
 
-const performApiCallWithFallback = async (prompt: string): Promise<TranslationResponse & { modelUsed: string }> => {
+const performApiCallWithFallback = async (prompt: string, preferredModel: string = 'auto'): Promise<TranslationResponse & { modelUsed: string }> => {
     let lastError: any = null;
     const maxRetriesPerModel = 2; // Try up to 3 times per model
     
-    for (const modelId of FALLBACK_MODELS) {
+    // Construct the list of models to try. If preferredModel is specified, put it first.
+    const modelsToTry = [...FALLBACK_MODELS];
+    if (preferredModel !== 'auto' && preferredModel) {
+        const index = modelsToTry.indexOf(preferredModel);
+        if (index > -1) {
+            modelsToTry.splice(index, 1);
+        }
+        modelsToTry.unshift(preferredModel);
+    }
+    
+    for (const modelId of modelsToTry) {
         let retries = 0;
         
         while (retries <= maxRetriesPerModel) {
@@ -137,7 +149,8 @@ export const translateText = async (
   text: string, 
   customDictionary: CustomTerm[] = [],
   characters: Character[] = [],
-  relationships: Relationship[] = []
+  relationships: Relationship[] = [],
+  preferredModel: string = 'auto'
 ): Promise<TranslationResponse & { modelUsed: string }> => {
   if (!text.trim()) throw new Error("Vui lòng nhập văn bản.");
 
@@ -199,7 +212,7 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "
     
     console.log(`Đang xử lý chunk ${i + 1}/${chunks.length} (${chunkLineCount} dòng, ${chunkCharCount} ký tự)`);
 
-    const result = await performApiCallWithFallback(prompt);
+    const result = await performApiCallWithFallback(prompt, preferredModel);
     
     if (i === 0) firstModelUsed = result.modelUsed;
     
@@ -318,7 +331,7 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
   // Quick lookup chỉ dùng flash để nhanh
   try {
     const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.5-flash',
         contents: prompt,
         config: { 
             responseMimeType: "application/json", 

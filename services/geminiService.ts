@@ -76,19 +76,11 @@ const cleanJsonString = (str: string) => {
     .trim();
 };
 
-const performApiCallWithFallback = async (prompt: string, preferredModel: string = 'auto'): Promise<TranslationResponse & { modelUsed: string }> => {
+const performApiCallWithFallback = async (prompt: string): Promise<TranslationResponse & { modelUsed: string }> => {
     let lastError: any = null;
     const maxRetriesPerModel = 2; // Try up to 3 times per model
     
-    // Construct the list of models to try. If preferredModel is specified, put it first.
     const modelsToTry = [...FALLBACK_MODELS];
-    if (preferredModel !== 'auto' && preferredModel) {
-        const index = modelsToTry.indexOf(preferredModel);
-        if (index > -1) {
-            modelsToTry.splice(index, 1);
-        }
-        modelsToTry.unshift(preferredModel);
-    }
     
     for (const modelId of modelsToTry) {
         let retries = 0;
@@ -149,8 +141,7 @@ export const translateText = async (
   text: string, 
   customDictionary: CustomTerm[] = [],
   characters: Character[] = [],
-  relationships: Relationship[] = [],
-  preferredModel: string = 'auto'
+  relationships: Relationship[] = []
 ): Promise<TranslationResponse & { modelUsed: string }> => {
   if (!text.trim()) throw new Error("Vui lòng nhập văn bản.");
 
@@ -212,7 +203,7 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map(r => `Giữa "
     
     console.log(`Đang xử lý chunk ${i + 1}/${chunks.length} (${chunkLineCount} dòng, ${chunkCharCount} ký tự)`);
 
-    const result = await performApiCallWithFallback(prompt, preferredModel);
+    const result = await performApiCallWithFallback(prompt);
     
     if (i === 0) firstModelUsed = result.modelUsed;
     

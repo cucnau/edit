@@ -133,6 +133,9 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   // Load VP size on mount/render
   useEffect(() => {
      setVpCount(vietphraseEngine.getSize());
+     return vietphraseEngine.subscribe(() => {
+         setVpCount(vietphraseEngine.getSize());
+     });
   }, [refreshTrigger]);
 
   // Auto-Pull on mount if empty

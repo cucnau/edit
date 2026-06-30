@@ -191,6 +191,10 @@ YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
 - Nếu dòng gốc dùng cặp dấu ngoặc ô đen 【 và 】, bản dịch "natural" và "quick" của dòng đó BẮT BUỘC phải sử dụng đúng cặp dấu 【 và 】 (TUYỆT ĐỐI KHÔNG ĐƯỢC đổi thành [ và ] hay bất kỳ dấu nào khác).
 - Đảm bảo giữ nguyên vẹn cấu trúc và nội dung đặt trong các dấu ngoặc tương ứng với ngữ cảnh dịch thuật của chúng.
 3. TUYỆT ĐỐI KHÔNG ĐƯỢC GIỮ NGUYÊN HOẶC ĐỂ LẪN bất kỳ ký tự tiếng Trung/chữ Hán nào (như 捕食, 吞噬, v.v.) trong bản dịch "natural" và "quick". Tất cả các từ tiếng Trung xuất hiện trong văn bản gốc (hoặc trong câu hỗn hợp) đều PHẢI được dịch hoàn toàn sang tiếng Việt tự nhiên, phù hợp với ngữ cảnh tiểu thuyết (Ví dụ: "捕食" -> "săn mồi", "吞噬" -> "nuốt chửng" hoặc "thôn phệ"). Bản dịch đầu ra cuối cùng phải hoàn toàn viết bằng chữ Quốc ngữ tiếng Việt.
+4. NGHIÊM CẤM TỰ Ý THAY THẾ HOẶC ĐỒNG NHẤT TÊN NHÂN VẬT:
+- Bạn PHẢI dịch chính xác nguyên văn chữ Hán của tên nhân vật xuất hiện ở câu gốc.
+- TUYỆT ĐỐI KHÔNG ĐƯỢC tự ý suy diễn để thay thế hoặc đồng nhất tên biệt danh, tên tài khoản game, tên gọi khác thành tên thật (hoặc ngược lại).
+- Ví dụ cụ thể: Nếu câu gốc xuất hiện tên tài khoản trong game hoặc biệt danh "周而复始" (Chu Nhi Phục Thủy), bạn PHẢI dịch chính xác là "Chu Nhi Phục Thủy", TUYỆT ĐỐI KHÔNG được tự ý đổi nó thành tên thật là "Chu Tùy" (周随) trong bản dịch, cho dù bạn biết họ là cùng một người từ danh sách nhân vật/bối cảnh. Tuân thủ chính xác 100% chữ Hán gốc của tên riêng xuất hiện trong câu.
 
 BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
 ${customDictionary.length > 0 ? `- Từ vựng đặc biệt: ${customDictionary.map(i => `"${i.term}" PHẢI DỊCH LÀ "${i.meaning}"`).join(', ')}` : ""}

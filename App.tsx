@@ -215,21 +215,6 @@ function AppContent() {
     } catch (e) {}
   }, [mode]);
 
-  const [preferredModel, setPreferredModel] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('preferred_gemini_model');
-      return saved || 'auto';
-    } catch (e) {
-      return 'auto';
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('preferred_gemini_model', preferredModel);
-    } catch (e) {}
-  }, [preferredModel]);
-
   const [session, setSession] = useState<TranslationSession>(() => {
     try {
       const savedSingle = localStorage.getItem('chiVietSingleSession');
@@ -389,8 +374,7 @@ useEffect(() => {
         session.inputText, 
         session.customTerms,
         session.characters,
-        session.relationships,
-        preferredModel
+        session.relationships
       );
       
       // --- BƯỚC 3: MERGE KẾT QUẢ ---
@@ -624,22 +608,6 @@ useEffect(() => {
                         <div className="flex items-center gap-4">
                             <div className="text-[10px] font-medium transition-colors text-[#A1887F]">
                                 {session.inputText.length} ký tự
-                            </div>
-                            <div className="h-4 w-[1px] bg-[#EFEBE9]" />
-                            <div className="flex items-center gap-1.5 text-[10px]">
-                                <span className="font-bold text-[#8D6E63] uppercase tracking-wider">Model:</span>
-                                <select
-                                    value={preferredModel}
-                                    onChange={(e) => setPreferredModel(e.target.value)}
-                                    className="bg-white border border-[#D7CCC8] text-[#5D4037] rounded px-2 py-0.5 font-bold text-[10px] outline-none cursor-pointer hover:border-[#8D6E63] hover:bg-[#FAFAFA] transition-all"
-                                >
-                                    <option value="auto">Auto (Dự phòng thông minh)</option>
-                                    <option value="gemini-3.5-flash">Gemini 3.5 Flash (Mới nhất, Siêu nhanh)</option>
-                                    <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Bản dịch tốt nhất)</option>
-                                    <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Tiết kiệm)</option>
-                                    <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                                    <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
-                                </select>
                             </div>
                         </div>
 

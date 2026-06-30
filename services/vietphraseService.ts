@@ -11,10 +11,29 @@ class VietphraseEngine {
   private dictionary: Map<string, string>;
   private maxKeyLength: number;
   private isLoaded: boolean = false;
+  private listeners: Set<() => void> = new Set();
 
   constructor() {
     this.dictionary = new Map();
     this.maxKeyLength = 0;
+  }
+
+  // Đăng ký nhận sự kiện thay đổi dữ liệu từ điển
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify() {
+    this.listeners.forEach(listener => {
+      try {
+        listener();
+      } catch (e) {
+        console.error("Error invoking Vietphrase listener", e);
+      }
+    });
   }
 
   // Khởi tạo: Load từ DB nếu có
@@ -26,6 +45,7 @@ class VietphraseEngine {
           console.log("Đã khôi phục Vietphrase từ DB");
       }
       this.isLoaded = true;
+      this.notify();
   }
 
   // Lấy số lượng từ hiện tại
@@ -60,6 +80,7 @@ class VietphraseEngine {
         db.saveVietphrase(content).then(() => console.log("Đã lưu Vietphrase vào DB"));
     }
     
+    this.notify();
     return this.dictionary.size;
   }
 

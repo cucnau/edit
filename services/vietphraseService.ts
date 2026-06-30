@@ -1,63 +1,11 @@
 
 import { CustomTerm } from "../types";
+import { db } from "./db";
 
 export interface TrieNode {
   children: Map<string, TrieNode>;
   value?: string; // Nghĩa tiếng Việt
 }
-
-// --- INDEXED DB HELPER ---
-const DB_NAME = 'ChiVietDB';
-const DB_VERSION = 3;
-const STORE_NAME = 'settings';
-const KEY_VIETPHRASE = 'vietphrase_data';
-
-const dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    if (typeof window === 'undefined' || !window.indexedDB) {
-        reject("IndexedDB not supported");
-        return;
-    }
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-            db.createObjectStore(STORE_NAME);
-        }
-    };
-});
-
-const saveToDB = async (key: string, value: any) => {
-    try {
-        const db = await dbPromise;
-        return new Promise<void>((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readwrite');
-            const store = tx.objectStore(STORE_NAME);
-            const req = store.put(value, key);
-            req.onsuccess = () => resolve();
-            req.onerror = () => reject(req.error);
-        });
-    } catch (e) {
-        console.error("DB Save Error", e);
-    }
-};
-
-const loadFromDB = async (key: string): Promise<any> => {
-    try {
-        const db = await dbPromise;
-        return new Promise<any>((resolve, reject) => {
-            const tx = db.transaction(STORE_NAME, 'readonly');
-            const store = tx.objectStore(STORE_NAME);
-            const req = store.get(key);
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-    } catch (e) {
-        console.error("DB Load Error", e);
-        return null;
-    }
-};
 
 class VietphraseEngine {
   private dictionary: Map<string, string>;
@@ -72,7 +20,7 @@ class VietphraseEngine {
   // Khởi tạo: Load từ DB nếu có
   async init() {
       if (this.isLoaded) return;
-      const savedContent = await loadFromDB(KEY_VIETPHRASE);
+      const savedContent = await db.getVietphrase();
       if (savedContent && typeof savedContent === 'string') {
           this.loadDictionary(savedContent, false); // false = không lưu lại vào DB nữa
           console.log("Đã khôi phục Vietphrase từ DB");
@@ -109,7 +57,7 @@ class VietphraseEngine {
     console.log(`Đã nạp ${this.dictionary.size} từ Vietphrase. Max length: ${this.maxKeyLength}`);
     
     if (save) {
-        saveToDB(KEY_VIETPHRASE, content).then(() => console.log("Đã lưu Vietphrase vào DB"));
+        db.saveVietphrase(content).then(() => console.log("Đã lưu Vietphrase vào DB"));
     }
     
     return this.dictionary.size;

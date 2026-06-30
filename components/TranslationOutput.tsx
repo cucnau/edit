@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
 import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2 } from 'lucide-react';
+import { vietphraseEngine } from '../services/vietphraseService';
 
 interface TranslationOutputProps {
   data: TranslationResponse;
@@ -83,6 +84,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     onUpdateSegment,
     onToggleComplete
 }) => {
+  const [vpVersion, setVpVersion] = useState(0);
   const [activeVocab, setActiveVocab] = useState<{ 
     item: VocabItem; 
     position: { x: number; y: number }; 
@@ -91,6 +93,29 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   } | null>(null);
   const [copiedMode, setCopiedMode] = useState<'all' | 'parallel' | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+
+  // Subscribe to vietphrase changes to trigger re-renders
+  useEffect(() => {
+    return vietphraseEngine.subscribe(() => {
+      setVpVersion(prev => prev + 1);
+    });
+  }, []);
+
+  // Combined terms map for Vietphrase translate
+  const customMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    customTerms.forEach(t => {
+      if (t.term && t.meaning) {
+        map.set(t.term.trim(), t.meaning.trim());
+      }
+    });
+    characters.forEach(c => {
+      if (c.chineseName && c.vietName) {
+        map.set(c.chineseName.trim(), c.vietName.trim());
+      }
+    });
+    return map;
+  }, [customTerms, characters]);
 
   const copyToClipboard = (text: string, mode: 'all' | 'parallel') => {
     navigator.clipboard.writeText(text.trim());
@@ -197,7 +222,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           <div className="flex items-center justify-between bg-[#EFEBE9] px-3 py-1 border-b border-[#D7CCC8]">
              <div className="flex items-center gap-1.5 text-[#3E2723] font-bold text-[10px] uppercase tracking-tight"><TableProperties size={12} /><span>Bảng đối chiếu</span></div>
              <div className="flex items-center gap-1.5">
-                <button onClick={() => copyToClipboard(getParallelText(), 'parallel')} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'parallel' ? <Check size={10} /> : <ClipboardList size={10} />}<span>Edit & raw</span></button>
+                <button onClick={() => copyToClipboard(getParallelText(), 'parallel')} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'parallel' ? <Check size={10} /> : <ClipboardList size={10} />}<span>Edit & Raw</span></button>
                 <button onClick={() => copyToClipboard(getNaturalText(), 'all')} className="flex items-center gap-1 text-[9px] font-bold text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'all' ? <Check size={10} /> : <Copy size={10} />}<span>Edit</span></button>
              </div>
           </div>
@@ -219,7 +244,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
                       const cleanDeepl = (seg.deepl || '').trim();
-                      const cleanQuick = (seg.quick || '').trim();
+                      const cleanQuick = (vietphraseEngine.translate(cleanSource, customMap) || '').trim();
 
                       if (!cleanSource && !cleanNatural) return null;
 

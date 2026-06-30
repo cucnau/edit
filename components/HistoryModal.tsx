@@ -120,8 +120,15 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                   {(items as HistoryItem[]).map(item => (
                     <div key={item.id} className="bg-white p-3 rounded-lg shadow-sm border border-[#D7CCC8] hover:shadow-md transition-shadow group relative">
                        {/* Time */}
-                       <div className="text-[10px] text-[#A1887F] mb-1 flex justify-between">
-                          <span>{new Date(item.timestamp).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}</span>
+                       <div className="text-[10px] text-[#A1887F] mb-1 flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                             <span>{new Date(item.timestamp).toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'})}</span>
+                             {item.modelId && (
+                                <span className="bg-[#EFEBE9] text-[#5D4037] px-1.5 py-0.5 rounded text-[8px] font-mono border border-[#D7CCC8]">
+                                   {item.modelId}
+                                </span>
+                             )}
+                          </div>
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                              <button 
                                onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}

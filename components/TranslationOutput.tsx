@@ -25,7 +25,13 @@ const EditableSegment = ({
     text: string; 
     onUpdate: (val: string) => void 
 }) => {
+    const [localText, setLocalText] = useState(text);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const debounceTimeout = useRef<NodeJS.Timeout>();
+    
+    useEffect(() => {
+        setLocalText(text);
+    }, [text]);
     
     const adjustHeight = () => {
         if (textareaRef.current) {
@@ -43,13 +49,33 @@ const EditableSegment = ({
             window.removeEventListener('resize', adjustHeight);
             clearTimeout(timer);
         };
-    }, [text]);
+    }, [localText]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setLocalText(val);
+
+        if (debounceTimeout.current) {
+            clearTimeout(debounceTimeout.current);
+        }
+        debounceTimeout.current = setTimeout(() => {
+            onUpdate(val);
+        }, 500);
+    };
+
+    const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+        if (debounceTimeout.current) {
+            clearTimeout(debounceTimeout.current);
+        }
+        onUpdate(e.target.value);
+    };
 
     return (
         <textarea
             ref={textareaRef}
-            value={text}
-            onChange={(e) => onUpdate(e.target.value)}
+            value={localText}
+            onChange={handleChange}
+            onBlur={handleBlur}
             className="w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] text-[15px] focus:ring-0 m-0 block whitespace-normal min-h-0"
             style={{ fontWeight: 400, display: 'block', margin: 0 }}
             rows={1}

@@ -244,6 +244,11 @@ function AppContent() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [showChapters, setShowChapters] = useState(false);
   const [vpLoaded, setVpLoaded] = useState(false);
+  
+  // Undo/Redo/Focus states
+  const [undoStack, setUndoStack] = useState<string[][]>([]);
+  const [redoStack, setRedoStack] = useState<string[][]>([]);
+  const [isFocusMode, setIsFocusMode] = useState(false);
 
   // --- REFS ---
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -319,6 +324,34 @@ useEffect(() => {
     }
   }, [history]);
 
+  // Reset undo/redo stacks when loading a new chapter or starting a new translation
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [session.currentHistoryId, session.inputText]);
+
+  // Keyboard shortcuts for Undo (Ctrl+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleRedo();
+          } else {
+            e.preventDefault();
+            handleUndo();
+          }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoStack, redoStack, session.result]);
+
   // --- ACTIONS ---
 
   const updateSession = (updates: Partial<TranslationSession>) => {
@@ -327,12 +360,110 @@ useEffect(() => {
 
   const handleUpdateSegment = (index: number, newNatural: string) => {
     if (!session.result) return;
+
+    // Save undo state
+    const currentNaturals = session.result.segments.map(s => s.natural);
+    setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+    setRedoStack([]);
+
     const newSegments = [...session.result.segments];
     newSegments[index] = { ...newSegments[index], natural: newNatural.replace(/\n+$/, "") };
     const newResult = {
         ...session.result,
         segments: newSegments,
         naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult } 
+          : item
+      ));
+    }
+  };
+
+  const handleUpdateAllSegments = (newNaturals: string[]) => {
+    if (!session.result) return;
+
+    // Save undo state
+    const currentNaturals = session.result.segments.map(s => s.natural);
+    setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+    setRedoStack([]);
+
+    const newSegments = session.result.segments.map((seg, idx) => ({
+      ...seg,
+      natural: (newNaturals[idx] || '').replace(/\n+$/, "")
+    }));
+
+    const newResult = {
+        ...session.result,
+        segments: newSegments,
+        naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult } 
+          : item
+      ));
+    }
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0 || !session.result) return;
+    
+    const previousNaturals = undoStack[undoStack.length - 1];
+    const currentNaturals = session.result.segments.map(s => s.natural);
+    
+    setUndoStack(prev => prev.slice(0, prev.length - 1));
+    setRedoStack(prev => [...prev, currentNaturals]);
+    
+    const newSegments = session.result.segments.map((seg, idx) => ({
+      ...seg,
+      natural: previousNaturals[idx] || ""
+    }));
+    
+    const newResult = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult } 
+          : item
+      ));
+    }
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0 || !session.result) return;
+    
+    const nextNaturals = redoStack[redoStack.length - 1];
+    const currentNaturals = session.result.segments.map(s => s.natural);
+    
+    setRedoStack(prev => prev.slice(0, prev.length - 1));
+    setUndoStack(prev => [...prev, currentNaturals]);
+    
+    const newSegments = session.result.segments.map((seg, idx) => ({
+      ...seg,
+      natural: nextNaturals[idx] || ""
+    }));
+    
+    const newResult = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural).join('\n')
     };
     
     updateSession({ result: newResult });
@@ -583,18 +714,20 @@ useEffect(() => {
       {/* MAIN WORKSPACE */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT SIDEBAR */}
-        <div className="w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
-            <DictionarySidebar 
-                currentNovelId={session.currentNovelId || ''}
-                terms={session.customTerms} 
-                onUpdateTerms={(terms) => {
-                    updateSession({ customTerms: terms });
-                    db.bulkSaveCustomTerms(terms);
-                }} 
-                sheetUrl={session.sheetUrl} 
-                onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-                refreshTrigger={vpLoaded}            />
-        </div>
+        {!isFocusMode && (
+          <div className="w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
+              <DictionarySidebar 
+                  currentNovelId={session.currentNovelId || ''}
+                  terms={session.customTerms} 
+                  onUpdateTerms={(terms) => {
+                      updateSession({ customTerms: terms });
+                      db.bulkSaveCustomTerms(terms);
+                  }} 
+                  sheetUrl={session.sheetUrl} 
+                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                  refreshTrigger={vpLoaded}            />
+          </div>
+        )}
 
         {/* CENTER MAIN CONTENT */}
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5E6D3] min-w-[320px]">
@@ -602,90 +735,92 @@ useEffect(() => {
              <div className="flex flex-col px-2 pb-2">
                 
                 {/* INPUT AREA */}
-                <div className="mt-2 bg-white rounded-xl shadow-sm border border-[#D7CCC8] overflow-hidden transition-all focus-within:ring-2 focus-within:ring-[#8D6E63]/20 focus-within:border-[#8D6E63]/50 mb-2 flex flex-col">
-                    <div className="flex justify-between items-center bg-[#EFEBE9]/50 px-3 py-1.5 border-b border-[#EFEBE9]">
-                        <div className="flex items-center gap-2">
-                            <span className="bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                                {mode === 'beta' ? 'Nguồn & Tham chiếu (Beta)' : 'Nguồn & Tham chiếu'}
-                            </span>
-                            <div className="flex items-center gap-1 text-[10px] font-bold text-[#8D6E63]">
-                                <Layers size={10} />
-                                <span>{segmentCount} đoạn văn</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => updateSession({ 
-                                    inputText: EXAMPLE_TEXT, 
-                                    deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
-                                    preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
-                                })} 
-                                className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"
-                            >
-                                <Quote size={10} /> Ví dụ
-                            </button>
-                            <button 
-                                onClick={() => updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE })} 
-                                disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
-                                className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
-                            >
-                                <Eraser size={10} /> Xóa
-                            </button>
-                        </div>
-                    </div>
+                {!isFocusMode && (
+                  <div className="mt-2 bg-white rounded-xl shadow-sm border border-[#D7CCC8] overflow-hidden transition-all focus-within:ring-2 focus-within:ring-[#8D6E63]/20 focus-within:border-[#8D6E63]/50 mb-2 flex flex-col">
+                      <div className="flex justify-between items-center bg-[#EFEBE9]/50 px-3 py-1.5 border-b border-[#EFEBE9]">
+                          <div className="flex items-center gap-2">
+                              <span className="bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                                  {mode === 'beta' ? 'Nguồn & Tham chiếu (Beta)' : 'Nguồn & Tham chiếu'}
+                              </span>
+                              <div className="flex items-center gap-1 text-[10px] font-bold text-[#8D6E63]">
+                                  <Layers size={10} />
+                                  <span>{segmentCount} đoạn văn</span>
+                              </div>
+                          </div>
+                          <div className="flex gap-2">
+                              <button 
+                                  onClick={() => updateSession({ 
+                                      inputText: EXAMPLE_TEXT, 
+                                      deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
+                                      preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
+                                  })} 
+                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"
+                              >
+                                  <Quote size={10} /> Ví dụ
+                              </button>
+                              <button 
+                                  onClick={() => updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE })} 
+                                  disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
+                              >
+                                  <Eraser size={10} /> Xóa
+                              </button>
+                          </div>
+                      </div>
 
-                    <div className={`grid ${mode === 'beta' ? 'grid-cols-3' : 'grid-cols-2'} flex-1 min-h-[140px] divide-x divide-[#EFEBE9]`}>
-                        <div className="flex flex-col flex-1">
-                            <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">1. Văn bản gốc (Trung)</div>
-                            <textarea
-                                ref={textareaRef}
-                                value={session.inputText}
-                                onChange={(e) => updateSession({ inputText: e.target.value })}
-                                placeholder="Nhập văn bản nguồn (Trung)..."
-                                className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
-                                spellCheck="false"
-                            />
-                        </div>
-                        <div className="flex flex-col flex-1">
-                            <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">2. Bản dịch GG / DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
-                            <textarea
-                                value={session.deeplText}
-                                onChange={(e) => updateSession({ deeplText: e.target.value })}
-                                placeholder="Dán bản dịch GG/DeepL vào đây..."
-                                className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
-                                spellCheck="false"
-                            />
-                        </div>
-                        {mode === 'beta' && (
-                            <div className="flex flex-col flex-1">
-                                <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40 flex items-center gap-1">3. Bản edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
-                                <textarea
-                                    value={session.preEditedText || ''}
-                                    onChange={(e) => updateSession({ preEditedText: e.target.value })}
-                                    placeholder="Dán bản edit sẵn vào đây..."
-                                    className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed font-medium text-[#4E342E]"
-                                    spellCheck="false"
-                                />
-                            </div>
-                        )}
-                    </div>
+                      <div className={`grid ${mode === 'beta' ? 'grid-cols-3' : 'grid-cols-2'} flex-1 min-h-[140px] divide-x divide-[#EFEBE9]`}>
+                          <div className="flex flex-col flex-1">
+                              <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">1. Văn bản gốc (Trung)</div>
+                              <textarea
+                                  ref={textareaRef}
+                                  value={session.inputText}
+                                  onChange={(e) => updateSession({ inputText: e.target.value })}
+                                  placeholder="Nhập văn bản nguồn (Trung)..."
+                                  className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                                  spellCheck="false"
+                              />
+                          </div>
+                          <div className="flex flex-col flex-1">
+                              <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">2. Bản dịch GG / DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
+                              <textarea
+                                  value={session.deeplText}
+                                  onChange={(e) => updateSession({ deeplText: e.target.value })}
+                                  placeholder="Dán bản dịch GG/DeepL vào đây..."
+                                  className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                                  spellCheck="false"
+                              />
+                          </div>
+                          {mode === 'beta' && (
+                              <div className="flex flex-col flex-1">
+                                  <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40 flex items-center gap-1">3. Bản edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
+                                  <textarea
+                                      value={session.preEditedText || ''}
+                                      onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                                      placeholder="Dán bản edit sẵn vào đây..."
+                                      className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed font-medium text-[#4E342E]"
+                                      spellCheck="false"
+                                  />
+                              </div>
+                          )}
+                      </div>
 
-                    <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">
-                        <div className="flex items-center gap-4">
-                            <div className="text-[10px] font-medium transition-colors text-[#A1887F]">
-                                {session.inputText.length} ký tự
-                            </div>
-                        </div>
+                      <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">
+                          <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-medium transition-colors text-[#A1887F]">
+                                  {session.inputText.length} ký tự
+                              </div>
+                          </div>
 
-                        <button
-                            onClick={handleTranslate}
-                            disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
-                            className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
-                        >
-                            {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích</>)}
-                        </button>
-                    </div>
-                </div>
+                          <button
+                              onClick={handleTranslate}
+                              disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
+                              className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
+                          >
+                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích</>)}
+                          </button>
+                      </div>
+                  </div>
+                )}
 
                 {/* ERROR */}
                 {session.status === AppStatus.ERROR && (
@@ -697,16 +832,23 @@ useEffect(() => {
 
                 {/* RESULT */}
                 {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
-                    <div className="sticky top-2 z-10">
-                        <div className="h-[calc(100vh-4.5rem)]">
+                    <div className={isFocusMode ? "mt-1" : "sticky top-2 z-10"}>
+                        <div className={isFocusMode ? "h-[calc(100vh-4.2rem)]" : "h-[calc(100vh-4.5rem)]"}>
                             <TranslationOutput 
                                 data={session.result} 
                                 customTerms={session.customTerms} 
                                 characters={session.characters} 
                                 completedSegments={session.completedSegments || []}
                                 onUpdateSegment={handleUpdateSegment} 
+                                onUpdateAllSegments={handleUpdateAllSegments}
                                 onToggleComplete={handleToggleComplete}
                                 onSaveChapter={handleSaveChapter}
+                                onUndo={handleUndo}
+                                onRedo={handleRedo}
+                                canUndo={undoStack.length > 0}
+                                canRedo={redoStack.length > 0}
+                                isFocusMode={isFocusMode}
+                                onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
                             />
                         </div>
                     </div>
@@ -723,19 +865,21 @@ useEffect(() => {
         </main>
 
         {/* RIGHT SIDEBAR */}
-        <div className="w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
-            <WorldInfoPanel 
-                currentNovelId={session.currentNovelId || ''}
-                characters={session.characters} 
-                onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
-                relationships={session.relationships} 
-                onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
-                notes={session.notes} 
-                onUpdateNotes={(val) => updateSession({ notes: val })} 
-                sheetUrl={session.sheetUrl} 
-                onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-            />
-        </div>
+        {!isFocusMode && (
+          <div className="w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
+              <WorldInfoPanel 
+                  currentNovelId={session.currentNovelId || ''}
+                  characters={session.characters} 
+                  onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
+                  relationships={session.relationships} 
+                  onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                  notes={session.notes} 
+                  onUpdateNotes={(val) => updateSession({ notes: val })} 
+                  sheetUrl={session.sheetUrl} 
+                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+              />
+          </div>
+        )}
       </div>
 
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />

@@ -179,11 +179,11 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   );
 
   const handleAdd = () => {
-    if (!newTerm.trim() || !newMeaning.trim() || !currentNovelId) return;
+    if (!newTerm.trim() || !newMeaning.trim()) return;
     
     const newItem: CustomTerm = {
       id: Date.now().toString(),
-      novelId: currentNovelId,
+      novelId: currentNovelId || '',
       term: newTerm.trim(),
       meaning: newMeaning.trim(),
     };
@@ -358,7 +358,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 />
                 <button 
                   onClick={() => {
-                    if (!bulkText.trim() || !currentNovelId) return;
+                    if (!bulkText.trim()) return;
                     const lines = bulkText.split('\n');
                     const newItems: CustomTerm[] = [];
                     lines.forEach(line => {
@@ -376,7 +376,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                       if (parts.length >= 2) {
                         newItems.push({
                           id: Date.now().toString() + Math.random().toString(),
-                          novelId: currentNovelId,
+                          novelId: currentNovelId || '',
                           term: parts[0].trim(),
                           meaning: parts.slice(1).join(' ').trim() // Join remaining parts if any
                         });

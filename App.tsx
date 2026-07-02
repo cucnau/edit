@@ -251,6 +251,10 @@ function AppContent() {
   // --- COMPUTED ---
   const segmentCount = session.inputText.trim() ? session.inputText.split(/\n/).length : 0;
 
+  const currentNovelChapters = useMemo(() => {
+    return chapters.filter(c => c.novelId === session.currentNovelId);
+  }, [chapters, session.currentNovelId]);
+
   // --- EFFECTS ---
   // Init Vietphrase Engine from DB & Load Custom Terms
 useEffect(() => {
@@ -547,13 +551,13 @@ useEffect(() => {
               onClick={() => setMode('edit')}
               className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
-              Chế độ Edit
+              Edit
             </button>
             <button
               onClick={() => setMode('beta')}
               className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
-              Chế độ Beta
+              Beta
               <span className={`text-[8px] font-mono font-black px-1 rounded-full uppercase bg-[#E64A19] text-white`}>New</span>
             </button>
           </div>
@@ -565,15 +569,15 @@ useEffect(() => {
               currentNovelId={session.currentNovelId || ''} 
               onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
             />
-            <AuthPanel />
             <button onClick={() => setShowChapters(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 px-2.5 py-1 rounded-full border border-[#FFECB3]/20 transition-colors">
                <FolderOpen size={12} />
-               <span>Kho chương ({chapters.length})</span>
+               <span>Kho chương ({currentNovelChapters.length})</span>
             </button>
             <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] px-2 py-1 rounded-full border border-[#5D4037] transition-colors">
                <History size={12} />
                <span>Lịch sử</span>
             </button>
+            <AuthPanel />
         </div>
       </header>
 
@@ -740,7 +744,7 @@ useEffect(() => {
       <ChapterArchiveModal 
         isOpen={showChapters} 
         onClose={() => setShowChapters(false)} 
-        chapters={chapters} 
+        chapters={currentNovelChapters} 
         customTerms={session.customTerms} 
         onSelectChapter={handleRestoreChapter} 
         onDeleteChapter={handleDeleteChapter} 

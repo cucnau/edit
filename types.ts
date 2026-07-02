@@ -62,6 +62,18 @@ export interface HistoryItem {
   modelId?: string;
 }
 
+export interface Chapter {
+  id: string;
+  novelId?: string;
+  name: string;
+  timestamp: number;
+  inputText: string;
+  deeplText?: string;
+  preEditedText?: string;
+  result: TranslationResponse;
+  completedSegments?: number[];
+}
+
 export enum AppStatus {
   IDLE = 'IDLE',
   LOADING = 'LOADING',

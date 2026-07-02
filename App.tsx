@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter } from './types';
 import { translateText } from './services/geminiService';
 import { vietphraseEngine } from './services/vietphraseService';

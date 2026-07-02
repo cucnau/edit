@@ -61,7 +61,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
               syncData('rel', 'GET', true);
           }, 500);
           return () => clearTimeout(timer);
-      } else if (!currentNovelId) {
+      } else if (isSignedIn && !currentNovelId) {
           onUpdateCharacters([]);
           onUpdateRelationships([]);
       }

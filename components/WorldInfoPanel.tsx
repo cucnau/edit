@@ -161,10 +161,9 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   // --- CHARACTER HANDLERS ---
   const handleAddChar = () => {
-    if (!currentNovelId) return;
     const newChar: Character = {
       id: Date.now().toString(),
-      novelId: currentNovelId,
+      novelId: currentNovelId || '',
       chineseName: '',
       vietName: '',
       pronouns: '',
@@ -183,10 +182,9 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   // --- RELATIONSHIP HANDLERS ---
   const handleAddRel = () => {
-    if (!currentNovelId) return;
     const newRel: Relationship = {
       id: Date.now().toString(),
-      novelId: currentNovelId,
+      novelId: currentNovelId || '',
       charA: '',
       charB: '',
       callAtoB: '',

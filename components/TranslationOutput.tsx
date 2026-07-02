@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2 } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 
 interface TranslationOutputProps {
@@ -91,13 +91,20 @@ const buildSearchRegex = (findText: string, matchCase: boolean, matchDiacritics:
 const EditableSegment = ({ 
     text, 
     onUpdate,
-    isFocusMode
+    isFocusMode,
+    findText,
+    matchCase,
+    matchDiacritics
 }: { 
     text: string; 
     onUpdate: (val: string) => void;
     isFocusMode?: boolean;
+    findText?: string;
+    matchCase?: boolean;
+    matchDiacritics?: boolean;
 }) => {
     const [localText, setLocalText] = useState(text);
+    const [isFocused, setIsFocused] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const debounceTimeout = useRef<NodeJS.Timeout>();
     
@@ -121,7 +128,7 @@ const EditableSegment = ({
             window.removeEventListener('resize', adjustHeight);
             clearTimeout(timer);
         };
-    }, [localText, isFocusMode]);
+    }, [localText, isFocusMode, isFocused]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value;
@@ -136,11 +143,60 @@ const EditableSegment = ({
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+        setIsFocused(false);
         if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
         }
         onUpdate(e.target.value);
     };
+
+    const handleFocus = () => {
+        setIsFocused(true);
+    };
+
+    const regex = findText ? buildSearchRegex(findText, matchCase ?? false, matchDiacritics ?? true) : null;
+    const hasSearchMatch = regex ? regex.test(localText) : false;
+
+    const renderSearchTextHighlight = (plainText: string) => {
+        if (!plainText) return "";
+        if (!findText) return plainText;
+        const searchRegex = buildSearchRegex(findText, matchCase ?? false, matchDiacritics ?? true);
+        if (!searchRegex) return plainText;
+
+        const parts = plainText.split(searchRegex);
+        const matches = plainText.match(searchRegex) || [];
+
+        let matchIdx = 0;
+        return parts.map((part, idx) => {
+            if (idx > 0) {
+                const matched = matches[matchIdx++];
+                return (
+                    <React.Fragment key={idx}>
+                        <mark className="bg-amber-200 text-amber-950 font-medium px-0.5 rounded shadow-sm">
+                            {matched}
+                        </mark>
+                        {part}
+                    </React.Fragment>
+                );
+            }
+            return part;
+        });
+    };
+
+    if (findText && hasSearchMatch && !isFocused) {
+        return (
+            <div 
+                onClick={() => {
+                    setIsFocused(true);
+                    setTimeout(() => textareaRef.current?.focus(), 20);
+                }}
+                className={`w-full bg-transparent border-none p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[19px]' : 'text-[15px]'} m-0 block whitespace-pre-wrap break-words min-h-[1.2em] cursor-text`}
+                style={{ fontWeight: 400, display: 'block', margin: 0 }}
+            >
+                {renderSearchTextHighlight(localText)}
+            </div>
+        );
+    }
 
     return (
         <textarea
@@ -148,6 +204,7 @@ const EditableSegment = ({
             value={localText}
             onChange={handleChange}
             onBlur={handleBlur}
+            onFocus={handleFocus}
             className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[19px]' : 'text-[15px]'} focus:ring-0 m-0 block whitespace-normal min-h-0`}
             style={{ fontWeight: 400, display: 'block', margin: 0 }}
             rows={1}
@@ -212,6 +269,22 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [matchDiacritics, setMatchDiacritics] = useState(true);
 
   // Calculate search match count
+  const matchingSegmentIndices = React.useMemo(() => {
+    if (!findText || !data.segments) return [];
+    try {
+      const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
+      if (!regex) return [];
+      return data.segments
+        .map((seg, idx) => {
+          const hasMatch = regex.test(seg.natural || '') || regex.test(seg.source || '');
+          return hasMatch ? idx : -1;
+        })
+        .filter(idx => idx !== -1);
+    } catch (e) {
+      return [];
+    }
+  }, [findText, matchCase, matchDiacritics, data.segments]);
+
   const matchCount = React.useMemo(() => {
     if (!findText || !data.segments) return 0;
     try {
@@ -227,6 +300,32 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       return 0;
     }
   }, [findText, matchCase, matchDiacritics, data.segments]);
+
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+  useEffect(() => {
+    setCurrentMatchIndex(0);
+  }, [matchingSegmentIndices.length, findText]);
+
+  useEffect(() => {
+    if (matchingSegmentIndices.length > 0 && currentMatchIndex >= 0 && currentMatchIndex < matchingSegmentIndices.length) {
+      const targetIdx = matchingSegmentIndices[currentMatchIndex];
+      const element = document.getElementById(`segment-row-${targetIdx}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [currentMatchIndex, matchingSegmentIndices]);
+
+  const handleNextMatch = () => {
+    if (matchingSegmentIndices.length === 0) return;
+    setCurrentMatchIndex(prev => (prev + 1) % matchingSegmentIndices.length);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchingSegmentIndices.length === 0) return;
+    setCurrentMatchIndex(prev => (prev - 1 + matchingSegmentIndices.length) % matchingSegmentIndices.length);
+  };
 
   // Execute search and replace
   const handleReplaceAll = () => {
@@ -441,7 +540,39 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const renderSourceWithHighlight = (text: string) => {
     const trimmedText = (text || "").trim();
     if (!trimmedText) return null;
-    if (!pattern) return trimmedText;
+
+    const searchRegex = findText ? buildSearchRegex(findText, matchCase, matchDiacritics) : null;
+
+    const renderSearchTextHighlight = (plainText: string) => {
+      if (!plainText) return "";
+      if (!searchRegex) return plainText;
+
+      const parts = plainText.split(searchRegex);
+      const matches = plainText.match(searchRegex) || [];
+
+      let matchIdx = 0;
+      return parts.map((part, idx) => {
+        if (idx > 0) {
+          const matched = matches[matchIdx++];
+          return (
+            <React.Fragment key={idx}>
+              <mark className="bg-amber-200 text-amber-950 font-semibold px-0.5 rounded shadow-sm">
+                {matched}
+              </mark>
+              {part}
+            </React.Fragment>
+          );
+        }
+        return part;
+      });
+    };
+
+    if (!pattern) {
+      if (searchRegex) {
+        return <>{renderSearchTextHighlight(trimmedText)}</>;
+      }
+      return trimmedText;
+    }
 
     return trimmedText.split(pattern).map((part, i) => {
         if (!part) return null;
@@ -456,6 +587,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                  return <span key={i} onClick={(e) => handleVocabClick(e, match, 'ai')} className="border-b-2 border-dashed border-[#FBC02D] bg-[#FFF9C4] cursor-pointer hover:bg-[#FFF176] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block shadow-[inset_0_-2px_0_rgba(251,192,45,0.2)]">{part}</span>;
              }
         }
+
+        if (searchRegex && searchRegex.test(part)) {
+          return <React.Fragment key={i}>{renderSearchTextHighlight(part)}</React.Fragment>;
+        }
+
         return part;
     });
   };
@@ -588,8 +724,28 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                    </label>
                 </div>
                 {findText && (
-                   <div className="text-[10px] font-bold text-[#8D6E63] bg-[#FFF8E1] px-1.5 py-0.5 rounded border border-[#FFE082]">
-                      Khớp: {matchCount}
+                   <div className="flex items-center gap-1 bg-[#FFF8E1] px-2 py-0.5 rounded border border-[#FFE082]">
+                      <span className="text-[10.5px] font-semibold text-[#8D6E63]">
+                         Khớp: {matchingSegmentIndices.length > 0 ? `${currentMatchIndex + 1}/${matchingSegmentIndices.length}` : '0'} ({matchCount} từ)
+                      </span>
+                      {matchingSegmentIndices.length > 0 && (
+                         <div className="flex items-center gap-0.5 border-l border-[#FFE282] pl-1 ml-1">
+                            <button
+                               onClick={handlePrevMatch}
+                               className="p-0.5 rounded hover:bg-[#FFE082] text-[#8D6E63] transition-colors"
+                               title="Khớp trước đó"
+                            >
+                               <ChevronLeft size={11} />
+                            </button>
+                            <button
+                               onClick={handleNextMatch}
+                               className="p-0.5 rounded hover:bg-[#FFE082] text-[#8D6E63] transition-colors"
+                               title="Khớp tiếp theo"
+                            >
+                               <ChevronRight size={11} />
+                            </button>
+                         </div>
+                      )}
                    </div>
                 )}
                 <div className="flex items-center gap-1.5 ml-auto">
@@ -636,7 +792,17 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       if (!cleanSource && !cleanNatural) return null;
 
                       return (
-                        <tr key={idx} className={`${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} transition-colors group/row border-none`}>
+                        <tr 
+                          id={`segment-row-${idx}`}
+                          key={idx} 
+                          className={`${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
+                            findText && matchingSegmentIndices[currentMatchIndex] === idx 
+                              ? 'bg-amber-100/70 border-2 border-amber-400 ring-2 ring-amber-400/50' 
+                              : findText && matchingSegmentIndices.includes(idx) 
+                                ? 'bg-amber-50/50' 
+                                : ''
+                          } transition-all duration-300 group/row border-none`}
+                        >
                            <td className={`py-0 px-2 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'}`}>
                               <div className="flex flex-col py-0.5">
                                 <div className={`${isFocusMode ? 'text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
@@ -657,7 +823,14 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                            </td>
                            <td className="py-0 px-2 align-top relative pr-6 border-none">
                               <div className="flex flex-col py-0.5">
-                                  <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} isFocusMode={isFocusMode} />
+                                  <EditableSegment 
+                                    text={cleanNatural} 
+                                    onUpdate={(val) => onUpdateSegment?.(idx, val)} 
+                                    isFocusMode={isFocusMode} 
+                                    findText={findText}
+                                    matchCase={matchCase}
+                                    matchDiacritics={matchDiacritics}
+                                  />
                                   {cleanDeepl && (
                                     <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
                                   )}

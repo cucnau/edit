@@ -178,8 +178,15 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     characters = [],
     completedSegments = [],
     onUpdateSegment,
+    onUpdateAllSegments,
     onToggleComplete,
-    onSaveChapter
+    onSaveChapter,
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo,
+    isFocusMode,
+    onToggleFocusMode
 }) => {
   const [showNamingModal, setShowNamingModal] = useState(false);
   const [exportFileName, setExportFileName] = useState('');

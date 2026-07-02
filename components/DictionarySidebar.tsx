@@ -112,7 +112,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
               handlePullFromCloud(true);
           }, 500);
           return () => clearTimeout(timer);
-      } else if (!currentNovelId) {
+      } else if (isSignedIn && !currentNovelId) {
           onUpdateTerms([]);
       }
   }, [currentNovelId, isSignedIn]);

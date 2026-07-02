@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AppStatus, TranslationSession, HistoryItem, TranslationResponse } from './types';
+import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter } from './types';
 import { translateText } from './services/geminiService';
 import { vietphraseEngine } from './services/vietphraseService';
 import { db } from './services/db'; // Import db service
@@ -8,9 +8,10 @@ import { TranslationOutput } from './components/TranslationOutput';
 import { DictionarySidebar } from './components/DictionarySidebar';
 import { WorldInfoPanel } from './components/WorldInfoPanel';
 import { HistoryModal } from './components/HistoryModal'; 
+import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine } from 'lucide-react';
+import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen } from 'lucide-react';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -240,6 +241,8 @@ function AppContent() {
     }
   });
   const [showHistory, setShowHistory] = useState(false);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [showChapters, setShowChapters] = useState(false);
   const [vpLoaded, setVpLoaded] = useState(false);
 
   // --- REFS ---
@@ -260,6 +263,12 @@ useEffect(() => {
      db.getAllCustomTerms().then(terms => {
          if (terms && terms.length > 0) {
              setSession(prev => ({ ...prev, customTerms: terms }));
+         }
+     });
+
+     db.getAllChapters().then(savedChapters => {
+         if (savedChapters) {
+             setChapters(savedChapters);
          }
      });
 }, []);
@@ -469,6 +478,56 @@ useEffect(() => {
     setHistory(prev => prev.filter(item => item.id !== id));
   };
 
+  const handleSaveChapter = async (name: string) => {
+    if (!session.result) return;
+    const newChapter: Chapter = {
+      id: Date.now().toString(),
+      novelId: session.currentNovelId,
+      name,
+      timestamp: Date.now(),
+      inputText: session.inputText,
+      deeplText: session.deeplText,
+      preEditedText: session.preEditedText,
+      result: session.result,
+      completedSegments: session.completedSegments
+    };
+
+    await db.saveChapter(newChapter);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.name !== name)]);
+  };
+
+  const handleRestoreChapter = (chapter: Chapter) => {
+    updateSession({
+      inputText: chapter.inputText,
+      deeplText: chapter.deeplText || "",
+      preEditedText: chapter.preEditedText || "",
+      result: sanitizeResult(chapter.result),
+      status: AppStatus.SUCCESS,
+      error: null,
+      completedSegments: chapter.completedSegments || [],
+      currentHistoryId: undefined
+    });
+    setShowChapters(false);
+  };
+
+  const handleDeleteChapter = async (id: string) => {
+    await db.deleteChapter(id);
+    setChapters(prev => prev.filter(c => c.id !== id));
+  };
+
+  const handleRenameChapter = async (id: string, newName: string) => {
+    const chapter = chapters.find(c => c.id === id);
+    if (!chapter) return;
+    const updated = { ...chapter, name: newName };
+    await db.saveChapter(updated);
+    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+  };
+
+  const handleClearAllChapters = async () => {
+    await db.clearAllChapters();
+    setChapters([]);
+  };
+
   return (
     <div className="h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-hidden">
       
@@ -507,6 +566,10 @@ useEffect(() => {
               onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
             />
             <AuthPanel />
+            <button onClick={() => setShowChapters(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 px-2.5 py-1 rounded-full border border-[#FFECB3]/20 transition-colors">
+               <FolderOpen size={12} />
+               <span>Kho chương ({chapters.length})</span>
+            </button>
             <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] px-2 py-1 rounded-full border border-[#5D4037] transition-colors">
                <History size={12} />
                <span>Lịch sử</span>
@@ -640,6 +703,7 @@ useEffect(() => {
                                 completedSegments={session.completedSegments || []}
                                 onUpdateSegment={handleUpdateSegment} 
                                 onToggleComplete={handleToggleComplete}
+                                onSaveChapter={handleSaveChapter}
                             />
                         </div>
                     </div>
@@ -672,6 +736,17 @@ useEffect(() => {
       </div>
 
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />
+
+      <ChapterArchiveModal 
+        isOpen={showChapters} 
+        onClose={() => setShowChapters(false)} 
+        chapters={chapters} 
+        customTerms={session.customTerms} 
+        onSelectChapter={handleRestoreChapter} 
+        onDeleteChapter={handleDeleteChapter} 
+        onRenameChapter={handleRenameChapter} 
+        onClearAll={handleClearAllChapters} 
+      />
     </div>
   );
 }

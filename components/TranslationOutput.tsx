@@ -90,12 +90,10 @@ const buildSearchRegex = (findText: string, matchCase: boolean, matchDiacritics:
 
 const EditableSegment = ({ 
     text, 
-    onUpdate,
-    isFocusMode = false
+    onUpdate 
 }: { 
     text: string; 
-    onUpdate: (val: string) => void;
-    isFocusMode?: boolean;
+    onUpdate: (val: string) => void 
 }) => {
     const [localText, setLocalText] = useState(text);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -121,7 +119,7 @@ const EditableSegment = ({
             window.removeEventListener('resize', adjustHeight);
             clearTimeout(timer);
         };
-    }, [localText, isFocusMode]);
+    }, [localText]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value;
@@ -148,8 +146,8 @@ const EditableSegment = ({
             value={localText}
             onChange={handleChange}
             onBlur={handleBlur}
-            className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-relaxed focus:ring-0 m-0 block whitespace-normal min-h-0 transition-all duration-150 ${isFocusMode ? 'text-[20px] font-medium' : 'text-[15px]'}`}
-            style={{ fontWeight: isFocusMode ? 500 : 400, display: 'block', margin: 0 }}
+            className="w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] text-[15px] focus:ring-0 m-0 block whitespace-normal min-h-0"
+            style={{ fontWeight: 400, display: 'block', margin: 0 }}
             rows={1}
             spellCheck={false}
         />
@@ -637,31 +635,29 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
                       return (
                         <tr key={idx} className={`${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} transition-colors group/row border-none`}>
-                           <td className={`py-1 px-3 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} ${isFocusMode ? 'py-2 px-4' : ''}`}>
+                           <td className={`py-0 px-2 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'}`}>
                               <div className="flex flex-col py-0.5">
-                                <div className={`${isFocusMode ? 'text-[20px] leading-relaxed' : 'text-[14.5px] leading-[1.2]'} font-serif-sc text-[#3E2723] m-0 whitespace-normal break-words`}>
+                                <div className="text-[14.5px] font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words">
                                    <button 
                                       onClick={() => onToggleComplete?.(idx)}
-                                      className={`inline-flex items-center justify-center min-w-[16px] h-[16px] mr-1.5 transition-all select-none align-middle transform -translate-y-[1px] rounded ${isDone ? 'text-[#5D4037] scale-110' : 'text-[#A1887F]/30 hover:text-[#3E2723] hover:scale-110'}`}
+                                      className={`inline-flex items-center justify-center min-w-[16px] h-[16px] mr-1 transition-all select-none align-middle transform -translate-y-[1px] rounded ${isDone ? 'text-[#5D4037] scale-110' : 'text-[#A1887F]/30 hover:text-[#3E2723] hover:scale-110'}`}
                                    >
-                                       {isDone ? <CheckCircle2 size={isFocusMode ? 16 : 12} /> : <span className={`${isFocusMode ? 'text-[13px]' : 'text-[9px]'} font-bold`}>{idx + 1}.</span>}
+                                       {isDone ? <CheckCircle2 size={12} /> : <span className="text-[9px] font-bold">{idx + 1}.</span>}
                                    </button>
                                    {renderSourceWithHighlight(cleanSource)}
                                 </div>
                                 {cleanQuick && (
-                                  <div className={`${isFocusMode ? 'text-[14px] leading-relaxed mt-1 pl-6' : 'text-[10px] leading-[1.1] pl-[18px] -mt-0.5'} text-[#8D6E63] opacity-75 italic break-words`}>
+                                  <div className="text-[10px] text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[18px] -mt-0.5 break-words">
                                     {cleanQuick}
                                   </div>
                                 )}
                               </div>
                            </td>
-                           <td className={`py-1 px-3 align-top relative pr-8 border-none ${isFocusMode ? 'py-2 px-4 pr-10' : ''}`}>
+                           <td className="py-0 px-2 align-top relative pr-6 border-none">
                               <div className="flex flex-col py-0.5">
-                                  <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} isFocusMode={isFocusMode} />
+                                  <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} />
                                   {cleanDeepl && (
-                                    <div className={`${isFocusMode ? 'text-[12px] leading-relaxed mt-1' : 'text-[8.5px] leading-[1.1] -mt-0.5'} text-[#A1887F] italic opacity-65 break-words`}>
-                                      <span className="font-bold mr-1 opacity-85 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}
-                                    </div>
+                                    <div className="text-[8.5px] text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words"><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
                                   )}
                               </div>
                               <SegmentCopyBtn text={cleanNatural} />

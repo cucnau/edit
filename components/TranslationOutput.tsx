@@ -393,7 +393,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       meaning: vocabMeaning.trim()
     };
 
-    onUpdateTerms([...customTerms, newTerm]);
+    const safeTerms = Array.isArray(customTerms) ? customTerms : [];
+    onUpdateTerms([...safeTerms, newTerm]);
     setSelectionPopup(null);
   };
 
@@ -409,7 +410,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       description: charDescription.trim()
     };
 
-    onUpdateCharacters([...characters, newChar]);
+    const safeCharacters = Array.isArray(characters) ? characters : [];
+    onUpdateCharacters([...safeCharacters, newChar]);
     setSelectionPopup(null);
   };
 
@@ -1098,12 +1100,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
             transform: 'translate(-50%, -105%)',
             width: selectionPopup.type === 'idle' ? '280px' : '320px',
             maxHeight: '380px'
-          }}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-          }}
-          onMouseUp={(e) => {
-            e.stopPropagation();
           }}
         >
           {/* Header */}

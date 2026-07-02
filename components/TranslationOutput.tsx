@@ -469,7 +469,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 {/* Undo / Redo */}
                 <div className="flex items-center gap-0.5 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
                    <button 
-                      onClick={onUndo} 
+                      onClick={onUndo} onMouseDown={(e) => e.preventDefault()} 
                       disabled={!canUndo} 
                       title="Hoàn tác (Ctrl+Z)"
                       className="p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
@@ -477,7 +477,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       <Undo2 size={11} />
                    </button>
                    <button 
-                      onClick={onRedo} 
+                      onClick={onRedo} onMouseDown={(e) => e.preventDefault()} 
                       disabled={!canRedo} 
                       title="Làm lại (Ctrl+Y)"
                       className="p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"

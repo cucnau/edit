@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 
 interface TranslationOutputProps {
@@ -12,6 +12,7 @@ interface TranslationOutputProps {
   completedSegments?: number[];
   onUpdateSegment?: (index: number, newNatural: string) => void;
   onToggleComplete?: (index: number) => void;
+  onSaveChapter?: (name: string) => void;
 }
 
 const escapeRegExp = (string: string) => {
@@ -108,10 +109,13 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     characters = [],
     completedSegments = [],
     onUpdateSegment,
-    onToggleComplete
+    onToggleComplete,
+    onSaveChapter
 }) => {
   const [showNamingModal, setShowNamingModal] = useState(false);
   const [exportFileName, setExportFileName] = useState('');
+  const [showSaveArchiveModal, setShowSaveArchiveModal] = useState(false);
+  const [archiveChapterName, setArchiveChapterName] = useState('');
   const [vpVersion, setVpVersion] = useState(0);
   const [activeVocab, setActiveVocab] = useState<{ 
     item: VocabItem; 
@@ -238,6 +242,22 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     setShowNamingModal(true);
   };
 
+  const handleConfirmSaveArchive = () => {
+    let name = archiveChapterName.trim();
+    if (!name) {
+      name = `Chương_${new Date().toISOString().slice(0, 10)}`;
+    }
+    onSaveChapter?.(name);
+    setShowSaveArchiveModal(false);
+  };
+
+  const saveToArchive = () => {
+    if (!data.segments || data.segments.length === 0) return;
+    const defaultName = `Chương_${new Date().toISOString().slice(0, 10)}`;
+    setArchiveChapterName(defaultName);
+    setShowSaveArchiveModal(true);
+  };
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(event.target as Node)) setActiveVocab(null);
@@ -334,6 +354,9 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 <button onClick={() => copyToClipboard(getParallelText(), 'parallel')} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'parallel' ? <Check size={10} /> : <ClipboardList size={10} />}<span>Edit & Raw</span></button>
                 <button onClick={() => copyToClipboard(getNaturalText(), 'all')} className="flex items-center gap-1 text-[9px] font-bold text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'all' ? <Check size={10} /> : <Copy size={10} />}<span>Edit</span></button>
                 <button onClick={exportToWord} className="flex items-center gap-1 text-[9px] font-bold text-[#3E2723] hover:text-white hover:bg-[#5D4037] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#5D4037] transition-colors shadow-sm"><FileDown size={10} /><span>Xuất Word</span></button>
+                {onSaveChapter && (
+                   <button onClick={saveToArchive} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-white hover:bg-[#8D6E63] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#8D6E63] transition-colors shadow-sm"><BookOpen size={10} /><span>Lưu Kho</span></button>
+                )}
              </div>
           </div>
           {hasSegments && (
@@ -480,6 +503,58 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm"
               >
                 Xuất file
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showSaveArchiveModal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3E2723]/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF7] rounded-xl border border-[#D7CCC8] shadow-2xl w-full max-w-md overflow-hidden transform animate-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-[#D7CCC8] bg-[#EFE5D9] flex justify-between items-center">
+              <div className="flex items-center gap-2 text-[#3E2723] font-bold text-sm">
+                <BookOpen size={16} />
+                <span>Lưu chương vào kho lưu trữ</span>
+              </div>
+              <button onClick={() => setShowSaveArchiveModal(false)} className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="p-5">
+              <label className="block text-xs font-bold text-[#5D4037] mb-2 uppercase tracking-wide">Tên chương để lưu trữ</label>
+              <input
+                type="text"
+                value={archiveChapterName}
+                onChange={(e) => setArchiveChapterName(e.target.value)}
+                placeholder="VD: Chương 123: Tiêu đề chương"
+                className="w-full bg-white border border-[#D7CCC8] rounded px-3 py-2 text-[#3E2723] text-sm outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all font-medium"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmSaveArchive();
+                  }
+                }}
+              />
+              <p className="text-[10px] text-[#A1887F] mt-2 italic">
+                Chương sẽ được lưu trữ cục bộ để tích lũy. Khi cần có thể tải ZIP toàn bộ hoặc khôi phục để sửa tiếp.
+              </p>
+            </div>
+            
+            <div className="bg-[#F5F2F0] px-5 py-3 border-t border-[#D7CCC8] flex justify-end gap-2">
+              <button
+                onClick={() => setShowSaveArchiveModal(false)}
+                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleConfirmSaveArchive}
+                className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm"
+              >
+                Lưu Chương
               </button>
             </div>
           </div>

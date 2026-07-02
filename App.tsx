@@ -361,13 +361,19 @@ useEffect(() => {
   const handleUpdateSegment = (index: number, newNatural: string) => {
     if (!session.result) return;
 
+    const cleanNewNatural = newNatural.replace(/\n+$/, "");
+    const currentSegments = session.result.segments;
+    if (currentSegments[index] && currentSegments[index].natural === cleanNewNatural) {
+      return; // No actual change, skip to avoid redundant undo states and clearing redo
+    }
+
     // Save undo state
-    const currentNaturals = session.result.segments.map(s => s.natural);
+    const currentNaturals = currentSegments.map(s => s.natural);
     setUndoStack(prev => [...prev, currentNaturals].slice(-100));
     setRedoStack([]);
 
-    const newSegments = [...session.result.segments];
-    newSegments[index] = { ...newSegments[index], natural: newNatural.replace(/\n+$/, "") };
+    const newSegments = [...currentSegments];
+    newSegments[index] = { ...newSegments[index], natural: cleanNewNatural };
     const newResult = {
         ...session.result,
         segments: newSegments,
@@ -388,14 +394,27 @@ useEffect(() => {
   const handleUpdateAllSegments = (newNaturals: string[]) => {
     if (!session.result) return;
 
+    const currentSegments = session.result.segments;
+    let hasChanged = false;
+    const cleanedNewNaturals = newNaturals.map(n => (n || '').replace(/\n+$/, ""));
+    
+    for (let i = 0; i < currentSegments.length; i++) {
+      if (currentSegments[i].natural !== (cleanedNewNaturals[i] || '')) {
+        hasChanged = true;
+        break;
+      }
+    }
+    
+    if (!hasChanged) return; // No actual change
+
     // Save undo state
-    const currentNaturals = session.result.segments.map(s => s.natural);
+    const currentNaturals = currentSegments.map(s => s.natural);
     setUndoStack(prev => [...prev, currentNaturals].slice(-100));
     setRedoStack([]);
 
-    const newSegments = session.result.segments.map((seg, idx) => ({
+    const newSegments = currentSegments.map((seg, idx) => ({
       ...seg,
-      natural: (newNaturals[idx] || '').replace(/\n+$/, "")
+      natural: cleanedNewNaturals[idx] || ''
     }));
 
     const newResult = {

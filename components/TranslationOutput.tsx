@@ -110,6 +110,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     onUpdateSegment,
     onToggleComplete
 }) => {
+  const [showNamingModal, setShowNamingModal] = useState(false);
+  const [exportFileName, setExportFileName] = useState('');
   const [vpVersion, setVpVersion] = useState(0);
   const [activeVocab, setActiveVocab] = useState<{ 
     item: VocabItem; 
@@ -155,7 +157,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const getParallelText = () => data.segments.map(seg => `${(seg.source || '').trim()}\n${(seg.natural || '').trim()}`).join('\n');
   const getNaturalText = () => data.segments.map(seg => (seg.natural || '').trim()).join('\n');
 
-  const exportToWord = () => {
+  const performWordExport = (fileName: string) => {
     if (!data.segments || data.segments.length === 0) return;
 
     let tableRowsHtml = "";
@@ -172,7 +174,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'SimSun', serif; font-size: 11pt; background-color: #FFFDF7; width: 22%;">${cleanSource}</td>
           <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #8D6E63; width: 23%;">${cleanQuick}</td>
           <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #A1887F; width: 23%;">${cleanDeepl}</td>
-          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 11pt; font-weight: bold; color: #3E2723; width: 32%;">${cleanNatural}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 11pt; color: #3E2723; width: 32%;">${cleanNatural}</td>
         </tr>
       `;
     });
@@ -181,20 +183,18 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head>
         <meta charset="utf-8">
-        <title>Bảng đối chiếu dịch thuật</title>
+        <title>${fileName}</title>
         <style>
           body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #333333; }
-          h2 { color: #3E2723; font-family: "Times New Roman", serif; border-bottom: 2px solid #5D4037; padding-bottom: 5px; text-transform: uppercase; margin-bottom: 15px; }
           table { border-collapse: collapse; width: 100%; margin-top: 15px; }
           th { background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8; padding: 10px 8px; font-weight: bold; text-align: left; font-size: 11pt; }
         </style>
       </head>
       <body>
-        <h2>BẢNG ĐỐI CHIẾU DỊCH THUẬT CHIVIET</h2>
         <table>
           <thead>
             <tr>
-              <th style="width: 22%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Nguồn (Raw)</th>
+              <th style="width: 22%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Raw</th>
               <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Vietphrase</th>
               <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">GG/DL</th>
               <th style="width: 32%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Bản edit</th>
@@ -212,11 +212,30 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Bang_doi_chieu_${new Date().toISOString().slice(0, 10)}.doc`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleConfirmExport = () => {
+    let name = exportFileName.trim();
+    if (!name) {
+      name = `Bang_doi_chieu_${new Date().toISOString().slice(0, 10)}`;
+    }
+    if (!name.endsWith('.doc') && !name.endsWith('.docx')) {
+      name += '.doc';
+    }
+    performWordExport(name);
+    setShowNamingModal(false);
+  };
+
+  const exportToWord = () => {
+    if (!data.segments || data.segments.length === 0) return;
+    const defaultName = `Bang_doi_chieu_${new Date().toISOString().slice(0, 10)}`;
+    setExportFileName(defaultName);
+    setShowNamingModal(true);
   };
 
   useEffect(() => {
@@ -407,6 +426,63 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                     {activeVocab.item.explanation && (<div><div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5 flex items-center gap-1"><Info size={8} /> Chi tiết</div><div className="text-[10px] text-[#5D4037] italic leading-tight bg-white border border-[#EFEBE9] p-1 rounded">{activeVocab.item.explanation}</div></div>)}
                 </div>
             </div>
+        </div>,
+        document.body
+      )}
+
+      {showNamingModal && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF7] border border-[#D7CCC8] rounded-xl shadow-[0_20px_50px_rgba(62,39,35,0.3)] w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-[#EFEBE9] px-4 py-3 border-b border-[#D7CCC8] flex items-center justify-between">
+              <span className="text-xs font-bold text-[#3E2723] uppercase tracking-wider flex items-center gap-1.5">
+                <FileDown size={14} className="text-[#8D6E63]" />
+                <span>Đặt tên file Word</span>
+              </span>
+              <button 
+                onClick={() => setShowNamingModal(false)}
+                className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#D7CCC8]/30 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="p-5">
+              <label className="block text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-2">
+                Tên file (hệ thống sẽ tự động thêm .doc):
+              </label>
+              <input
+                type="text"
+                value={exportFileName}
+                onChange={(e) => setExportFileName(e.target.value)}
+                placeholder="VD: chuong_153_doi_chieu"
+                className="w-full bg-white border border-[#D7CCC8] rounded px-3 py-2 text-[#3E2723] text-sm outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all font-medium"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmExport();
+                  }
+                }}
+              />
+              <p className="text-[10px] text-[#A1887F] mt-2 italic">
+                Bảng sẽ xuất ra Word gồm 4 cột đối chiếu: Nguồn, Vietphrase, GG/DL và Bản edit.
+              </p>
+            </div>
+            
+            <div className="bg-[#F5F2F0] px-5 py-3 border-t border-[#D7CCC8] flex justify-end gap-2">
+              <button
+                onClick={() => setShowNamingModal(false)}
+                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleConfirmExport}
+                className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm"
+              >
+                Xuất file
+              </button>
+            </div>
+          </div>
         </div>,
         document.body
       )}

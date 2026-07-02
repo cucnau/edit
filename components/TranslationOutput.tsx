@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2 } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 
 interface TranslationOutputProps {
@@ -11,13 +11,82 @@ interface TranslationOutputProps {
   characters?: Character[];
   completedSegments?: number[];
   onUpdateSegment?: (index: number, newNatural: string) => void;
+  onUpdateAllSegments?: (newNaturals: string[]) => void;
   onToggleComplete?: (index: number) => void;
   onSaveChapter?: (name: string) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
 }
 
 const escapeRegExp = (string: string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+const DIACRITIC_CLASSES_LOWER: Record<string, string> = {
+  'a': '[aàáảãạăằắẳẵặâầấẩẫậ]',
+  'e': '[eèéẻẽẹêềếểễệ]',
+  'i': '[iìíỉĩị]',
+  'o': '[oòóỏõọôồốổỗộơờớởỡợ]',
+  'u': '[uùúủũụưừứửữự]',
+  'y': '[yỳýỷỹỵ]',
+  'd': '[dđ]'
+};
+
+const DIACRITIC_CLASSES_UPPER: Record<string, string> = {
+  'A': '[AÀÁẢÃẠĂẰẮ|ẲẴẶÂẦẤẨẪẬ]',
+  'E': '[EÈÉẺẼẸÊỀẾỂỄỆ]',
+  'I': '[IÌÍỈĨỊ]',
+  'O': '[OÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢ]',
+  'U': '[UÙÚỦŨỤƯỪỨỬỮỰ]',
+  'Y': '[YỲÝỶỸỴ]',
+  'D': '[DĐ]'
+};
+
+const toBaseVietnamese = (str: string): string => {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+};
+
+const getDiacriticRegexClass = (char: string, matchCase: boolean): string => {
+  if (!matchCase) {
+    const lower = char.toLowerCase();
+    return DIACRITIC_CLASSES_LOWER[lower] || escapeRegExp(char);
+  } else {
+    if (DIACRITIC_CLASSES_UPPER[char]) {
+      return DIACRITIC_CLASSES_UPPER[char];
+    }
+    if (DIACRITIC_CLASSES_LOWER[char]) {
+      return DIACRITIC_CLASSES_LOWER[char];
+    }
+    return escapeRegExp(char);
+  }
+};
+
+const buildSearchRegex = (findText: string, matchCase: boolean, matchDiacritics: boolean): RegExp | null => {
+  if (!findText) return null;
+  try {
+    if (matchDiacritics) {
+      return new RegExp(escapeRegExp(findText), matchCase ? 'g' : 'gi');
+    } else {
+      const baseText = toBaseVietnamese(findText);
+      let regexPattern = '';
+      for (let i = 0; i < baseText.length; i++) {
+        regexPattern += getDiacriticRegexClass(baseText[i], matchCase);
+      }
+      return new RegExp(regexPattern, matchCase ? 'g' : 'gi');
+    }
+  } catch (e) {
+    console.error("Failed to build regex", e);
+    return null;
+  }
+};
 
 const EditableSegment = ({ 
     text, 
@@ -125,6 +194,43 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   } | null>(null);
   const [copiedMode, setCopiedMode] = useState<'all' | 'parallel' | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+
+  // Search and replace states
+  const [showSearchReplace, setShowSearchReplace] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [matchDiacritics, setMatchDiacritics] = useState(true);
+
+  // Calculate search match count
+  const matchCount = React.useMemo(() => {
+    if (!findText || !data.segments) return 0;
+    try {
+      const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
+      if (!regex) return 0;
+      let count = 0;
+      data.segments.forEach(seg => {
+        const matches = (seg.natural || '').match(regex);
+        if (matches) count += matches.length;
+      });
+      return count;
+    } catch (e) {
+      return 0;
+    }
+  }, [findText, matchCase, matchDiacritics, data.segments]);
+
+  // Execute search and replace
+  const handleReplaceAll = () => {
+    if (!findText || !data.segments) return;
+    try {
+      const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
+      if (!regex) return;
+      const newNaturals = data.segments.map(seg => (seg.natural || '').replace(regex, replaceText));
+      onUpdateAllSegments?.(newNaturals);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Subscribe to vietphrase changes to trigger re-renders
   useEffect(() => {
@@ -351,6 +457,45 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           <div className="flex items-center justify-between bg-[#EFEBE9] px-3 py-1 border-b border-[#D7CCC8]">
              <div className="flex items-center gap-1.5 text-[#3E2723] font-bold text-[10px] uppercase tracking-tight"><TableProperties size={12} /><span>Bảng đối chiếu</span></div>
              <div className="flex items-center gap-1.5">
+                {/* Undo / Redo */}
+                <div className="flex items-center gap-0.5 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
+                   <button 
+                      onClick={onUndo} 
+                      disabled={!canUndo} 
+                      title="Hoàn tác (Ctrl+Z)"
+                      className="p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                   >
+                      <Undo2 size={11} />
+                   </button>
+                   <button 
+                      onClick={onRedo} 
+                      disabled={!canRedo} 
+                      title="Làm lại (Ctrl+Y)"
+                      className="p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                   >
+                      <Redo2 size={11} />
+                   </button>
+                </div>
+
+                {/* Batch Search and Replace */}
+                <button 
+                   onClick={() => setShowSearchReplace(!showSearchReplace)} 
+                   title="Tìm kiếm & Thay thế hàng loạt"
+                   className={`p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] transition-colors mr-1 ${showSearchReplace ? 'bg-[#D7CCC8]' : ''}`}
+                >
+                   <Search size={11} />
+                </button>
+
+                {/* Focus mode */}
+                <button 
+                   onClick={onToggleFocusMode} 
+                   title={isFocusMode ? "Thoát chế độ tập trung" : "Chế độ tập trung"}
+                   className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded border transition-colors shadow-sm mr-1.5 ${isFocusMode ? 'bg-[#FFECB3] border-[#FFD54F] text-[#3E2723] hover:bg-[#FFE082]' : 'bg-white border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]'}`}
+                >
+                   {isFocusMode ? <Minimize2 size={10} /> : <Maximize2 size={10} />}
+                   <span>{isFocusMode ? "Hủy tập trung" : "Tập trung"}</span>
+                </button>
+
                 <button onClick={() => copyToClipboard(getParallelText(), 'parallel')} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'parallel' ? <Check size={10} /> : <ClipboardList size={10} />}<span>Edit & Raw</span></button>
                 <button onClick={() => copyToClipboard(getNaturalText(), 'all')} className="flex items-center gap-1 text-[9px] font-bold text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'all' ? <Check size={10} /> : <Copy size={10} />}<span>Edit</span></button>
                 <button onClick={exportToWord} className="flex items-center gap-1 text-[9px] font-bold text-[#3E2723] hover:text-white hover:bg-[#5D4037] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#5D4037] transition-colors shadow-sm"><FileDown size={10} /><span>Xuất Word</span></button>
@@ -359,6 +504,76 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 )}
              </div>
           </div>
+          {showSearchReplace && (
+             <div className="bg-[#FFFDF7] border-b border-[#D7CCC8] p-2 px-3 flex flex-wrap items-center gap-3 animate-in slide-in-from-top-1 duration-150 shrink-0 select-none">
+                <div className="flex items-center gap-1.5">
+                   <span className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wide">Tìm:</span>
+                   <input 
+                     type="text" 
+                     value={findText}
+                     onChange={(e) => setFindText(e.target.value)}
+                     placeholder="Từ cần tìm..." 
+                     className="bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[11px] text-[#3E2723] outline-none focus:border-[#8D6E63] w-36 font-medium"
+                   />
+                </div>
+                <div className="flex items-center gap-1.5">
+                   <span className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wide">Thay bằng:</span>
+                   <input 
+                     type="text" 
+                     value={replaceText}
+                     onChange={(e) => setReplaceText(e.target.value)}
+                     placeholder="Từ thay thế..." 
+                     className="bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[11px] text-[#3E2723] outline-none focus:border-[#8D6E63] w-36 font-medium"
+                   />
+                </div>
+                <div className="flex items-center gap-1.5">
+                   <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[#5D4037] font-medium select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={matchCase} 
+                        onChange={(e) => setMatchCase(e.target.checked)}
+                        className="rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8] h-3 w-3"
+                      />
+                      <span>Phân biệt hoa thường</span>
+                   </label>
+                </div>
+                <div className="flex items-center gap-1.5">
+                   <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[#5D4037] font-medium select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={matchDiacritics} 
+                        onChange={(e) => setMatchDiacritics(e.target.checked)}
+                        className="rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8] h-3 w-3"
+                      />
+                      <span>Khớp dấu</span>
+                   </label>
+                </div>
+                {findText && (
+                   <div className="text-[10px] font-bold text-[#8D6E63] bg-[#FFF8E1] px-1.5 py-0.5 rounded border border-[#FFE082]">
+                      Khớp: {matchCount}
+                   </div>
+                )}
+                <div className="flex items-center gap-1.5 ml-auto">
+                   <button 
+                     onClick={handleReplaceAll}
+                     disabled={!findText || matchCount === 0}
+                     className="bg-[#5D4037] hover:bg-[#3E2723] disabled:bg-[#D7CCC8] disabled:cursor-not-allowed text-white text-[10px] font-bold px-2.5 py-0.5 rounded transition-colors shadow-sm"
+                   >
+                     Thay thế tất cả
+                   </button>
+                   <button 
+                     onClick={() => {
+                       setShowSearchReplace(false);
+                       setFindText('');
+                       setReplaceText('');
+                     }}
+                     className="text-[#A1887F] hover:text-[#3E2723] text-[10px] font-medium px-1.5 py-0.5"
+                   >
+                     Hủy
+                   </button>
+                </div>
+             </div>
+          )}
           {hasSegments && (
              <div className="flex w-full bg-[#EFEBE9] text-[#5D4037] text-[9px] font-bold uppercase tracking-wider shadow-sm border-t border-[#D7CCC8]">
                  <div className="w-[45%] p-1 border-r border-[#D7CCC8] pl-2">Nguồn</div>

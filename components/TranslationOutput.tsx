@@ -90,10 +90,12 @@ const buildSearchRegex = (findText: string, matchCase: boolean, matchDiacritics:
 
 const EditableSegment = ({ 
     text, 
-    onUpdate 
+    onUpdate,
+    isFocusMode = false
 }: { 
     text: string; 
-    onUpdate: (val: string) => void 
+    onUpdate: (val: string) => void;
+    isFocusMode?: boolean;
 }) => {
     const [localText, setLocalText] = useState(text);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -119,7 +121,7 @@ const EditableSegment = ({
             window.removeEventListener('resize', adjustHeight);
             clearTimeout(timer);
         };
-    }, [localText]);
+    }, [localText, isFocusMode]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value;
@@ -146,8 +148,8 @@ const EditableSegment = ({
             value={localText}
             onChange={handleChange}
             onBlur={handleBlur}
-            className="w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] text-[15px] focus:ring-0 m-0 block whitespace-normal min-h-0"
-            style={{ fontWeight: 400, display: 'block', margin: 0 }}
+            className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-relaxed focus:ring-0 m-0 block whitespace-normal min-h-0 transition-all duration-150 ${isFocusMode ? 'text-[20px] font-medium' : 'text-[15px]'}`}
+            style={{ fontWeight: isFocusMode ? 500 : 400, display: 'block', margin: 0 }}
             rows={1}
             spellCheck={false}
         />
@@ -463,7 +465,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       <div className="shrink-0 bg-white">
           <div className="flex items-center justify-between bg-[#EFEBE9] px-3 py-1 border-b border-[#D7CCC8]">
              <div className="flex items-center gap-1.5 text-[#3E2723] font-bold text-[10px] uppercase tracking-tight"><TableProperties size={12} /><span>Bảng đối chiếu</span></div>
-             <div className="flex items-center gap-1.5">
+             <div className="flex items-center gap-1">
                 {/* Undo / Redo */}
                 <div className="flex items-center gap-0.5 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
                    <button 
@@ -487,7 +489,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 {/* Batch Search and Replace */}
                 <button 
                    onClick={() => setShowSearchReplace(!showSearchReplace)} 
-                   title="Tìm kiếm & Thay thế hàng loạt"
+                   title="Tìm kiếm & Thay thế"
                    className={`p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] transition-colors mr-1 ${showSearchReplace ? 'bg-[#D7CCC8]' : ''}`}
                 >
                    <Search size={11} />
@@ -496,18 +498,48 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 {/* Focus mode */}
                 <button 
                    onClick={onToggleFocusMode} 
-                   title={isFocusMode ? "Thoát chế độ tập trung" : "Chế độ tập trung"}
-                   className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded border transition-colors shadow-sm mr-1.5 ${isFocusMode ? 'bg-[#FFECB3] border-[#FFD54F] text-[#3E2723] hover:bg-[#FFE082]' : 'bg-white border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]'}`}
+                   title={isFocusMode ? "Hủy tập trung (Hiện 2 bên)" : "Tập trung (Mở rộng tối đa)"}
+                   className={`p-1 rounded border transition-colors shadow-sm mr-1 ${isFocusMode ? 'bg-[#FFECB3] border-[#FFD54F] text-[#3E2723] hover:bg-[#FFE082]' : 'bg-white border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]'}`}
                 >
-                   {isFocusMode ? <Minimize2 size={10} /> : <Maximize2 size={10} />}
-                   <span>{isFocusMode ? "Hủy tập trung" : "Tập trung"}</span>
+                   {isFocusMode ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
                 </button>
 
-                <button onClick={() => copyToClipboard(getParallelText(), 'parallel')} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'parallel' ? <Check size={10} /> : <ClipboardList size={10} />}<span>Edit & Raw</span></button>
-                <button onClick={() => copyToClipboard(getNaturalText(), 'all')} className="flex items-center gap-1 text-[9px] font-bold text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'all' ? <Check size={10} /> : <Copy size={10} />}<span>Edit</span></button>
-                <button onClick={exportToWord} className="flex items-center gap-1 text-[9px] font-bold text-[#3E2723] hover:text-white hover:bg-[#5D4037] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#5D4037] transition-colors shadow-sm"><FileDown size={10} /><span>Xuất Word</span></button>
+                {/* Edit & Raw copy button */}
+                <button 
+                   onClick={() => copyToClipboard(getParallelText(), 'parallel')} 
+                   title="Sao chép Đối chiếu (Gốc & Edit)" 
+                   className="p-1 rounded text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] transition-colors shadow-sm mr-1"
+                >
+                   {copiedMode === 'parallel' ? <Check size={11} className="text-green-600 font-bold" /> : <ClipboardList size={11} />}
+                </button>
+
+                {/* Edit only copy button */}
+                <button 
+                   onClick={() => copyToClipboard(getNaturalText(), 'all')} 
+                   title="Sao chép Bản dịch (Chỉ phần Edit)" 
+                   className="p-1 rounded text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] transition-colors shadow-sm mr-1"
+                >
+                   {copiedMode === 'all' ? <Check size={11} className="text-green-600 font-bold" /> : <Copy size={11} />}
+                </button>
+
+                {/* Export to Word button */}
+                <button 
+                   onClick={exportToWord} 
+                   title="Xuất file Word (.docx)" 
+                   className="p-1 rounded text-[#3E2723] hover:text-white hover:bg-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#5D4037] transition-colors shadow-sm mr-1"
+                >
+                   <FileDown size={11} />
+                </button>
+
+                {/* Save chapter button */}
                 {onSaveChapter && (
-                   <button onClick={saveToArchive} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-white hover:bg-[#8D6E63] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#8D6E63] transition-colors shadow-sm"><BookOpen size={10} /><span>Lưu Kho</span></button>
+                   <button 
+                      onClick={saveToArchive} 
+                      title="Lưu vào Kho Lưu trữ Chương" 
+                      className="p-1 rounded text-[#5D4037] hover:text-white hover:bg-[#8D6E63] bg-white border border-[#D7CCC8] hover:bg-[#8D6E63] transition-colors shadow-sm mr-1"
+                   >
+                      <BookOpen size={11} />
+                   </button>
                 )}
              </div>
           </div>
@@ -605,29 +637,31 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
                       return (
                         <tr key={idx} className={`${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} transition-colors group/row border-none`}>
-                           <td className={`py-0 px-2 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'}`}>
+                           <td className={`py-1 px-3 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} ${isFocusMode ? 'py-2 px-4' : ''}`}>
                               <div className="flex flex-col py-0.5">
-                                <div className="text-[14.5px] font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words">
+                                <div className={`${isFocusMode ? 'text-[20px] leading-relaxed' : 'text-[14.5px] leading-[1.2]'} font-serif-sc text-[#3E2723] m-0 whitespace-normal break-words`}>
                                    <button 
                                       onClick={() => onToggleComplete?.(idx)}
-                                      className={`inline-flex items-center justify-center min-w-[16px] h-[16px] mr-1 transition-all select-none align-middle transform -translate-y-[1px] rounded ${isDone ? 'text-[#5D4037] scale-110' : 'text-[#A1887F]/30 hover:text-[#3E2723] hover:scale-110'}`}
+                                      className={`inline-flex items-center justify-center min-w-[16px] h-[16px] mr-1.5 transition-all select-none align-middle transform -translate-y-[1px] rounded ${isDone ? 'text-[#5D4037] scale-110' : 'text-[#A1887F]/30 hover:text-[#3E2723] hover:scale-110'}`}
                                    >
-                                       {isDone ? <CheckCircle2 size={12} /> : <span className="text-[9px] font-bold">{idx + 1}.</span>}
+                                       {isDone ? <CheckCircle2 size={isFocusMode ? 16 : 12} /> : <span className={`${isFocusMode ? 'text-[13px]' : 'text-[9px]'} font-bold`}>{idx + 1}.</span>}
                                    </button>
                                    {renderSourceWithHighlight(cleanSource)}
                                 </div>
                                 {cleanQuick && (
-                                  <div className="text-[10px] text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[18px] -mt-0.5 break-words">
+                                  <div className={`${isFocusMode ? 'text-[14px] leading-relaxed mt-1 pl-6' : 'text-[10px] leading-[1.1] pl-[18px] -mt-0.5'} text-[#8D6E63] opacity-75 italic break-words`}>
                                     {cleanQuick}
                                   </div>
                                 )}
                               </div>
                            </td>
-                           <td className="py-0 px-2 align-top relative pr-6 border-none">
+                           <td className={`py-1 px-3 align-top relative pr-8 border-none ${isFocusMode ? 'py-2 px-4 pr-10' : ''}`}>
                               <div className="flex flex-col py-0.5">
-                                  <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} />
+                                  <EditableSegment text={cleanNatural} onUpdate={(val) => onUpdateSegment?.(idx, val)} isFocusMode={isFocusMode} />
                                   {cleanDeepl && (
-                                    <div className="text-[8.5px] text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words"><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
+                                    <div className={`${isFocusMode ? 'text-[12px] leading-relaxed mt-1' : 'text-[8.5px] leading-[1.1] -mt-0.5'} text-[#A1887F] italic opacity-65 break-words`}>
+                                      <span className="font-bold mr-1 opacity-85 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}
+                                    </div>
                                   )}
                               </div>
                               <SegmentCopyBtn text={cleanNatural} />

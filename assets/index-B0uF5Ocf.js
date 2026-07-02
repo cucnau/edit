@@ -3656,7 +3656,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
               </style>
             </head>
             <body>
-              <h2 style="text-align: center; margin-bottom: 24px; font-family: 'Times New Roman', serif; font-size: 16pt; color: #3E2723;">${te.name} - Đối chiếu câu</h2>
               ${te.result.segments.map(Ue=>{const tt=(Ue.source||"").trim(),$e=(Ue.natural||"").trim();return!tt&&!$e?"":`<p class="raw">${tt}</p><p class="edit">${$e}</p>`}).join("")}
             </body>
             </html>
@@ -3671,7 +3670,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
               </style>
             </head>
             <body>
-              <h2 style="text-align: center; margin-bottom: 24px; font-family: 'Times New Roman', serif; font-size: 16pt; color: #3E2723;">${te.name}</h2>
               ${te.result.segments.map(Ue=>{const tt=(Ue.natural||"").trim();return tt?`<p>${tt}</p>`:""}).join("")}
             </body>
             </html>

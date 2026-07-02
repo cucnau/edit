@@ -30,6 +30,10 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [showZipOptions, setShowZipOptions] = useState(false);
+  const [optExportTable, setOptExportTable] = useState(true);
+  const [optExportParallel, setOptExportParallel] = useState(false);
+  const [optExportEdit, setOptExportEdit] = useState(false);
 
   // Initialize selected IDs to all chapters when modal opens
   useEffect(() => {
@@ -90,12 +94,25 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
     setEditingId(null);
   };
 
+  const handleExportZipClick = () => {
+    const selectedChapters = chapters.filter(c => selectedIds.has(c.id));
+    if (selectedChapters.length === 0) return;
+    setShowZipOptions(true);
+  };
+
   // Export Selected to ZIP
-  const handleExportZip = async () => {
+  const performExportZip = async () => {
     const selectedChapters = chapters.filter(c => selectedIds.has(c.id));
     if (selectedChapters.length === 0) return;
 
+    if (!optExportTable && !optExportParallel && !optExportEdit) {
+      alert("Vui lòng chọn ít nhất một định dạng tải về!");
+      return;
+    }
+
     setIsExporting(true);
+    setShowZipOptions(false);
+
     try {
       const zip = new JSZip();
 
@@ -110,60 +127,116 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
       selectedChapters.forEach(chapter => {
         if (!chapter.result?.segments || chapter.result.segments.length === 0) return;
 
-        let tableRowsHtml = "";
-        chapter.result.segments.forEach(seg => {
-          const cleanSource = (seg.source || '').trim();
-          const cleanNatural = (seg.natural || '').trim();
-          const cleanDeepl = (seg.deepl || '').trim();
-          const cleanQuick = (vietphraseEngine.translate(cleanSource, customMap) || '').trim();
-
-          if (!cleanSource && !cleanNatural) return;
-
-          tableRowsHtml += `
-            <tr>
-              <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'SimSun', serif; font-size: 11pt; background-color: #FFFDF7; width: 22%;">${cleanSource}</td>
-              <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #8D6E63; width: 23%;">${cleanQuick}</td>
-              <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #A1887F; width: 23%;">${cleanDeepl}</td>
-              <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 11pt; color: #3E2723; width: 32%;">${cleanNatural}</td>
-            </tr>
-          `;
-        });
-
-        const htmlContent = `
-          <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-          <head>
-            <meta charset="utf-8">
-            <title>${chapter.name}</title>
-            <style>
-              body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #333333; }
-              table { border-collapse: collapse; width: 100%; margin-top: 15px; }
-              th { background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8; padding: 10px 8px; font-weight: bold; text-align: left; font-size: 11pt; }
-            </style>
-          </head>
-          <body>
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 22%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Raw</th>
-                  <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Vietphrase</th>
-                  <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">GG/DL</th>
-                  <th style="width: 32%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Bản edit</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${tableRowsHtml}
-              </tbody>
-            </table>
-          </body>
-          </html>
-        `;
-
-        const content = '\ufeff' + htmlContent;
         let fileWithExt = chapter.name.trim();
         if (!fileWithExt.endsWith('.doc') && !fileWithExt.endsWith('.docx')) {
           fileWithExt += '.doc';
         }
-        zip.file(fileWithExt, content);
+
+        // Option 1: Table view
+        if (optExportTable) {
+          let tableRowsHtml = "";
+          chapter.result.segments.forEach(seg => {
+            const cleanSource = (seg.source || '').trim();
+            const cleanNatural = (seg.natural || '').trim();
+            const cleanDeepl = (seg.deepl || '').trim();
+            const cleanQuick = (vietphraseEngine.translate(cleanSource, customMap) || '').trim();
+
+            if (!cleanSource && !cleanNatural) return;
+
+            tableRowsHtml += `
+              <tr>
+                <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'SimSun', serif; font-size: 11pt; background-color: #FFFDF7; width: 22%;">${cleanSource}</td>
+                <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #8D6E63; width: 23%;">${cleanQuick}</td>
+                <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #A1887F; width: 23%;">${cleanDeepl}</td>
+                <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 11pt; color: #3E2723; width: 32%;">${cleanNatural}</td>
+              </tr>
+            `;
+          });
+
+          const htmlContent = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head>
+              <meta charset="utf-8">
+              <title>${chapter.name}</title>
+              <style>
+                body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #333333; }
+                table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+                th { background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8; padding: 10px 8px; font-weight: bold; text-align: left; font-size: 11pt; }
+              </style>
+            </head>
+            <body>
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 22%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Raw</th>
+                    <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Vietphrase</th>
+                    <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">GG/DL</th>
+                    <th style="width: 32%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Bản edit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRowsHtml}
+                </tbody>
+              </table>
+            </body>
+            </html>
+          `;
+
+          const content = '\ufeff' + htmlContent;
+          zip.file(`Bản đối chiếu dạng bảng/${fileWithExt}`, content);
+        }
+
+        // Option 2: Edit & Raw
+        if (optExportParallel) {
+          const parallelHtmlContent = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head>
+              <meta charset="utf-8">
+              <title>${chapter.name}</title>
+              <style>
+                body { font-family: "Times New Roman", Times, serif; font-size: 12pt; line-height: 1.6; color: #333333; }
+                p.raw { color: #8D6E63; font-family: "SimSun", serif; font-size: 11pt; margin: 0 0 4px 0; }
+                p.edit { color: #3E2723; font-weight: bold; margin: 0 0 16px 0; }
+              </style>
+            </head>
+            <body>
+              <h2 style="text-align: center; margin-bottom: 24px; font-family: 'Times New Roman', serif; font-size: 16pt; color: #3E2723;">${chapter.name} - Đối chiếu câu</h2>
+              ${chapter.result.segments.map(seg => {
+                const raw = (seg.source || '').trim();
+                const edit = (seg.natural || '').trim();
+                if (!raw && !edit) return '';
+                return `<p class="raw">${raw}</p><p class="edit">${edit}</p>`;
+              }).join('')}
+            </body>
+            </html>
+          `;
+          zip.file(`Bản dịch song ngữ (Edit & Raw)/${fileWithExt}`, '\ufeff' + parallelHtmlContent);
+        }
+
+        // Option 3: Only Edit
+        if (optExportEdit) {
+          const editHtmlContent = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head>
+              <meta charset="utf-8">
+              <title>${chapter.name}</title>
+              <style>
+                body { font-family: "Times New Roman", Times, serif; font-size: 12pt; line-height: 1.6; color: #3E2723; }
+                p { margin: 0 0 12px 0; }
+              </style>
+            </head>
+            <body>
+              <h2 style="text-align: center; margin-bottom: 24px; font-family: 'Times New Roman', serif; font-size: 16pt; color: #3E2723;">${chapter.name}</h2>
+              ${chapter.result.segments.map(seg => {
+                const edit = (seg.natural || '').trim();
+                if (!edit) return '';
+                return `<p>${edit}</p>`;
+              }).join('')}
+            </body>
+            </html>
+          `;
+          zip.file(`Bản dịch tinh chỉnh (Chỉ Edit)/${fileWithExt}`, '\ufeff' + editHtmlContent);
+        }
       });
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
@@ -229,7 +302,7 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
             </button>
             
             <button
-              onClick={handleExportZip}
+              onClick={handleExportZipClick}
               disabled={selectedIds.size === 0 || isExporting}
               className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded transition-all shadow-sm ${
                 selectedIds.size > 0 && !isExporting
@@ -382,6 +455,109 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
           </div>
         )}
       </div>
+
+      {showZipOptions && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#3E2723]/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF7] rounded-xl border border-[#D7CCC8] shadow-2xl w-full max-w-md overflow-hidden transform animate-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-[#D7CCC8] bg-[#EFE5D9] flex justify-between items-center">
+              <div className="flex items-center gap-2 text-[#3E2723] font-bold text-sm">
+                <FolderDown size={16} className="text-[#5D4037]" />
+                <span>Cấu hình tải bộ chương ZIP</span>
+              </div>
+              <button onClick={() => setShowZipOptions(false)} className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-[#5D4037] font-medium leading-relaxed">
+                Hệ thống sẽ tạo một file nén <strong>.zip</strong> chứa các thư mục tương ứng với định dạng bạn chọn. Mỗi thư mục sẽ có các chương được lưu dưới dạng file Word (.doc).
+              </p>
+              
+              <div className="space-y-3 bg-white p-3.5 rounded-lg border border-[#D7CCC8]">
+                {/* Option 1: Table view */}
+                <label className="flex items-start gap-3 cursor-pointer select-none group">
+                  <input
+                    type="checkbox"
+                    checked={optExportTable}
+                    onChange={(e) => setOptExportTable(e.target.checked)}
+                    className="mt-0.5 rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8]"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-[#3E2723] group-hover:text-[#5D4037] transition-colors">
+                      Thư mục: Bản đối chiếu dạng bảng
+                    </span>
+                    <p className="text-[10px] text-[#A1887F]">
+                      Chứa file bảng đối chiếu 4 cột (Raw - Vietphrase - Google/DeepL - Edit).
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option 2: Edit & Raw */}
+                <label className="flex items-start gap-3 cursor-pointer select-none group pt-2 border-t border-[#F5E6D3]">
+                  <input
+                    type="checkbox"
+                    checked={optExportParallel}
+                    onChange={(e) => setOptExportParallel(e.target.checked)}
+                    className="mt-0.5 rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8]"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-[#3E2723] group-hover:text-[#5D4037] transition-colors">
+                      Thư mục: Bản dịch song ngữ (Edit & Raw)
+                    </span>
+                    <p className="text-[10px] text-[#A1887F]">
+                      Chứa file dạng đoạn Raw và đoạn Edit dính sát nhau, phân dòng rõ ràng.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Option 3: Only Edit */}
+                <label className="flex items-start gap-3 cursor-pointer select-none group pt-2 border-t border-[#F5E6D3]">
+                  <input
+                    type="checkbox"
+                    checked={optExportEdit}
+                    onChange={(e) => setOptExportEdit(e.target.checked)}
+                    className="mt-0.5 rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8]"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-[#3E2723] group-hover:text-[#5D4037] transition-colors">
+                      Thư mục: Bản dịch tinh chỉnh (Chỉ Edit)
+                    </span>
+                    <p className="text-[10px] text-[#A1887F]">
+                      Chứa file chỉ có các đoạn dịch đã tinh chỉnh mượt mà (sạch Raw).
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="text-[10px] text-[#A1887F] italic bg-[#FFF8E1] p-2 rounded border border-[#FFE082] flex items-center gap-1.5">
+                <AlertCircle size={12} className="text-[#FFB300] shrink-0" />
+                <span>Bạn có thể tích chọn nhiều thư mục cùng một lúc để tải về trọn bộ!</span>
+              </div>
+            </div>
+            
+            <div className="bg-[#F5F2F0] px-5 py-3 border-t border-[#D7CCC8] flex justify-end gap-2">
+              <button
+                onClick={() => setShowZipOptions(false)}
+                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={performExportZip}
+                disabled={!optExportTable && !optExportParallel && !optExportEdit}
+                className={`px-4 py-1.5 rounded text-white text-xs font-bold transition-all shadow-sm ${
+                  (optExportTable || optExportParallel || optExportEdit)
+                    ? 'bg-[#5D4037] hover:bg-[#3E2723] cursor-pointer'
+                    : 'bg-[#EFEBE9] text-[#BCAAA4] border border-[#D7CCC8] cursor-not-allowed'
+                }`}
+              >
+                Tải ZIP ({selectedIds.size} chương)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

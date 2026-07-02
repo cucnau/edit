@@ -418,37 +418,86 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [charVietName, setCharVietName] = useState('');
   const [charPronoun, setCharPronoun] = useState('Hắn');
   const [charDescription, setCharDescription] = useState('');
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const handleSaveSelectedVocab = () => {
     if (!selectionPopup || !vocabMeaning.trim() || !onUpdateTerms) return;
 
-    const newTerm: CustomTerm = {
-      id: Date.now().toString(),
-      novelId: currentNovelId || '',
-      term: selectionPopup.text.trim(),
-      meaning: vocabMeaning.trim()
-    };
+    try {
+      const cleanTerm = selectionPopup.text.trim();
+      const cleanMeaning = vocabMeaning.trim();
 
-    const safeTerms = Array.isArray(customTerms) ? customTerms : [];
-    onUpdateTerms([...safeTerms, newTerm]);
-    setSelectionPopup(null);
+      const newTerm: CustomTerm = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        term: cleanTerm,
+        meaning: cleanMeaning
+      };
+
+      const safeTerms = Array.isArray(customTerms) ? customTerms : [];
+      
+      // Duplicate check
+      const duplicateExists = safeTerms.some(t => t.term === cleanTerm && t.meaning === cleanMeaning);
+      if (duplicateExists) {
+        setSaveStatus({ type: 'success', message: 'Từ vựng này đã có sẵn!' });
+        setTimeout(() => {
+          setSelectionPopup(null);
+          setSaveStatus(null);
+        }, 800);
+        return;
+      }
+
+      onUpdateTerms([...safeTerms, newTerm]);
+      setSaveStatus({ type: 'success', message: 'Đã thêm từ vựng thành công!' });
+      setTimeout(() => {
+        setSelectionPopup(null);
+        setSaveStatus(null);
+      }, 800);
+    } catch (err: any) {
+      console.error("Save vocab error:", err);
+      setSaveStatus({ type: 'error', message: err.message || 'Lỗi khi lưu từ vựng!' });
+    }
   };
 
   const handleSaveSelectedCharacter = () => {
     if (!selectionPopup || !charVietName.trim() || !onUpdateCharacters) return;
 
-    const newChar: Character = {
-      id: Date.now().toString(),
-      novelId: currentNovelId || '',
-      chineseName: selectionPopup.text.trim(),
-      vietName: charVietName.trim(),
-      pronouns: charPronoun.trim() || 'Hắn',
-      description: charDescription.trim()
-    };
+    try {
+      const cleanChinese = selectionPopup.text.trim();
+      const cleanViet = charVietName.trim();
 
-    const safeCharacters = Array.isArray(characters) ? characters : [];
-    onUpdateCharacters([...safeCharacters, newChar]);
-    setSelectionPopup(null);
+      const newChar: Character = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        chineseName: cleanChinese,
+        vietName: cleanViet,
+        pronouns: charPronoun.trim() || 'Hắn',
+        description: charDescription.trim()
+      };
+
+      const safeCharacters = Array.isArray(characters) ? characters : [];
+      
+      // Duplicate check
+      const duplicateExists = safeCharacters.some(c => c.chineseName === cleanChinese && c.vietName === cleanViet);
+      if (duplicateExists) {
+        setSaveStatus({ type: 'success', message: 'Nhân vật này đã có sẵn!' });
+        setTimeout(() => {
+          setSelectionPopup(null);
+          setSaveStatus(null);
+        }, 800);
+        return;
+      }
+
+      onUpdateCharacters([...safeCharacters, newChar]);
+      setSaveStatus({ type: 'success', message: 'Đã thêm nhân vật thành công!' });
+      setTimeout(() => {
+        setSelectionPopup(null);
+        setSaveStatus(null);
+      }, 800);
+    } catch (err: any) {
+      console.error("Save character error:", err);
+      setSaveStatus({ type: 'error', message: err.message || 'Lỗi khi lưu nhân vật!' });
+    }
   };
 
   // Selection change or mouseup listener
@@ -1224,6 +1273,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       type="text" 
                       value={vocabMeaning} 
                       onChange={(e) => setVocabMeaning(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && vocabMeaning.trim()) {
+                          handleSaveSelectedVocab();
+                        }
+                      }}
                       placeholder="Nhập nghĩa dịch cho từ..."
                       className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
                       autoFocus
@@ -1231,21 +1285,29 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                   </div>
                 </div>
 
-                <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
-                  <button 
-                    onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
-                    className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
-                  >
-                    Quay lại
-                  </button>
-                  <button 
-                    onClick={handleSaveSelectedVocab}
-                    disabled={!vocabMeaning.trim()}
-                    className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
-                  >
-                    Lưu từ vựng
-                  </button>
-                </div>
+                {saveStatus ? (
+                  <div className={`text-[10px] font-bold text-center py-1 rounded ${
+                    saveStatus.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  } animate-pulse`}>
+                    {saveStatus.message}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
+                    <button 
+                      onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
+                    >
+                      Quay lại
+                    </button>
+                    <button 
+                      onClick={handleSaveSelectedVocab}
+                      disabled={!vocabMeaning.trim()}
+                      className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
+                    >
+                      Lưu từ vựng
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1272,6 +1334,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       type="text" 
                       value={charVietName} 
                       onChange={(e) => setCharVietName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && charVietName.trim()) {
+                          handleSaveSelectedCharacter();
+                        }
+                      }}
                       placeholder="Nhập tên tiếng Việt dịch..."
                       className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
                       autoFocus
@@ -1283,6 +1350,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       type="text" 
                       value={charPronoun} 
                       onChange={(e) => setCharPronoun(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && charVietName.trim()) {
+                          handleSaveSelectedCharacter();
+                        }
+                      }}
                       placeholder="VD: Hắn, Nàng, Y, Linh thú..."
                       className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
                     />
@@ -1298,21 +1370,29 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                   </div>
                 </div>
 
-                <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
-                  <button 
-                    onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
-                    className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
-                  >
-                    Quay lại
-                  </button>
-                  <button 
-                    onClick={handleSaveSelectedCharacter}
-                    disabled={!charVietName.trim()}
-                    className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
-                  >
-                    Lưu nhân vật
-                  </button>
-                </div>
+                {saveStatus ? (
+                  <div className={`text-[10px] font-bold text-center py-1 rounded ${
+                    saveStatus.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  } animate-pulse`}>
+                    {saveStatus.message}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
+                    <button 
+                      onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
+                    >
+                      Quay lại
+                    </button>
+                    <button 
+                      onClick={handleSaveSelectedCharacter}
+                      disabled={!charVietName.trim()}
+                      className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
+                    >
+                      Lưu nhân vật
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2 } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 
 interface TranslationOutputProps {
@@ -155,6 +155,70 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const getParallelText = () => data.segments.map(seg => `${(seg.source || '').trim()}\n${(seg.natural || '').trim()}`).join('\n');
   const getNaturalText = () => data.segments.map(seg => (seg.natural || '').trim()).join('\n');
 
+  const exportToWord = () => {
+    if (!data.segments || data.segments.length === 0) return;
+
+    let tableRowsHtml = "";
+    data.segments.forEach((seg, idx) => {
+      const cleanSource = (seg.source || '').trim();
+      const cleanNatural = (seg.natural || '').trim();
+      const cleanDeepl = (seg.deepl || '').trim();
+      const cleanQuick = (vietphraseEngine.translate(cleanSource, customMap) || '').trim();
+
+      if (!cleanSource && !cleanNatural) return;
+
+      tableRowsHtml += `
+        <tr>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'SimSun', serif; font-size: 11pt; background-color: #FFFDF7; width: 22%;">${cleanSource}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #8D6E63; width: 23%;">${cleanQuick}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #A1887F; width: 23%;">${cleanDeepl}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 11pt; font-weight: bold; color: #3E2723; width: 32%;">${cleanNatural}</td>
+        </tr>
+      `;
+    });
+
+    const htmlContent = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head>
+        <meta charset="utf-8">
+        <title>Bảng đối chiếu dịch thuật</title>
+        <style>
+          body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #333333; }
+          h2 { color: #3E2723; font-family: "Times New Roman", serif; border-bottom: 2px solid #5D4037; padding-bottom: 5px; text-transform: uppercase; margin-bottom: 15px; }
+          table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+          th { background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8; padding: 10px 8px; font-weight: bold; text-align: left; font-size: 11pt; }
+        </style>
+      </head>
+      <body>
+        <h2>BẢNG ĐỐI CHIẾU DỊCH THUẬT CHIVIET</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Nguồn (Raw)</th>
+              <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Vietphrase</th>
+              <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">GG/DL</th>
+              <th style="width: 32%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Bản edit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Bang_doi_chieu_${new Date().toISOString().slice(0, 10)}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (popupRef.current && !popupRef.current.contains(event.target as Node)) setActiveVocab(null);
@@ -250,6 +314,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
              <div className="flex items-center gap-1.5">
                 <button onClick={() => copyToClipboard(getParallelText(), 'parallel')} className="flex items-center gap-1 text-[9px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'parallel' ? <Check size={10} /> : <ClipboardList size={10} />}<span>Edit & Raw</span></button>
                 <button onClick={() => copyToClipboard(getNaturalText(), 'all')} className="flex items-center gap-1 text-[9px] font-bold text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#D7CCC8] transition-colors shadow-sm">{copiedMode === 'all' ? <Check size={10} /> : <Copy size={10} />}<span>Edit</span></button>
+                <button onClick={exportToWord} className="flex items-center gap-1 text-[9px] font-bold text-[#3E2723] hover:text-white hover:bg-[#5D4037] bg-white border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-[#5D4037] transition-colors shadow-sm"><FileDown size={10} /><span>Xuất Word</span></button>
              </div>
           </div>
           {hasSegments && (

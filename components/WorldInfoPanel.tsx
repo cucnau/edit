@@ -61,9 +61,6 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
               syncData('rel', 'GET', true);
           }, 500);
           return () => clearTimeout(timer);
-      } else if (isSignedIn && !currentNovelId) {
-          onUpdateCharacters([]);
-          onUpdateRelationships([]);
       }
   }, [currentNovelId, isSignedIn]);
 
@@ -132,6 +129,29 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       if (action === 'GET') {
         const data = await syncFirestoreData<any>(type, currentNovelId, 'GET');
         
+        // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
+        if (silent && data.length === 0) {
+          if (type === 'char' && characters.length > 0) {
+             const hasLocal = characters.some(c => c.novelId === currentNovelId);
+             if (hasLocal) {
+                console.log("Preserving local characters since cloud is empty");
+                if (autoSync) {
+                   setTimeout(() => { syncData('char', 'POST', true); }, 1000);
+                }
+                return;
+             }
+          } else if (type === 'rel' && relationships.length > 0) {
+             const hasLocal = relationships.some(r => r.novelId === currentNovelId);
+             if (hasLocal) {
+                console.log("Preserving local relationships since cloud is empty");
+                if (autoSync) {
+                   setTimeout(() => { syncData('rel', 'POST', true); }, 1000);
+                }
+                return;
+             }
+          }
+        }
+
         if (type === 'char') {
           onUpdateCharacters(data as Character[]);
         } else {

@@ -112,8 +112,6 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
               handlePullFromCloud(true);
           }, 500);
           return () => clearTimeout(timer);
-      } else if (isSignedIn && !currentNovelId) {
-          onUpdateTerms([]);
       }
   }, [currentNovelId, isSignedIn]);
 
@@ -211,6 +209,21 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     if (!silent) setSyncMessage(null);
     try {
       const data = await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'GET');
+      
+      // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
+      if (silent && data.length === 0 && terms.length > 0) {
+          const hasLocal = terms.some(t => t.novelId === currentNovelId);
+          if (hasLocal) {
+              console.log("Preserving local terms since cloud is empty");
+              if (autoSync) {
+                  setTimeout(() => {
+                      handlePushToCloud(true);
+                  }, 1000);
+              }
+              return;
+          }
+      }
+
       onUpdateTerms(data);
       if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${data.length} từ!` });
     } catch (e: any) {

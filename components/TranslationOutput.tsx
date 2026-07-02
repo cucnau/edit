@@ -373,10 +373,46 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [selectionPopup, setSelectionPopup] = useState<{
     text: string;
     vietphrase: string;
-    x: number;
-    y: number;
+    rect: { left: number; right: number; top: number; bottom: number; width: number; height: number };
     type: 'idle' | 'vocab' | 'char';
   } | null>(null);
+
+  const popupCoords = useMemo(() => {
+    if (!selectionPopup) return { left: 0, top: 0, width: 280 };
+    const { rect, type } = selectionPopup;
+    
+    // Horizontal space constraints
+    const maxW = type === 'idle' ? 280 : 320;
+    const W = Math.min(maxW, window.innerWidth - 24);
+    
+    // Approximate popup heights for clamping and placement
+    const H = type === 'idle' ? 210 : type === 'vocab' ? 230 : 320;
+
+    // Scroll offsets for absolute positioning relative to body
+    const scrollX = typeof window !== 'undefined' ? window.scrollX : 0;
+    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+
+    // Horizontal placement: center relative to the selection rect
+    let left = rect.left + rect.width / 2 - W / 2;
+    // Clamp horizontally with 12px padding from viewport boundaries
+    left = Math.max(12, Math.min(left, window.innerWidth - W - 12));
+    left += scrollX;
+
+    // Vertical placement: default is above the selection (with 8px spacing)
+    let top = rect.top - H - 8;
+    
+    // If the popup would overflow the top of the viewport (< 12px)
+    if (top < 12) {
+      // Put it below the selection rect instead
+      top = rect.bottom + 8;
+    }
+    
+    // Safety clamp vertical position relative to viewport height
+    top = Math.max(12, Math.min(top, window.innerHeight - H - 12));
+    top += scrollY;
+
+    return { left, top, width: W };
+  }, [selectionPopup]);
 
   const [vocabMeaning, setVocabMeaning] = useState('');
   const [charVietName, setCharVietName] = useState('');
@@ -442,8 +478,14 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           setSelectionPopup({
             text: selectedText,
             vietphrase: vpText || '',
-            x: rect.left + rect.width / 2, // Centered on selection
-            y: rect.top, // Above selection (using fixed coordinates matching viewport since we render in portal)
+            rect: {
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.width,
+              height: rect.height
+            },
             type: 'idle'
           });
 
@@ -1093,12 +1135,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
       {selectionPopup && createPortal(
         <div 
-          className="fixed z-50 selection-popup-container bg-[#FFFDF7] rounded-xl shadow-[0_12px_40px_rgba(62,39,35,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col"
+          className="absolute z-50 selection-popup-container bg-[#FFFDF7] rounded-xl shadow-[0_12px_40px_rgba(62,39,35,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col"
           style={{ 
-            left: `${selectionPopup.x}px`, 
-            top: `${selectionPopup.y}px`, 
-            transform: 'translate(-50%, -105%)',
-            width: selectionPopup.type === 'idle' ? '280px' : '320px',
+            left: `${popupCoords.left}px`, 
+            top: `${popupCoords.top}px`, 
+            width: `${popupCoords.width}px`,
             maxHeight: '380px'
           }}
         >

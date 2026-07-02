@@ -421,7 +421,20 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const handleSaveSelectedVocab = () => {
-    if (!selectionPopup || !vocabMeaning.trim() || !onUpdateTerms) return;
+    console.log("handleSaveSelectedVocab called", { selectionPopup, vocabMeaning, hasOnUpdateTerms: !!onUpdateTerms });
+    
+    if (!selectionPopup) {
+      setSaveStatus({ type: 'error', message: 'Không tìm thấy vùng chọn!' });
+      return;
+    }
+    if (!vocabMeaning.trim()) {
+      setSaveStatus({ type: 'error', message: 'Vui lòng điền nghĩa tiếng Việt!' });
+      return;
+    }
+    if (!onUpdateTerms) {
+      setSaveStatus({ type: 'error', message: 'Hệ thống lỗi: thiếu hàm lưu từ vựng!' });
+      return;
+    }
 
     try {
       const cleanTerm = selectionPopup.text.trim();
@@ -460,7 +473,20 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   };
 
   const handleSaveSelectedCharacter = () => {
-    if (!selectionPopup || !charVietName.trim() || !onUpdateCharacters) return;
+    console.log("handleSaveSelectedCharacter called", { selectionPopup, charVietName, hasOnUpdateCharacters: !!onUpdateCharacters });
+
+    if (!selectionPopup) {
+      setSaveStatus({ type: 'error', message: 'Không tìm thấy vùng chọn!' });
+      return;
+    }
+    if (!charVietName.trim()) {
+      setSaveStatus({ type: 'error', message: 'Vui lòng điền tên nhân vật!' });
+      return;
+    }
+    if (!onUpdateCharacters) {
+      setSaveStatus({ type: 'error', message: 'Hệ thống lỗi: thiếu hàm lưu nhân vật!' });
+      return;
+    }
 
     try {
       const cleanChinese = selectionPopup.text.trim();

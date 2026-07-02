@@ -558,7 +558,6 @@ useEffect(() => {
               className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
               Beta
-              <span className={`text-[8px] font-mono font-black px-1 rounded-full uppercase bg-[#E64A19] text-white`}>New</span>
             </button>
           </div>
         </div>

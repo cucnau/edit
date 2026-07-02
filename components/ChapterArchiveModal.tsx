@@ -200,7 +200,6 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
               </style>
             </head>
             <body>
-              <h2 style="text-align: center; margin-bottom: 24px; font-family: 'Times New Roman', serif; font-size: 16pt; color: #3E2723;">${chapter.name} - Đối chiếu câu</h2>
               ${chapter.result.segments.map(seg => {
                 const raw = (seg.source || '').trim();
                 const edit = (seg.natural || '').trim();
@@ -226,7 +225,6 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
               </style>
             </head>
             <body>
-              <h2 style="text-align: center; margin-bottom: 24px; font-family: 'Times New Roman', serif; font-size: 16pt; color: #3E2723;">${chapter.name}</h2>
               ${chapter.result.segments.map(seg => {
                 const edit = (seg.natural || '').trim();
                 if (!edit) return '';

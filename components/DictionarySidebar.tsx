@@ -179,16 +179,19 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   const handleAdd = () => {
     if (!newTerm.trim() || !newMeaning.trim()) return;
     
+    const termVal = newTerm.trim();
     const newItem: CustomTerm = {
       id: Date.now().toString(),
       novelId: currentNovelId || '',
-      term: newTerm.trim(),
+      term: termVal,
       meaning: newMeaning.trim(),
     };
 
     onUpdateTerms([...terms, newItem]);
     setNewTerm('');
     setNewMeaning('');
+    setSyncMessage({ type: 'success', text: `Đã thêm từ "${termVal}" thành công!` });
+    setTimeout(() => setSyncMessage(null), 3000);
   };
 
   const handleDelete = (id: string) => {

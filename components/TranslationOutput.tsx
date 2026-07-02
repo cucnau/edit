@@ -20,6 +20,9 @@ interface TranslationOutputProps {
   canRedo?: boolean;
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
+  onUpdateTerms?: (terms: CustomTerm[]) => void;
+  onUpdateCharacters?: (characters: Character[]) => void;
+  currentNovelId?: string;
 }
 
 const escapeRegExp = (string: string) => {
@@ -245,7 +248,10 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     canUndo,
     canRedo,
     isFocusMode,
-    onToggleFocusMode
+    onToggleFocusMode,
+    onUpdateTerms,
+    onUpdateCharacters,
+    currentNovelId
 }) => {
   const [showNamingModal, setShowNamingModal] = useState(false);
   const [exportFileName, setExportFileName] = useState('');
@@ -362,6 +368,100 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     });
     return map;
   }, [customTerms, characters]);
+
+  // --- SELECTION POPUP STATE ---
+  const [selectionPopup, setSelectionPopup] = useState<{
+    text: string;
+    vietphrase: string;
+    x: number;
+    y: number;
+    type: 'idle' | 'vocab' | 'char';
+  } | null>(null);
+
+  const [vocabMeaning, setVocabMeaning] = useState('');
+  const [charVietName, setCharVietName] = useState('');
+  const [charPronoun, setCharPronoun] = useState('Hắn');
+  const [charDescription, setCharDescription] = useState('');
+
+  const handleSaveSelectedVocab = () => {
+    if (!selectionPopup || !vocabMeaning.trim() || !onUpdateTerms) return;
+
+    const newTerm: CustomTerm = {
+      id: Date.now().toString(),
+      novelId: currentNovelId || '',
+      term: selectionPopup.text.trim(),
+      meaning: vocabMeaning.trim()
+    };
+
+    onUpdateTerms([...customTerms, newTerm]);
+    setSelectionPopup(null);
+  };
+
+  const handleSaveSelectedCharacter = () => {
+    if (!selectionPopup || !charVietName.trim() || !onUpdateCharacters) return;
+
+    const newChar: Character = {
+      id: Date.now().toString(),
+      novelId: currentNovelId || '',
+      chineseName: selectionPopup.text.trim(),
+      vietName: charVietName.trim(),
+      pronouns: charPronoun.trim() || 'Hắn',
+      description: charDescription.trim()
+    };
+
+    onUpdateCharacters([...characters, newChar]);
+    setSelectionPopup(null);
+  };
+
+  // Selection change or mouseup listener
+  useEffect(() => {
+    const handleMouseUp = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.selection-popup-container')) {
+        return;
+      }
+
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        setSelectionPopup(null);
+        return;
+      }
+
+      const selectedText = selection.toString().trim();
+      // Only trigger if selection is Chinese text or general text of reasonable length
+      if (selectedText.length > 0 && selectedText.length < 150) {
+        try {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+
+          // Compute Vietphrase
+          const vpText = vietphraseEngine.translate(selectedText, customMap);
+
+          setSelectionPopup({
+            text: selectedText,
+            vietphrase: vpText || '',
+            x: rect.left + rect.width / 2, // Centered on selection
+            y: rect.top, // Above selection (using fixed coordinates matching viewport since we render in portal)
+            type: 'idle'
+          });
+
+          setVocabMeaning(vpText || '');
+          setCharVietName(vpText || '');
+          setCharPronoun('Hắn');
+          setCharDescription('');
+        } catch (err) {
+          console.warn("Failed to capture range bounding rect:", err);
+        }
+      } else {
+        setSelectionPopup(null);
+      }
+    };
+
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [customTerms, characters, customMap, onUpdateTerms, onUpdateCharacters, currentNovelId]);
 
   const copyToClipboard = (text: string, mode: 'all' | 'parallel') => {
     navigator.clipboard.writeText(text.trim());
@@ -984,6 +1084,200 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 Lưu Chương
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {selectionPopup && createPortal(
+        <div 
+          className="fixed z-50 selection-popup-container bg-[#FFFDF7] rounded-xl shadow-[0_12px_40px_rgba(62,39,35,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col"
+          style={{ 
+            left: `${selectionPopup.x}px`, 
+            top: `${selectionPopup.y}px`, 
+            transform: 'translate(-50%, -105%)',
+            width: selectionPopup.type === 'idle' ? '280px' : '320px',
+            maxHeight: '380px'
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
+          onMouseUp={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          {/* Header */}
+          <div className="bg-[#EFEBE9]/60 px-3.5 py-2 border-b border-[#D7CCC8]/80 flex justify-between items-center shrink-0">
+            <span className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wider flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#8D6E63]"></span>
+              Tra cứu & Thêm nhanh
+            </span>
+            <button 
+              onClick={() => setSelectionPopup(null)} 
+              className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#D7CCC8]/30 transition-colors"
+            >
+              <X size={12} />
+            </button>
+          </div>
+
+          <div className="p-3.5 space-y-3 overflow-y-auto scrollbar-thin max-h-[300px]">
+            {selectionPopup.type === 'idle' && (
+              <>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Cụm từ chọn</div>
+                    <div className="text-sm font-serif-sc font-bold text-[#3E2723] bg-[#EFEBE9]/20 border border-[#EFEBE9] px-2 py-1 rounded leading-snug">
+                      {selectionPopup.text}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Nghĩa Vietphrase</div>
+                    <div className="text-xs font-bold text-[#5D4037] bg-[#FFF8E1] px-2 py-1 rounded border-l-4 border-[#8D6E63] leading-snug shadow-[inset_0_-1px_0_rgba(141,110,99,0.1)]">
+                      {selectionPopup.vietphrase || <span className="opacity-40 italic font-normal text-[10px]">Không có trong từ điển thô</span>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#EFEBE9]">
+                  <button
+                    onClick={() => {
+                      setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
+                      setVocabMeaning(selectionPopup.vietphrase);
+                    }}
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-white border border-[#D7CCC8] hover:border-[#8D6E63] hover:bg-[#FFFDF7] text-center transition-all group/btn"
+                  >
+                    <BookOpen size={14} className="text-[#8D6E63] mb-0.5 group-hover/btn:scale-110 transition-transform" />
+                    <span className="text-[9px] font-bold text-[#5D4037]">+ Kho từ vựng</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectionPopup(prev => prev ? { ...prev, type: 'char' } : null);
+                      setCharVietName(selectionPopup.vietphrase);
+                    }}
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-white border border-[#D7CCC8] hover:border-[#8D6E63] hover:bg-[#FFFDF7] text-center transition-all group/btn"
+                  >
+                    <Users size={14} className="text-[#8D6E63] mb-0.5 group-hover/btn:scale-110 transition-transform" />
+                    <span className="text-[9px] font-bold text-[#5D4037]">+ Nhân vật</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {selectionPopup.type === 'vocab' && (
+              <div className="space-y-2.5">
+                <div className="text-xs font-bold text-[#5D4037] flex items-center gap-1 pb-1 border-b border-[#EFEBE9]">
+                  <BookOpen size={12} className="text-[#8D6E63]" />
+                  <span>Thêm cụm từ mới</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Cụm từ Trung</label>
+                    <input 
+                      type="text" 
+                      value={selectionPopup.text} 
+                      disabled
+                      className="w-full bg-[#EFEBE9]/30 border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-medium font-serif-sc"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Nghĩa Việt (Tự điền)</label>
+                    <input 
+                      type="text" 
+                      value={vocabMeaning} 
+                      onChange={(e) => setVocabMeaning(e.target.value)}
+                      placeholder="Nhập nghĩa dịch cho từ..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
+                  <button 
+                    onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
+                    className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
+                  >
+                    Quay lại
+                  </button>
+                  <button 
+                    onClick={handleSaveSelectedVocab}
+                    disabled={!vocabMeaning.trim()}
+                    className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
+                  >
+                    Lưu từ vựng
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {selectionPopup.type === 'char' && (
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-[#5D4037] flex items-center gap-1 pb-1 border-b border-[#EFEBE9]">
+                  <Users size={12} className="text-[#8D6E63]" />
+                  <span>Thêm nhân vật mới</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Tên tiếng Trung</label>
+                    <input 
+                      type="text" 
+                      value={selectionPopup.text} 
+                      disabled
+                      className="w-full bg-[#EFEBE9]/30 border border-[#D7CCC8] rounded px-2 py-0.5 text-[#3E2723] text-xs font-medium font-serif-sc"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Tên tiếng Việt (Tự điền)</label>
+                    <input 
+                      type="text" 
+                      value={charVietName} 
+                      onChange={(e) => setCharVietName(e.target.value)}
+                      placeholder="Nhập tên tiếng Việt dịch..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Đại từ xưng hô (Pronoun)</label>
+                    <input 
+                      type="text" 
+                      value={charPronoun} 
+                      onChange={(e) => setCharPronoun(e.target.value)}
+                      placeholder="VD: Hắn, Nàng, Y, Linh thú..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Mô tả chi tiết</label>
+                    <textarea 
+                      value={charDescription} 
+                      onChange={(e) => setCharDescription(e.target.value)}
+                      placeholder="Mô tả lai lịch, môn phái, vũ khí..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-[10px] h-10 outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
+                  <button 
+                    onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
+                    className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
+                  >
+                    Quay lại
+                  </button>
+                  <button 
+                    onClick={handleSaveSelectedCharacter}
+                    disabled={!charVietName.trim()}
+                    className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
+                  >
+                    Lưu nhân vật
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>,
         document.body

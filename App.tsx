@@ -739,8 +739,15 @@ useEffect(() => {
                   currentNovelId={session.currentNovelId || ''}
                   terms={session.customTerms} 
                   onUpdateTerms={(terms) => {
-                      updateSession({ customTerms: terms });
-                      db.bulkSaveCustomTerms(terms);
+                      try {
+                          console.log("App Sidebar: onUpdateTerms called with", terms.length, "terms");
+                          updateSession({ customTerms: terms });
+                          db.bulkSaveCustomTerms(terms).catch(err => {
+                              console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
+                          });
+                      } catch (err) {
+                          console.error("App Sidebar: onUpdateTerms caught error:", err);
+                      }
                   }} 
                   sheetUrl={session.sheetUrl} 
                   onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
@@ -868,6 +875,26 @@ useEffect(() => {
                                 canRedo={redoStack.length > 0}
                                 isFocusMode={isFocusMode}
                                 onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+                                onUpdateTerms={(terms) => {
+                                    try {
+                                        console.log("App Output: onUpdateTerms called", terms.length);
+                                        updateSession({ customTerms: terms });
+                                        db.bulkSaveCustomTerms(terms).catch(err => {
+                                            console.error("App Output: db.bulkSaveCustomTerms failed", err);
+                                        });
+                                    } catch (err) {
+                                        console.error("App Output: onUpdateTerms caught error:", err);
+                                    }
+                                }}
+                                onUpdateCharacters={(chars) => {
+                                    try {
+                                        console.log("App Output: onUpdateCharacters called", chars.length);
+                                        updateSession({ characters: chars });
+                                    } catch (err) {
+                                        console.error("App Output: onUpdateCharacters caught error:", err);
+                                    }
+                                }}
+                                currentNovelId={session.currentNovelId || ''}
                             />
                         </div>
                     </div>

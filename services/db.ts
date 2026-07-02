@@ -1,11 +1,12 @@
 
-import { CustomTerm } from '../types';
+import { CustomTerm, Chapter } from '../types';
 
 // IndexedDB Service
 const DB_NAME = 'ChiVietDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE_SETTINGS = 'settings';
 const STORE_CUSTOM_TERMS = 'custom_terms';
+const STORE_CHAPTERS = 'chapters';
 
 export const KEY_VIETPHRASE = 'vietphrase_data';
 
@@ -30,6 +31,9 @@ const dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
         }
         if (!db.objectStoreNames.contains(STORE_CUSTOM_TERMS)) {
             db.createObjectStore(STORE_CUSTOM_TERMS, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_CHAPTERS)) {
+            db.createObjectStore(STORE_CHAPTERS, { keyPath: 'id' });
         }
     };
 });
@@ -139,6 +143,67 @@ export const db = {
             });
         } catch (e) {
             console.error("DB Bulk Save Error", e);
+        }
+    },
+
+    async getAllChapters(): Promise<Chapter[]> {
+        try {
+            const db = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_CHAPTERS, 'readonly');
+                const store = tx.objectStore(STORE_CHAPTERS);
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.error("DB Get Chapters Error", e);
+            return [];
+        }
+    },
+
+    async saveChapter(chapter: Chapter): Promise<void> {
+        try {
+            const db = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_CHAPTERS, 'readwrite');
+                const store = tx.objectStore(STORE_CHAPTERS);
+                const req = store.put(chapter);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.error("DB Save Chapter Error", e);
+        }
+    },
+
+    async deleteChapter(id: string): Promise<void> {
+        try {
+            const db = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_CHAPTERS, 'readwrite');
+                const store = tx.objectStore(STORE_CHAPTERS);
+                const req = store.delete(id);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.error("DB Delete Chapter Error", e);
+        }
+    },
+
+    async clearAllChapters(): Promise<void> {
+        try {
+            const db = await dbPromise;
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_CHAPTERS, 'readwrite');
+                const store = tx.objectStore(STORE_CHAPTERS);
+                const req = store.clear();
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            console.error("DB Clear Chapters Error", e);
         }
     }
 };

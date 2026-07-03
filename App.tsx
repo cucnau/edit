@@ -733,27 +733,25 @@ useEffect(() => {
       {/* MAIN WORKSPACE */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT SIDEBAR */}
-        {!isFocusMode && (
-          <div className="w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
-              <DictionarySidebar 
-                  currentNovelId={session.currentNovelId || ''}
-                  terms={session.customTerms} 
-                  onUpdateTerms={(terms) => {
-                      try {
-                          console.log("App Sidebar: onUpdateTerms called with", terms.length, "terms");
-                          updateSession({ customTerms: terms });
-                          db.bulkSaveCustomTerms(terms).catch(err => {
-                              console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
-                          });
-                      } catch (err) {
-                          console.error("App Sidebar: onUpdateTerms caught error:", err);
-                      }
-                  }} 
-                  sheetUrl={session.sheetUrl} 
-                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-                  refreshTrigger={vpLoaded}            />
-          </div>
-        )}
+        <div className={`w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
+            <DictionarySidebar 
+                currentNovelId={session.currentNovelId || ''}
+                terms={session.customTerms} 
+                onUpdateTerms={(terms) => {
+                    try {
+                        console.log("App Sidebar: onUpdateTerms called with", terms.length, "terms");
+                        updateSession({ customTerms: terms });
+                        db.bulkSaveCustomTerms(terms).catch(err => {
+                            console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
+                        });
+                    } catch (err) {
+                        console.error("App Sidebar: onUpdateTerms caught error:", err);
+                    }
+                }} 
+                sheetUrl={session.sheetUrl} 
+                onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                refreshTrigger={vpLoaded}            />
+        </div>
 
         {/* CENTER MAIN CONTENT */}
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5E6D3] min-w-[320px]">
@@ -911,21 +909,19 @@ useEffect(() => {
         </main>
 
         {/* RIGHT SIDEBAR */}
-        {!isFocusMode && (
-          <div className="w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0">
-              <WorldInfoPanel 
-                  currentNovelId={session.currentNovelId || ''}
-                  characters={session.characters} 
-                  onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
-                  relationships={session.relationships} 
-                  onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
-                  notes={session.notes} 
-                  onUpdateNotes={(val) => updateSession({ notes: val })} 
-                  sheetUrl={session.sheetUrl} 
-                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-              />
-          </div>
-        )}
+        <div className={`w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
+            <WorldInfoPanel 
+                currentNovelId={session.currentNovelId || ''}
+                characters={session.characters} 
+                onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
+                relationships={session.relationships} 
+                onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                notes={session.notes} 
+                onUpdateNotes={(val) => updateSession({ notes: val })} 
+                sheetUrl={session.sheetUrl} 
+                onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+            />
+        </div>
       </div>
 
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />

@@ -58,33 +58,51 @@ export const syncFirestoreData = async <T extends { id: string, novelId: string 
     });
     return result as T[];
   } else if (action === 'POST' && payload) {
-    const batch = writeBatch(db);
-    
     const q = query(collRef, where('userId', '==', user.uid), where('novelId', '==', novelId));
     const querySnapshot = await getDocs(q);
     const existingIds = new Set(querySnapshot.docs.map(d => d.id));
     
     const payloadIds = new Set(payload.map(item => item.id));
 
+    // Group all operations to chunk them into batches of max 500
+    const operations: { type: 'set' | 'delete', ref: any, data?: any }[] = [];
+
     // Delete removed items
     existingIds.forEach(id => {
       if (!payloadIds.has(id)) {
-        batch.delete(doc(collRef, id));
+        operations.push({ type: 'delete', ref: doc(collRef, id) });
       }
     });
 
     // Add/Update items
     payload.forEach(item => {
-      const docRef = doc(collRef, item.id);
-      batch.set(docRef, {
-        ...item,
-        novelId,
-        userId: user.uid,
-        createdAt: Timestamp.now()
-      }, { merge: true });
+      operations.push({
+        type: 'set',
+        ref: doc(collRef, item.id),
+        data: {
+          ...item,
+          novelId,
+          userId: user.uid,
+          createdAt: Timestamp.now()
+        }
+      });
     });
 
-    await batch.commit();
+    // Commit operations in chunks of 500 to adhere to Firestore limits
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+      const chunk = operations.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach(op => {
+        if (op.type === 'delete') {
+          batch.delete(op.ref);
+        } else {
+          batch.set(op.ref, op.data, { merge: true });
+        }
+      });
+      await batch.commit();
+    }
+
     return payload;
   }
   return [];

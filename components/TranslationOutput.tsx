@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
+import { smartClassify } from '../services/geminiService';
 
 interface TranslationOutputProps {
   data: TranslationResponse;
@@ -415,10 +416,33 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   }, [selectionPopup]);
 
   const [vocabMeaning, setVocabMeaning] = useState('');
+  const [vocabCategory, setVocabCategory] = useState('');
+  const [isClassifying, setIsClassifying] = useState(false);
   const [charVietName, setCharVietName] = useState('');
   const [charPronoun, setCharPronoun] = useState('Hắn');
   const [charDescription, setCharDescription] = useState('');
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const DEFAULT_CATEGORIES = ['Vật phẩm', 'Địa danh', 'Chiêu thức', 'Môn phái', 'Nhân vật', 'Thành thị', 'Vũ khí', 'Trạng thái', 'Hành động', 'Thường dùng', 'Khác'];
+
+  const allCategories = useMemo(() => {
+    const terms = Array.isArray(customTerms) ? customTerms : [];
+    const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
+    return Array.from(new Set([...DEFAULT_CATEGORIES, ...unique]));
+  }, [customTerms]);
+
+  const handleSmartClassify = async () => {
+    if (!selectionPopup?.text || !vocabMeaning.trim()) return;
+    setIsClassifying(true);
+    try {
+      const { category } = await smartClassify(selectionPopup.text.trim(), vocabMeaning.trim(), allCategories);
+      setVocabCategory(category);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsClassifying(false);
+    }
+  };
 
   const handleSaveSelectedVocab = () => {
     console.log("handleSaveSelectedVocab called", { selectionPopup, vocabMeaning, hasOnUpdateTerms: !!onUpdateTerms });
@@ -444,7 +468,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         id: Date.now().toString(),
         novelId: currentNovelId || '',
         term: cleanTerm,
-        meaning: cleanMeaning
+        meaning: cleanMeaning,
+        category: vocabCategory.trim() || undefined
       };
 
       const safeTerms = Array.isArray(customTerms) ? customTerms : [];
@@ -456,6 +481,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         setTimeout(() => {
           setSelectionPopup(null);
           setSaveStatus(null);
+          setVocabCategory('');
         }, 800);
         return;
       }
@@ -465,6 +491,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       setTimeout(() => {
         setSelectionPopup(null);
         setSaveStatus(null);
+        setVocabCategory('');
       }, 800);
     } catch (err: any) {
       console.error("Save vocab error:", err);
@@ -1308,6 +1335,42 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
                       autoFocus
                     />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Phân loại (Không bắt buộc)</label>
+                    <div className="flex gap-1 items-center">
+                      <select
+                        value={vocabCategory}
+                        onChange={(e) => {
+                          if (e.target.value === '__new__') {
+                            const custom = prompt("Nhập phân loại mới:");
+                            if (custom?.trim()) {
+                              setVocabCategory(custom.trim());
+                            }
+                          } else {
+                            setVocabCategory(e.target.value);
+                          }
+                        }}
+                        className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] cursor-pointer"
+                      >
+                        <option value="">Chưa phân loại</option>
+                        {allCategories.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                        <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
+                      </select>
+                      {vocabMeaning.trim() && (
+                        <button
+                          onClick={handleSmartClassify}
+                          disabled={isClassifying}
+                          className="flex items-center gap-0.5 px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] rounded font-bold transition-colors shrink-0 disabled:opacity-50"
+                          title="Phân loại thông minh"
+                        >
+                          {isClassifying ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                          <span>AI</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 

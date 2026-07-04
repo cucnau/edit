@@ -508,8 +508,121 @@ useEffect(() => {
     updateSession({ completedSegments: newCompleted });
   };
 
+  const handleClearSession = async () => {
+    if (!session.inputText.trim()) return;
+
+    // --- TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU TRƯỚC KHI XÓA ---
+    if (session.result && session.inputText.trim()) {
+      const alreadySaved = chapters.some(c => c.inputText.trim() === session.inputText.trim());
+      if (!alreadySaved) {
+        let autoName = "";
+        const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
+        
+        for (const line of lines.slice(0, 5)) {
+          if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
+            const customMap = new Map<string, string>();
+            session.customTerms.forEach(t => {
+                if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+            });
+            autoName = vietphraseEngine.translate(line, customMap);
+            break;
+          }
+        }
+        
+        if (!autoName && session.result.segments && session.result.segments.length > 0) {
+          const firstEditLine = session.result.segments[0].natural.trim();
+          if (firstEditLine) {
+            autoName = firstEditLine.slice(0, 50);
+          }
+        }
+        
+        if (!autoName) {
+          autoName = `Chương tự động (${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
+        } else {
+          autoName = `[Tự động - Xóa] ${autoName}`;
+        }
+        
+        const autoChapter: Chapter = {
+          id: `auto_${Date.now()}`,
+          novelId: session.currentNovelId,
+          name: autoName,
+          timestamp: Date.now(),
+          inputText: session.inputText,
+          deeplText: session.deeplText,
+          preEditedText: session.preEditedText,
+          result: session.result,
+          completedSegments: session.completedSegments
+        };
+        
+        try {
+          await db.saveChapter(autoChapter);
+          setChapters(prev => [autoChapter, ...prev]);
+          console.log("Auto-saved draft on clear:", autoName);
+        } catch (e) {
+          console.error("Auto save on clear failed", e);
+        }
+      }
+    }
+
+    // Tiến hành xóa session
+    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE });
+  };
+
   const handleTranslate = async () => {
     if (!session.inputText.trim()) return;
+    
+    // --- BƯỚC TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU ---
+    if (session.result && session.inputText.trim()) {
+      const alreadySaved = chapters.some(c => c.inputText.trim() === session.inputText.trim());
+      if (!alreadySaved) {
+        let autoName = "";
+        const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
+        
+        for (const line of lines.slice(0, 5)) {
+          if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
+            const customMap = new Map<string, string>();
+            session.customTerms.forEach(t => {
+                if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+            });
+            autoName = vietphraseEngine.translate(line, customMap);
+            break;
+          }
+        }
+        
+        if (!autoName && session.result.segments && session.result.segments.length > 0) {
+          const firstEditLine = session.result.segments[0].natural.trim();
+          if (firstEditLine) {
+            autoName = firstEditLine.slice(0, 50);
+          }
+        }
+        
+        if (!autoName) {
+          autoName = `Chương tự động (${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
+        } else {
+          autoName = `[Tự động] ${autoName}`;
+        }
+        
+        const autoChapter: Chapter = {
+          id: `auto_${Date.now()}`,
+          novelId: session.currentNovelId,
+          name: autoName,
+          timestamp: Date.now(),
+          inputText: session.inputText,
+          deeplText: session.deeplText,
+          preEditedText: session.preEditedText,
+          result: session.result,
+          completedSegments: session.completedSegments
+        };
+        
+        try {
+          await db.saveChapter(autoChapter);
+          setChapters(prev => [autoChapter, ...prev]);
+          console.log("Auto-saved previous chapter draft before new translation:", autoName);
+        } catch (e) {
+          console.error("Auto save failed", e);
+        }
+      }
+    }
     
     // --- BƯỚC 1: TÍNH TOÁN VIETPHRASE (LÀM TRƯỚC HOẶC SONG SONG VỚI GỌI API) ---
     // Mặc dù gọi là làm song song, nhưng do JS đơn luồng, ta sẽ tính toán Vietphrase
@@ -799,7 +912,7 @@ useEffect(() => {
                                   <Quote size={10} /> Ví dụ
                               </button>
                               <button 
-                                  onClick={() => updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE })} 
+                                  onClick={handleClearSession} 
                                   disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
                                   className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
                               >

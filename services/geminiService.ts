@@ -78,7 +78,7 @@ const cleanJsonString = (str: string) => {
 
 const performApiCallWithFallback = async (prompt: string): Promise<TranslationResponse & { modelUsed: string }> => {
     let lastError: any = null;
-    const maxRetriesPerModel = 2; // Try up to 3 times per model
+    const maxRetriesPerModel = 3; // Try up to 4 times per model
     
     const modelsToTry = [...FALLBACK_MODELS];
     
@@ -110,11 +110,20 @@ const performApiCallWithFallback = async (prompt: string): Promise<TranslationRe
                 console.warn(`Model ${modelId} thất bại (Lần ${retries + 1}):`, message);
                 lastError = e;
                 
-                const isOverloaded = message.includes("503") || message.includes("429") || message.includes("high demand") || message.includes("UNAVAILABLE") || message.includes("quota");
+                const isOverloaded = message.includes("503") || message.includes("429") || message.includes("high demand") || message.includes("UNAVAILABLE") || message.includes("quota") || message.includes("RESOURCE_EXHAUSTED");
                 
                 if (isOverloaded && retries < maxRetriesPerModel) {
-                    const waitTime = Math.pow(2, retries) * 2000; // 2s, 4s
-                    console.log(`Đang bị quá tải. Đợi ${waitTime}ms trước khi thử lại...`);
+                    // Parse the suggested wait time from Gemini's message (e.g., "Please retry in 31.6s")
+                    const retryMatch = message.match(/retry in\s+([\d\.]+)\s*s/i) || message.match(/Please retry in\s+([\d\.]+)\s*s/i);
+                    let waitTime = Math.pow(2, retries) * 3000; // 3s, 6s, 12s
+                    if (retryMatch) {
+                        const parsedSeconds = parseFloat(retryMatch[1]);
+                        if (!isNaN(parsedSeconds)) {
+                            waitTime = parsedSeconds * 1000 + 1500; // Convert to ms + 1.5s safe buffer
+                        }
+                    }
+                    
+                    console.log(`Đang bị giới hạn quota/tải. Đợi ${Math.ceil(waitTime / 1000)} giây trước khi thử lại...`);
                     await new Promise(r => setTimeout(r, waitTime));
                     retries++;
                 } else {

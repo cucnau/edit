@@ -6,7 +6,7 @@ import { syncFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from '../services/vietphraseService';
-import { smartClassify } from '../services/geminiService';
+// Deleted smartClassify import
 
 interface DictionarySidebarProps {
   currentNovelId: string;
@@ -92,7 +92,6 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   const [newTerm, setNewTerm] = useState('');
   const [newMeaning, setNewMeaning] = useState('');
   const [categoryVal, setCategoryVal] = useState('');
-  const [isClassifying, setIsClassifying] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -168,14 +167,14 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     // SAFETY: Never auto-push empty list. 
     // This prevents wiping the cloud if the local DB hasn't loaded yet or is empty.
     // User must manually "Push" if they really want to clear it.
-    if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0 || isClassifying) return;
+    if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0) return;
     
     const timer = setTimeout(() => {
       handlePushToCloud(true);
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [terms, autoSync, isSignedIn, isClassifying]);
+  }, [terms, autoSync, isSignedIn]);
 
   // Extract all categories in the system
   const allCategories = useMemo(() => {
@@ -213,116 +212,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     onUpdateTerms(terms.map(t => t.id === id ? { ...t, category } : t));
   };
 
-  const handleSmartClassifySingle = async (item: CustomTerm) => {
-    try {
-      const { category } = await smartClassify(item.term, item.meaning, allCategories);
-      handleUpdateCategory(item.id, category);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleSmartClassify = async () => {
-    if (!newTerm.trim() || !newMeaning.trim()) return;
-    setIsClassifying(true);
-    try {
-      const { category } = await smartClassify(newTerm.trim(), newMeaning.trim(), allCategories);
-      setCategoryVal(category);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsClassifying(false);
-    }
-  };
-
-  const handleSmartClassifyAll = async () => {
-    const unclassified = terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "");
-    const khacClassified = terms.filter(t => t.category === "Khác" || t.category === "khác");
-    
-    if (unclassified.length === 0 && khacClassified.length === 0) {
-      setSyncMessage({ type: 'success', text: "Tất cả từ vựng đều đã được phân loại!" });
-      setTimeout(() => setSyncMessage(null), 3000);
-      return;
-    }
-
-    let targets: CustomTerm[] = [];
-    let startMessage = "";
-
-    if (unclassified.length > 0 && khacClassified.length > 0) {
-      const choice = prompt(
-        `Phát hiện:\n- ${unclassified.length} từ chưa phân loại.\n- ${khacClassified.length} từ đang ở danh mục "Khác".\n\nNhập số để chọn chế độ phân loại:\n1 - Chỉ phân loại từ chưa phân nhóm (${unclassified.length} từ)\n2 - Chỉ phân loại lại các từ ở danh mục "Khác" (${khacClassified.length} từ)\n3 - Phân loại cả hai (${unclassified.length + khacClassified.length} từ)\n\nNhấn Cancel hoặc nhập ký tự khác để Hủy.`,
-        "1"
-      );
-      if (choice === "1") {
-        targets = unclassified;
-        startMessage = `Bắt đầu phân loại ${targets.length} từ chưa phân loại...`;
-      } else if (choice === "2") {
-        targets = khacClassified;
-        startMessage = `Bắt đầu phân loại lại ${targets.length} từ ở danh mục "Khác"...`;
-      } else if (choice === "3") {
-        targets = [...unclassified, ...khacClassified];
-        startMessage = `Bắt đầu phân loại toàn bộ ${targets.length} từ...`;
-      } else {
-        return; // Cancel
-      }
-    } else if (unclassified.length > 0) {
-      if (!confirm(`Bạn có muốn tự động phân loại ${unclassified.length} từ chưa phân loại bằng AI không?`)) {
-        return;
-      }
-      targets = unclassified;
-      startMessage = `Bắt đầu phân loại ${targets.length} từ...`;
-    } else {
-      // only khacClassified.length > 0
-      if (!confirm(`Tất cả từ vựng đều đã có danh mục (không còn từ chưa phân loại).\nBạn có muốn dùng AI phân loại lại ${khacClassified.length} từ đang ở danh mục "Khác" không?`)) {
-        return;
-      }
-      targets = khacClassified;
-      startMessage = `Bắt đầu phân loại lại ${targets.length} từ thuộc danh mục "Khác"...`;
-    }
-
-    setIsClassifying(true);
-    setSyncMessage({ type: 'success', text: startMessage });
-
-    let updatedTerms = [...terms];
-    let successCount = 0;
-    let pendingUpdates = 0;
-
-    // Filter out "Khác" and "Chưa phân loại" from existing categories for AI to choose from,
-    // to prevent the AI from easily choosing "Khác" again.
-    const categoriesForAI = allCategories.filter(c => c !== "Khác" && c !== "khác" && c !== "Chưa phân loại");
-
-    for (let i = 0; i < targets.length; i++) {
-      const item = targets[i];
-      setSyncMessage({ 
-        type: 'success', 
-        text: `Đang phân loại: "${item.term}" (${i + 1}/${targets.length})...` 
-      });
-      
-      try {
-        const { category } = await smartClassify(item.term, item.meaning, categoriesForAI);
-        if (category) {
-          updatedTerms = updatedTerms.map(t => t.id === item.id ? { ...t, category } : t);
-          successCount++;
-          pendingUpdates++;
-          
-          // Save progressively every 10 words OR on the last word to prevent lag but avoid data loss
-          if (pendingUpdates >= 10 || i === targets.length - 1) {
-            onUpdateTerms(updatedTerms);
-            pendingUpdates = 0;
-          }
-        }
-      } catch (err) {
-        console.error(`Failed to classify ${item.term}`, err);
-      }
-    }
-
-    // Ensure final save is triggered at the end
-    onUpdateTerms(updatedTerms);
-
-    setIsClassifying(false);
-    setSyncMessage({ type: 'success', text: `Đã phân loại thành công ${successCount}/${targets.length} từ!` });
-    setTimeout(() => setSyncMessage(null), 4000);
-  };
+  // Smart classify handlers deleted
 
   const handleDelete = (id: string) => {
     onUpdateTerms(terms.filter(t => t.id !== id));
@@ -468,8 +358,8 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                   title="Xuất Excel (Tất cả từ vựng, nhân vật, quan hệ)"
               >
                   <FileSpreadsheet size={14} />
-              </button>
-            )}
+              </button>)}
+            
             <button
                 onClick={() => setShowSettings(!showSettings)}
                 className={`p-1 rounded-full transition-colors ${showSettings ? 'bg-[#3E2723] text-[#F5E6D3]' : 'text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#D7CCC8]'}`}
@@ -613,8 +503,9 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 </button>
              </div>
           </div>
-      )}
+      
 
+)} 
       {/* Sync Buttons */}
       {!showSettings && (
           <div className="px-2 py-1.5 border-b border-[#D7CCC8] flex flex-col gap-1.5 bg-[#EFE5D9]">
@@ -626,35 +517,15 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                    {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Upload size={12} />} Đẩy lên
                 </button>
              </div>
-             
-             {(() => {
-               const unclassifiedCount = terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "").length;
-               const khacCount = terms.filter(t => t.category === "Khác" || t.category === "khác").length;
-               const totalCount = unclassifiedCount + khacCount;
-               
-               if (totalCount === 0) return null;
-               
-               return (
-                 <button
-                   onClick={handleSmartClassifyAll}
-                   disabled={isClassifying || isSyncing}
-                   className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[9px] font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 rounded shadow-sm transition-all disabled:opacity-50 shrink-0"
-                   title="Phân loại thông minh các từ chưa phân loại hoặc ở danh mục 'Khác'"
-                 >
-                   {isClassifying ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                   <span>PHÂN LOẠI THÔNG MINH ({totalCount} từ)</span>
-                 </button>
-               );
-             })()}
           </div>
       )}
+      
       
       {syncMessage && (
          <div className={`px-2 py-0.5 text-[10px] text-center font-bold ${syncMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} transition-all`}>
             {syncMessage.text}
          </div>
       )}
-
       {/* Search Bar */}
       <div className="px-2 py-1.5 border-b border-[#D7CCC8] bg-[#EFE5D9] sticky top-0 z-10">
         <div className="relative">
@@ -672,8 +543,9 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
               className="absolute right-2 top-1/2 -translate-y-1/2 text-[#A1887F] hover:text-[#5D4037]"
             >
               <X size={10} />
-            </button>
+</button>
           )}
+          
         </div>
       </div>
 
@@ -705,7 +577,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                      {/* Category Dropdown (Google Sheets Style) */}
                      <div className="mt-0.5">
                        <select
-                         disabled={isClassifying}
+                        
                          value={item.category || ''}
                          onChange={(e) => {
                            if (e.target.value === '__new__') {
@@ -713,8 +585,6 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                              if (custom?.trim()) {
                                handleUpdateCategory(item.id, custom.trim());
                              }
-                           } else if (e.target.value === '__smart__') {
-                             handleSmartClassifySingle(item);
                            } else {
                              handleUpdateCategory(item.id, e.target.value);
                            }
@@ -724,14 +594,13 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                          <option value="">Chưa phân loại</option>
                          {allCategories.map(cat => (
                            <option key={cat} value={cat}>{cat}</option>
-                         ))}
+              ))}
                          <option value="__new__" className="text-blue-600 font-bold">+ Thêm mới...</option>
-                         <option value="__smart__" className="text-purple-600 font-bold">✨ Phân loại thông minh</option>
                        </select>
                      </div>
 
                      {/* Delete Button */}
-                     {!isClassifying && (
+                     
                        <button
                           onClick={() => handleDelete(item.id)}
                           className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 bg-white shadow-sm border border-[#D7CCC8] rounded text-[#BCAAA4] hover:text-[#D32F2F] opacity-0 group-hover:opacity-100 transition-all z-10"
@@ -739,7 +608,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                         >
                           <Trash2 size={10} />
                         </button>
-                     )}
+                     
                   </td>
                 </tr>
               ))
@@ -755,24 +624,24 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 type="text"
                 placeholder="Từ gốc"
                 value={newTerm}
-                disabled={isClassifying}
+               
                 onChange={(e) => setNewTerm(e.target.value)}
-                className={`w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] font-serif-sc ${isClassifying ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] font-serif-sc`}
             />
             <input
                type="text"
                placeholder="Nghĩa TV"
                value={newMeaning}
-               disabled={isClassifying}
+              
                onChange={(e) => setNewMeaning(e.target.value)}
-               onKeyDown={(e) => e.key === 'Enter' && !isClassifying && handleAdd()}
-               className={`w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] ${isClassifying ? 'opacity-50 cursor-not-allowed' : ''}`}
+               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+               className={`w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63]`}
             />
          </div>
          <div className="flex gap-1 items-center">
             <select
                value={categoryVal}
-               disabled={isClassifying}
+              
                onChange={(e) => {
                  if (e.target.value === '__new__') {
                    const custom = prompt("Nhập phân loại mới:");
@@ -783,7 +652,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                    setCategoryVal(e.target.value);
                  }
                }}
-               className={`w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer ${isClassifying ? 'opacity-50 cursor-not-allowed' : ''}`}
+               className={`w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer`}
             >
                <option value="">-- Chọn phân loại --</option>
                {allCategories.map(cat => (
@@ -791,21 +660,10 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                ))}
                <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
             </select>
-            {newTerm.trim() && newMeaning.trim() && (
-              <button 
-                 onClick={handleSmartClassify}
-                 disabled={isClassifying}
-                 className="flex items-center gap-0.5 px-1.5 py-0.5 bg-purple-600 hover:bg-purple-700 text-white text-[9px] rounded font-bold transition-colors shrink-0 disabled:opacity-50"
-                 title="AI Tự động phân loại"
-              >
-                 {isClassifying ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                 <span>AI</span>
-              </button>
-            )}
          </div>
          <button 
             onClick={handleAdd}
-            disabled={isClassifying || !newTerm.trim() || !newMeaning.trim()}
+            disabled={!newTerm.trim() || !newMeaning.trim()}
             className="w-full bg-[#3E2723] text-[#F5E6D3] py-0.5 rounded text-[10px] font-bold uppercase hover:bg-[#4E342E] disabled:opacity-50 flex justify-center items-center gap-1 shadow-sm"
          >
             <Plus size={10} /> Thêm

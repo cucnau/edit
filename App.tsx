@@ -360,6 +360,24 @@ useEffect(() => {
     setSession(prev => ({ ...prev, ...updates }));
   };
 
+  const autoSaveLinkedChapter = (newResult: any, newCompleted?: number[]) => {
+    if (!session.currentChapterId) return;
+    
+    setChapters(prev => prev.map(c => {
+      if (c.id === session.currentChapterId) {
+        const updated = {
+          ...c,
+          result: newResult || c.result,
+          completedSegments: newCompleted !== undefined ? newCompleted : (c.completedSegments || []),
+          timestamp: Date.now()
+        };
+        db.saveChapter(updated).catch(err => console.error("Auto-save chapter failed", err));
+        return updated;
+      }
+      return c;
+    }));
+  };
+
   const handleUpdateSegment = (index: number, newNatural: string) => {
     if (!session.result) return;
 
@@ -383,6 +401,7 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
+    autoSaveLinkedChapter(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -426,6 +445,7 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
+    autoSaveLinkedChapter(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -457,11 +477,12 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
+    autoSaveLinkedChapter(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
         item.id === session.currentHistoryId 
-          ? { ...item, result: newResult } 
+          ? { ...item, result: newResult, timestamp: Date.now() } 
           : item
       ));
     }
@@ -488,11 +509,12 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
+    autoSaveLinkedChapter(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
         item.id === session.currentHistoryId 
-          ? { ...item, result: newResult } 
+          ? { ...item, result: newResult, timestamp: Date.now() } 
           : item
       ));
     }
@@ -506,6 +528,7 @@ useEffect(() => {
         : [...currentCompleted, index];
     
     updateSession({ completedSegments: newCompleted });
+    autoSaveLinkedChapter(session.result, newCompleted);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -573,7 +596,7 @@ useEffect(() => {
     }
 
     // Tiến hành xóa session
-    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE });
+    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined });
   };
 
   const handleTranslate = async () => {
@@ -652,7 +675,7 @@ useEffect(() => {
     // Tuy nhiên, ở đây ta sẽ giữ trạng thái LOADING cho đến khi có AI để trải nghiệm mượt mà hơn,
     // hoặc có thể hiển thị Quick Trans trước nếu muốn. 
     // Ở đây mình chọn LOADING và merge kết quả sau cùng để đồng bộ.
-    updateSession({ status: AppStatus.LOADING, error: null, result: null, completedSegments: [], currentHistoryId: undefined });
+    updateSession({ status: AppStatus.LOADING, error: null, result: null, completedSegments: [], currentHistoryId: undefined, currentChapterId: undefined });
 
     try {
       // --- BƯỚC 2: GỌI AI ---
@@ -758,8 +781,13 @@ useEffect(() => {
 
   const handleSaveChapter = async (name: string) => {
     if (!session.result) return;
+
+    // Reuse existing chapter ID if we are editing an active chapter, or overwrite by name
+    const existingChapter = chapters.find(c => c.id === session.currentChapterId || c.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const chapterId = existingChapter?.id || `chap_${Date.now()}`;
+
     const newChapter: Chapter = {
-      id: Date.now().toString(),
+      id: chapterId,
       novelId: session.currentNovelId,
       name,
       timestamp: Date.now(),
@@ -771,7 +799,8 @@ useEffect(() => {
     };
 
     await db.saveChapter(newChapter);
-    setChapters(prev => [newChapter, ...prev.filter(c => c.name !== name)]);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.name.trim().toLowerCase() !== name.trim().toLowerCase())]);
+    updateSession({ currentChapterId: chapterId });
   };
 
   const handleRestoreChapter = (chapter: Chapter) => {
@@ -783,7 +812,8 @@ useEffect(() => {
       status: AppStatus.SUCCESS,
       error: null,
       completedSegments: chapter.completedSegments || [],
-      currentHistoryId: undefined
+      currentHistoryId: undefined,
+      currentChapterId: chapter.id
     });
     setShowChapters(false);
   };

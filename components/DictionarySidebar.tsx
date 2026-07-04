@@ -357,12 +357,34 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
           }
       }
 
-      // NO DATA LOSS MERGING: If silent, merge local and cloud to preserve newly added words
+      // NO DATA LOSS MERGING: Merge local and cloud smartly to preserve local edits (like AI classifications)
       let mergedData = data;
-      if (silent && terms.length > 0) {
+      if (terms.length > 0) {
+          const localTermsMap = new Map<string, CustomTerm>();
+          terms.filter(t => t.novelId === currentNovelId).forEach(t => {
+              localTermsMap.set(t.id, t);
+          });
+
+          mergedData = data.map(cloudTerm => {
+              const localTerm = localTermsMap.get(cloudTerm.id);
+              if (localTerm) {
+                  // If local term has a category but cloud does not, preserve local category!
+                  const hasLocalCat = localTerm.category && localTerm.category !== "Chưa phân loại" && localTerm.category.trim() !== "";
+                  const hasCloudCat = cloudTerm.category && cloudTerm.category !== "Chưa phân loại" && cloudTerm.category.trim() !== "";
+                  
+                  return {
+                      ...cloudTerm,
+                      category: (!hasCloudCat && hasLocalCat) ? localTerm.category : cloudTerm.category,
+                      meaning: (localTerm.meaning && !cloudTerm.meaning) ? localTerm.meaning : cloudTerm.meaning
+                  };
+              }
+              return cloudTerm;
+          });
+
+          // Also add any local terms that are not on the cloud yet
           const cloudIds = new Set(data.map(t => t.id));
           const localNewTerms = terms.filter(t => t.novelId === currentNovelId && !cloudIds.has(t.id));
-          mergedData = [...data, ...localNewTerms];
+          mergedData = [...mergedData, ...localNewTerms];
       }
 
       onUpdateTerms(mergedData);

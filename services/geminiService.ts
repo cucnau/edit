@@ -351,14 +351,30 @@ export const smartClassify = async (
   existingCategories: string[] = []
 ): Promise<{ category: string }> => {
   await waitForQuota();
-  const categoriesContext = existingCategories.length > 0 
-    ? `Các phân loại hiện có trong hệ thống: ${existingCategories.map(c => `"${c}"`).join(', ')}. Hãy ưu tiên xếp vào một trong các phân loại này nếu phù hợp.` 
+  
+  // Clean up existing categories list to exclude empty values or duplicates
+  const cleanCategories = Array.from(new Set(existingCategories.map(c => c.trim()).filter(Boolean)));
+  
+  const categoriesContext = cleanCategories.length > 0 
+    ? `Các danh mục phân loại hiện có trong hệ thống: ${cleanCategories.map(c => `"${c}"`).join(', ')}.\nBạn PHẢI ưu tiên lựa chọn và khớp từ vựng này vào một trong các danh mục phân loại hiện có trên nếu thấy phù hợp hoặc có nét tương đồng.` 
     : '';
-  const prompt = `Bạn là chuyên gia dịch thuật tiểu thuyết Trung-Việt. Hãy phân loại từ vựng sau đây vào một danh mục (mục phân loại) ngắn gọn và thích hợp nhất (ví dụ: Nhân vật, Địa danh, Vật phẩm, Chiêu thức, Môn phái, Thần thú, Trạng thái, Thường dùng, Hành động, Tính từ, Khác...).
-Từ gốc: "${term}"
-Nghĩa: "${meaning}"
+
+  const prompt = `Bạn là chuyên gia dịch thuật và biên soạn từ điển tiểu thuyết Trung-Việt (tiên hiệp, huyền huyễn, đô thị, ngôn tình...).
+Nhiệm vụ của bạn là phân tích từ vựng sau đây và xếp nó vào một danh mục phân loại ngắn gọn, thích hợp nhất.
+
+Thông tin từ vựng:
+- Từ gốc: "${term}"
+- Nghĩa: "${meaning}"
+
 ${categoriesContext}
-Yêu cầu: Trả về một đối tượng JSON có trường duy nhất "category" là tên phân loại (viết hoa chữ cái đầu, ví dụ: "Vật phẩm" hoặc "Địa danh" hoặc "Nhân vật", ngắn gọn tối đa 2-3 từ).`;
+
+Quy tắc phân loại:
+1. Hãy phân tích kỹ "Từ gốc" và "Nghĩa" của từ vựng.
+2. PHẢI ưu tiên tối đa việc xếp từ vựng vào một trong các danh mục hiện có được liệt kê ở trên nếu phù hợp (ví dụ: vũ khí, dược liệu, bảo vật thì xếp vào "Vật phẩm"; thành thị, quốc gia, ngọn núi, sông hồ thì xếp vào "Địa danh"; chiêu thức, võ học, pháp thuật thì xếp vào "Chiêu thức"; tên người, biệt danh thì xếp vào "Nhân vật"; đan dược, vũ khí võ học có thể xếp vào "Vật phẩm" hoặc "Vũ khí", trạng thái cảm xúc hay cơ thể xếp vào "Trạng thái", v.v.).
+3. Tránh xếp vào danh mục "Khác" trừ khi hoàn toàn không thể tìm thấy danh mục phù hợp nào trong danh sách danh mục hiện có.
+4. Tên danh mục trả về phải viết hoa chữ cái đầu (ví dụ: "Vật phẩm", "Địa danh", "Chiêu thức", "Môn phái", "Nhân vật", "Trạng thái", "Hành động", "Thường dùng"). Ngắn gọn tối đa 2-3 từ.
+
+Yêu cầu định dạng: Trả về một đối tượng JSON có trường duy nhất "category" chứa tên danh mục phân loại.`;
 
   const schema = {
     type: Type.OBJECT,
@@ -368,23 +384,36 @@ Yêu cầu: Trả về một đối tượng JSON có trường duy nhất "cate
     required: ["category"]
   };
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        temperature: 0.1
+  const modelsToTry = [...FALLBACK_MODELS];
+  let lastError: any = null;
+
+  for (const modelId of modelsToTry) {
+    try {
+      await waitForQuota();
+      const response = await ai.models.generateContent({
+        model: modelId,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          temperature: 0.1
+        }
+      });
+      const text = response.text;
+      if (!text) throw new Error(`Model ${modelId} returned empty response`);
+      const data = JSON.parse(cleanJsonString(text));
+      if (data.category && data.category.trim()) {
+        return {
+          category: data.category.trim()
+        };
       }
-    });
-    const data = JSON.parse(response.text?.trim() || "{}");
-    return {
-      category: (data.category || "Khác").trim()
-    };
-  } catch (e) {
-    console.error("Smart classify failed", e);
-    return { category: "Khác" };
+    } catch (e: any) {
+      console.warn(`Smart classify failed with model ${modelId}:`, e?.message || e);
+      lastError = e;
+    }
   }
+
+  console.error("Smart classify failed entirely across all models:", lastError);
+  return { category: "Khác" };
 };
 

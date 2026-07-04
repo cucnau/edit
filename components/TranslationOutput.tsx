@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
 import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
-import { smartClassify } from '../services/geminiService';
+// Deleted smartClassify import
 
 interface TranslationOutputProps {
   data: TranslationResponse;
@@ -110,7 +110,7 @@ const EditableSegment = ({
     const [localText, setLocalText] = useState(text);
     const [isFocused, setIsFocused] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const debounceTimeout = useRef<NodeJS.Timeout>();
+    const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
     
     useEffect(() => {
         setLocalText(text);
@@ -417,7 +417,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
   const [vocabMeaning, setVocabMeaning] = useState('');
   const [vocabCategory, setVocabCategory] = useState('');
-  const [isClassifying, setIsClassifying] = useState(false);
   const [charVietName, setCharVietName] = useState('');
   const [charPronoun, setCharPronoun] = useState('Hắn');
   const [charDescription, setCharDescription] = useState('');
@@ -430,19 +429,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
     return Array.from(new Set([...DEFAULT_CATEGORIES, ...unique]));
   }, [customTerms]);
-
-  const handleSmartClassify = async () => {
-    if (!selectionPopup?.text || !vocabMeaning.trim()) return;
-    setIsClassifying(true);
-    try {
-      const { category } = await smartClassify(selectionPopup.text.trim(), vocabMeaning.trim(), allCategories);
-      setVocabCategory(category);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsClassifying(false);
-    }
-  };
 
   const handleSaveSelectedVocab = () => {
     console.log("handleSaveSelectedVocab called", { selectionPopup, vocabMeaning, hasOnUpdateTerms: !!onUpdateTerms });
@@ -1359,17 +1345,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         ))}
                         <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
                       </select>
-                      {vocabMeaning.trim() && (
-                        <button
-                          onClick={handleSmartClassify}
-                          disabled={isClassifying}
-                          className="flex items-center gap-0.5 px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] rounded font-bold transition-colors shrink-0 disabled:opacity-50"
-                          title="Phân loại thông minh"
-                        >
-                          {isClassifying ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                          <span>AI</span>
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>

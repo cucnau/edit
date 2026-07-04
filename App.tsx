@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter } from './types';
 import { translateText } from './services/geminiService';
+import { exportToExcel } from './services/excelService';
+import { getNovels } from './services/firestoreService';
 import { vietphraseEngine } from './services/vietphraseService';
 import { db } from './services/db'; // Import db service
 import { TranslationOutput } from './components/TranslationOutput';
@@ -682,6 +684,18 @@ useEffect(() => {
     setChapters([]);
   };
 
+  const handleExportExcel = async () => {
+    let novelName = "Truyện";
+    try {
+      const allNovels = await getNovels();
+      const found = allNovels.find(n => n.id === session.currentNovelId);
+      if (found) novelName = found.name;
+    } catch (e) {
+      console.warn("Could not fetch novel name for export", e);
+    }
+    exportToExcel(session.customTerms, session.characters, session.relationships, novelName);
+  };
+
   return (
     <div className="h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-hidden">
       
@@ -750,7 +764,9 @@ useEffect(() => {
                 }} 
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-                refreshTrigger={vpLoaded}            />
+                refreshTrigger={vpLoaded}
+                onExportExcel={handleExportExcel}
+            />
         </div>
 
         {/* CENTER MAIN CONTENT */}
@@ -920,6 +936,7 @@ useEffect(() => {
                 onUpdateNotes={(val) => updateSession({ notes: val })} 
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                onExportExcel={handleExportExcel}
             />
         </div>
       </div>

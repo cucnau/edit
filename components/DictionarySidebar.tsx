@@ -1,11 +1,12 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CustomTerm } from '../types';
-import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet, Sparkles } from 'lucide-react';
 import { syncFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from '../services/vietphraseService';
+import { smartClassify } from '../services/geminiService';
 
 interface DictionarySidebarProps {
   currentNovelId: string;
@@ -14,6 +15,7 @@ interface DictionarySidebarProps {
   sheetUrl: string;
   onUpdateSheetUrl: (url: string) => void;
   refreshTrigger?: any;
+  onExportExcel?: () => void;
 }
 
 // Updated GAS Code to support multiple tabs
@@ -76,16 +78,21 @@ function getHeaders(type) {
   return ["ID", "Term", "Meaning"];
 }`;
 
+const DEFAULT_CATEGORIES = ['Vật phẩm', 'Địa danh', 'Chiêu thức', 'Môn phái', 'Nhân vật', 'Thành thị', 'Vũ khí', 'Trạng thái', 'Hành động', 'Thường dùng', 'Khác'];
+
 export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   currentNovelId,
   terms,
   onUpdateTerms,
   sheetUrl,
   onUpdateSheetUrl,
-  refreshTrigger
+  refreshTrigger,
+  onExportExcel
 }) => {
   const [newTerm, setNewTerm] = useState('');
   const [newMeaning, setNewMeaning] = useState('');
+  const [categoryVal, setCategoryVal] = useState('');
+  const [isClassifying, setIsClassifying] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -170,10 +177,16 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     return () => clearTimeout(timer);
   }, [terms, autoSync, isSignedIn]);
 
+  // Extract all categories in the system
+  const allCategories = useMemo(() => {
+    const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
+    return Array.from(new Set([...DEFAULT_CATEGORIES, ...unique]));
+  }, [terms]);
 
   const filteredTerms = terms.filter(t => 
     t.term.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    t.meaning.toLowerCase().includes(searchTerm.toLowerCase())
+    t.meaning.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (t.category && t.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleAdd = () => {
@@ -185,13 +198,83 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       novelId: currentNovelId || '',
       term: termVal,
       meaning: newMeaning.trim(),
+      category: categoryVal.trim() || undefined
     };
 
     onUpdateTerms([...terms, newItem]);
     setNewTerm('');
     setNewMeaning('');
+    setCategoryVal('');
     setSyncMessage({ type: 'success', text: `Đã thêm từ "${termVal}" thành công!` });
     setTimeout(() => setSyncMessage(null), 3000);
+  };
+
+  const handleUpdateCategory = (id: string, category: string) => {
+    onUpdateTerms(terms.map(t => t.id === id ? { ...t, category } : t));
+  };
+
+  const handleSmartClassifySingle = async (item: CustomTerm) => {
+    try {
+      const { category } = await smartClassify(item.term, item.meaning, allCategories);
+      handleUpdateCategory(item.id, category);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSmartClassify = async () => {
+    if (!newTerm.trim() || !newMeaning.trim()) return;
+    setIsClassifying(true);
+    try {
+      const { category } = await smartClassify(newTerm.trim(), newMeaning.trim(), allCategories);
+      setCategoryVal(category);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsClassifying(false);
+    }
+  };
+
+  const handleSmartClassifyAll = async () => {
+    const unclassified = terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "");
+    if (unclassified.length === 0) {
+      setSyncMessage({ type: 'success', text: "Tất cả từ vựng đều đã được phân loại!" });
+      setTimeout(() => setSyncMessage(null), 3000);
+      return;
+    }
+
+    if (!confirm(`Bạn có muốn tự động phân loại ${unclassified.length} từ chưa phân loại bằng AI không?`)) {
+      return;
+    }
+
+    setIsClassifying(true);
+    setSyncMessage({ type: 'success', text: `Bắt đầu phân loại ${unclassified.length} từ...` });
+
+    let updatedTerms = [...terms];
+    let successCount = 0;
+
+    for (let i = 0; i < unclassified.length; i++) {
+      const item = unclassified[i];
+      setSyncMessage({ 
+        type: 'success', 
+        text: `Đang phân loại: "${item.term}" (${i + 1}/${unclassified.length})...` 
+      });
+      
+      try {
+        const { category } = await smartClassify(item.term, item.meaning, allCategories);
+        if (category) {
+          updatedTerms = updatedTerms.map(t => t.id === item.id ? { ...t, category } : t);
+          successCount++;
+        }
+      } catch (err) {
+        console.error(`Failed to classify ${item.term}`, err);
+      }
+    }
+
+    onUpdateTerms(updatedTerms);
+    setIsClassifying(false);
+    setSyncMessage({ type: 'success', text: `Đã phân loại thành công ${successCount}/${unclassified.length} từ!` });
+    setTimeout(() => setSyncMessage(null), 4000);
   };
 
   const handleDelete = (id: string) => {
@@ -227,8 +310,16 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
           }
       }
 
-      onUpdateTerms(data);
-      if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${data.length} từ!` });
+      // NO DATA LOSS MERGING: If silent, merge local and cloud to preserve newly added words
+      let mergedData = data;
+      if (silent && terms.length > 0) {
+          const cloudIds = new Set(data.map(t => t.id));
+          const localNewTerms = terms.filter(t => t.novelId === currentNovelId && !cloudIds.has(t.id));
+          mergedData = [...data, ...localNewTerms];
+      }
+
+      onUpdateTerms(mergedData);
+      if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${mergedData.length} từ!` });
     } catch (e: any) {
       if (!silent) setSyncMessage({ type: 'error', text: e.message || "Lỗi tải dữ liệu" });
     } finally {
@@ -301,6 +392,15 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 {vpCount > 0 ? <CheckCircle size={14} className="text-green-600" /> : <FileText size={14} />}
                 {vpCount > 0 && <span className="text-[9px] font-mono">{Math.floor(vpCount/1000)}k</span>}
             </button>
+            {onExportExcel && (
+              <button
+                  onClick={onExportExcel}
+                  className="p-1 rounded-full text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#D7CCC8] transition-colors"
+                  title="Xuất Excel (Tất cả từ vựng, nhân vật, quan hệ)"
+              >
+                  <FileSpreadsheet size={14} />
+              </button>
+            )}
             <button
                 onClick={() => setShowSettings(!showSettings)}
                 className={`p-1 rounded-full transition-colors ${showSettings ? 'bg-[#3E2723] text-[#F5E6D3]' : 'text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#D7CCC8]'}`}
@@ -372,39 +472,72 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                   placeholder="Trung = Việt&#10;Hoặc copy từ Excel (cột Trung, cột Việt)"
                   className="w-full h-20 text-[10px] p-2 border border-[#D7CCC8] rounded bg-white outline-none resize-none mb-1"
                 />
-                <button 
-                  onClick={() => {
-                    if (!bulkText.trim()) return;
-                    const lines = bulkText.split('\n');
-                    const newItems: CustomTerm[] = [];
-                    lines.forEach(line => {
-                      if (!line.trim()) return;
-                      let parts = line.split('\t');
-                      if (parts.length < 2) parts = line.split(' = ');
-                      if (parts.length < 2) parts = line.split('=');
-                      if (parts.length < 2) parts = line.split(/\s{2,}/);
-                      if (parts.length < 2) {
-                          // Fallback to first space
-                          const match = line.match(/^(\S+)\s+(.+)$/);
-                          if (match) parts = [match[1], match[2]];
-                      }
-                      
-                      if (parts.length >= 2) {
-                        newItems.push({
-                          id: Date.now().toString() + Math.random().toString(),
-                          novelId: currentNovelId || '',
-                          term: parts[0].trim(),
-                          meaning: parts.slice(1).join(' ').trim() // Join remaining parts if any
-                        });
-                      }
-                    });
-                    if (newItems.length > 0) {
-                        onUpdateTerms([...terms, ...newItems]);
-                        setBulkText('');
-                        setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} từ!` });
-                        setTimeout(() => setSyncMessage(null), 3000);
-                    }
-                  }}
+                 <button 
+                   onClick={() => {
+                     if (!bulkText.trim()) return;
+                     const lines = bulkText.split('\n');
+                     const newItems: CustomTerm[] = [];
+                     lines.forEach(line => {
+                       if (!line.trim()) return;
+                       let parts: string[] = [];
+                       
+                       if (line.includes('\t')) {
+                         parts = line.split('\t');
+                       } else if (line.includes(' = ')) {
+                         parts = line.split(' = ');
+                       } else if (line.includes('=')) {
+                         parts = line.split('=');
+                       } else if (/\s{2,}/.test(line)) {
+                         parts = line.split(/\s{2,}/);
+                       } else {
+                         const match = line.match(/^(\S+)\s+(.+)$/);
+                         if (match) {
+                           parts = [match[1], match[2]];
+                         }
+                       }
+                       
+                       if (parts.length >= 2) {
+                         let termIdx = 0;
+                         let meaningIdx = 1;
+                         let catIdx = 2;
+                         
+                         // If first column is STT (numeric) and we have at least 3 columns, shift indices
+                         if (/^\d+$/.test(parts[0].trim()) && parts.length >= 3) {
+                           termIdx = 1;
+                           meaningIdx = 2;
+                           catIdx = 3;
+                         }
+                         
+                         const termStr = parts[termIdx]?.trim();
+                         const meaningStr = parts[meaningIdx]?.trim();
+                         const categoryStr = parts[catIdx] ? parts[catIdx].trim() : undefined;
+                         
+                         if (termStr && meaningStr) {
+                           const alreadyExistsInTerms = terms.some(t => t.term.toLowerCase() === termStr.toLowerCase());
+                           const alreadyExistsInNew = newItems.some(t => t.term.toLowerCase() === termStr.toLowerCase());
+                           
+                           if (!alreadyExistsInTerms && !alreadyExistsInNew) {
+                             newItems.push({
+                               id: Date.now().toString() + Math.random().toString(),
+                               novelId: currentNovelId || '',
+                               term: termStr,
+                               meaning: meaningStr,
+                               category: (categoryStr && categoryStr !== "Chưa phân loại") ? categoryStr : undefined
+                             });
+                           }
+                         }
+                       }
+                     });
+                     if (newItems.length > 0) {
+                         onUpdateTerms([...terms, ...newItems]);
+                         setBulkText('');
+                         setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} từ (đã loại bỏ trùng lặp)!` });
+                         setTimeout(() => setSyncMessage(null), 3000);
+                     } else {
+                         setSyncMessage({ type: 'error', text: 'Tất cả các từ đều đã tồn tại hoặc bị trùng lặp!' });
+                         setTimeout(() => setSyncMessage(null), 3000);
+                     }
+                   }}
                   className="w-full bg-[#5D4037] text-white text-[10px] py-1 rounded hover:bg-[#4E342E] transition-colors"
                 >
                   Thêm vào từ điển
@@ -415,13 +548,27 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
       {/* Sync Buttons */}
       {!showSettings && (
-          <div className="px-2 py-1.5 border-b border-[#D7CCC8] flex gap-2 justify-center bg-[#EFE5D9]">
-             <button onClick={() => handlePullFromCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-blue-200 text-blue-700 py-1 rounded hover:bg-blue-50 shadow-sm disabled:opacity-50">
-                {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Download size={12} />} Tải về
-             </button>
-             <button onClick={() => handlePushToCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-green-200 text-green-700 py-1 rounded hover:bg-green-50 shadow-sm disabled:opacity-50">
-                {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Upload size={12} />} Đẩy lên
-             </button>
+          <div className="px-2 py-1.5 border-b border-[#D7CCC8] flex flex-col gap-1.5 bg-[#EFE5D9]">
+             <div className="flex gap-2 justify-center">
+                <button onClick={() => handlePullFromCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-blue-200 text-blue-700 py-1 rounded hover:bg-blue-50 shadow-sm disabled:opacity-50">
+                   {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Download size={12} />} Tải về
+                </button>
+                <button onClick={() => handlePushToCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-green-200 text-green-700 py-1 rounded hover:bg-green-50 shadow-sm disabled:opacity-50">
+                   {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Upload size={12} />} Đẩy lên
+                </button>
+             </div>
+             
+             {terms.some(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "") && (
+               <button
+                 onClick={handleSmartClassifyAll}
+                 disabled={isClassifying || isSyncing}
+                 className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[9px] font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 rounded shadow-sm transition-all disabled:opacity-50 shrink-0"
+                 title="Phân loại thông minh các từ chưa phân loại"
+               >
+                 {isClassifying ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                 <span>PHÂN LOẠI THÔNG MINH ({terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "").length} từ)</span>
+               </button>
+             )}
           </div>
       )}
       
@@ -475,8 +622,36 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                   <td className="py-0.5 px-1 text-[11px] font-serif-sc font-medium text-[#3E2723] align-top relative border-r border-[#EFEBE9] leading-tight">
                      {item.term}
                   </td>
-                  <td className="py-0.5 px-1 text-[11px] text-[#4E342E] align-top relative leading-tight">
-                     <span className="font-medium text-[#795548]">{item.meaning}</span>
+                  <td className="py-0.5 px-1 text-[11px] text-[#4E342E] align-top relative leading-tight pb-2 pr-6">
+                     <span className="font-medium text-[#795548] block">{item.meaning}</span>
+                     
+                     {/* Category Dropdown (Google Sheets Style) */}
+                     <div className="mt-0.5">
+                       <select
+                         value={item.category || ''}
+                         onChange={(e) => {
+                           if (e.target.value === '__new__') {
+                             const custom = prompt("Nhập phân loại mới:");
+                             if (custom?.trim()) {
+                               handleUpdateCategory(item.id, custom.trim());
+                             }
+                           } else if (e.target.value === '__smart__') {
+                             handleSmartClassifySingle(item);
+                           } else {
+                             handleUpdateCategory(item.id, e.target.value);
+                           }
+                         }}
+                         className="text-[9px] px-1 bg-[#F5E6D3] text-[#5D4037] border border-[#D7CCC8] rounded cursor-pointer max-w-[120px] truncate focus:outline-none focus:ring-1 focus:ring-[#8D6E63] py-0"
+                       >
+                         <option value="">Chưa phân loại</option>
+                         {allCategories.map(cat => (
+                           <option key={cat} value={cat}>{cat}</option>
+                         ))}
+                         <option value="__new__" className="text-blue-600 font-bold">+ Thêm mới...</option>
+                         <option value="__smart__" className="text-purple-600 font-bold">✨ Phân loại thông minh</option>
+                       </select>
+                     </div>
+
                      {/* Delete Button */}
                      <button
                         onClick={() => handleDelete(item.id)}
@@ -511,6 +686,39 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                className="w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63]"
             />
+         </div>
+         <div className="flex gap-1 items-center">
+            <select
+               value={categoryVal}
+               onChange={(e) => {
+                 if (e.target.value === '__new__') {
+                   const custom = prompt("Nhập phân loại mới:");
+                   if (custom?.trim()) {
+                     setCategoryVal(custom.trim());
+                   }
+                 } else {
+                   setCategoryVal(e.target.value);
+                 }
+               }}
+               className="w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer"
+            >
+               <option value="">-- Chọn phân loại --</option>
+               {allCategories.map(cat => (
+                 <option key={cat} value={cat}>{cat}</option>
+               ))}
+               <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
+            </select>
+            {newTerm.trim() && newMeaning.trim() && (
+              <button 
+                 onClick={handleSmartClassify}
+                 disabled={isClassifying}
+                 className="flex items-center gap-0.5 px-1.5 py-0.5 bg-purple-600 hover:bg-purple-700 text-white text-[9px] rounded font-bold transition-colors shrink-0 disabled:opacity-50"
+                 title="AI Tự động phân loại"
+              >
+                 {isClassifying ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                 <span>AI</span>
+              </button>
+            )}
          </div>
          <button 
             onClick={handleAdd}

@@ -168,14 +168,14 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     // SAFETY: Never auto-push empty list. 
     // This prevents wiping the cloud if the local DB hasn't loaded yet or is empty.
     // User must manually "Push" if they really want to clear it.
-    if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0) return;
+    if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0 || isClassifying) return;
     
     const timer = setTimeout(() => {
       handlePushToCloud(true);
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, [terms, autoSync, isSignedIn]);
+  }, [terms, autoSync, isSignedIn, isClassifying]);
 
   // Extract all categories in the system
   const allCategories = useMemo(() => {
@@ -285,6 +285,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
     let updatedTerms = [...terms];
     let successCount = 0;
+    let pendingUpdates = 0;
 
     // Filter out "Khác" and "Chưa phân loại" from existing categories for AI to choose from,
     // to prevent the AI from easily choosing "Khác" again.
@@ -302,13 +303,21 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
         if (category) {
           updatedTerms = updatedTerms.map(t => t.id === item.id ? { ...t, category } : t);
           successCount++;
-          // Save progressively after every single classification to prevent data loss on page reload or clear!
-          onUpdateTerms(updatedTerms);
+          pendingUpdates++;
+          
+          // Save progressively every 10 words OR on the last word to prevent lag but avoid data loss
+          if (pendingUpdates >= 10 || i === targets.length - 1) {
+            onUpdateTerms(updatedTerms);
+            pendingUpdates = 0;
+          }
         }
       } catch (err) {
         console.error(`Failed to classify ${item.term}`, err);
       }
     }
+
+    // Ensure final save is triggered at the end
+    onUpdateTerms(updatedTerms);
 
     setIsClassifying(false);
     setSyncMessage({ type: 'success', text: `Đã phân loại thành công ${successCount}/${targets.length} từ!` });

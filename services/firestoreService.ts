@@ -60,7 +60,11 @@ export const syncFirestoreData = async <T extends { id: string, novelId: string 
   } else if (action === 'POST' && payload) {
     const q = query(collRef, where('userId', '==', user.uid), where('novelId', '==', novelId));
     const querySnapshot = await getDocs(q);
-    const existingIds = new Set(querySnapshot.docs.map(d => d.id));
+    
+    const dbDocsMap = new Map<string, any>();
+    querySnapshot.forEach(doc => {
+      dbDocsMap.set(doc.id, doc.data());
+    });
     
     const payloadIds = new Set(payload.map(item => item.id));
 
@@ -68,25 +72,55 @@ export const syncFirestoreData = async <T extends { id: string, novelId: string 
     const operations: { type: 'set' | 'delete', ref: any, data?: any }[] = [];
 
     // Delete removed items
-    existingIds.forEach(id => {
+    dbDocsMap.forEach((data, id) => {
       if (!payloadIds.has(id)) {
         operations.push({ type: 'delete', ref: doc(collRef, id) });
       }
     });
 
-    // Add/Update items
-    payload.forEach(item => {
-      operations.push({
-        type: 'set',
-        ref: doc(collRef, item.id),
-        data: {
-          ...item,
-          novelId,
-          userId: user.uid,
-          createdAt: Timestamp.now()
+    // Generic field comparison to check if write can be skipped
+    const areFieldsEqual = (localItem: any, dbItem: any) => {
+      const allKeys = new Set([
+        ...Object.keys(localItem),
+        ...Object.keys(dbItem)
+      ]);
+      for (const key of allKeys) {
+        if (key === 'createdAt' || key === 'userId') continue;
+        const localVal = localItem[key];
+        const dbVal = dbItem[key];
+        if (localVal !== dbVal) {
+          // If both values are falsy, treat them as equal (e.g. empty string vs undefined)
+          if (!localVal && !dbVal) continue;
+          return false;
         }
-      });
+      }
+      return true;
+    };
+
+    // Add/Update items only if they are new or modified
+    payload.forEach(item => {
+      const dbItem = dbDocsMap.get(item.id);
+      
+      if (!dbItem || !areFieldsEqual(item, dbItem)) {
+        operations.push({
+          type: 'set',
+          ref: doc(collRef, item.id),
+          data: {
+            ...item,
+            novelId,
+            userId: user.uid,
+            createdAt: dbItem?.createdAt || Timestamp.now()
+          }
+        });
+      }
     });
+
+    if (operations.length === 0) {
+      console.log(`Sync skipped for ${collectionName}: No changes detected.`);
+      return payload;
+    }
+
+    console.log(`Syncing ${collectionName}: Performing ${operations.length} writes (${operations.filter(op => op.type === 'set').length} updates/creates, ${operations.filter(op => op.type === 'delete').length} deletions)`);
 
     // Commit operations in chunks of 500 to adhere to Firestore limits
     const CHUNK_SIZE = 500;

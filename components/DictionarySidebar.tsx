@@ -249,15 +249,21 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     let startMessage = "";
 
     if (unclassified.length > 0 && khacClassified.length > 0) {
-      const reclassifyOthers = confirm(
-        `Phát hiện:\n- ${unclassified.length} từ chưa phân loại.\n- ${khacClassified.length} từ đang ở danh mục "Khác".\n\nBạn có muốn dùng AI phân loại lại các từ ở danh mục "Khác" không?\n\n- Ấn OK: Phân loại lại toàn bộ ${unclassified.length + khacClassified.length} từ.\n- Ấn Hủy (Cancel): Chỉ phân loại ${unclassified.length} từ chưa có danh mục.`
+      const choice = prompt(
+        `Phát hiện:\n- ${unclassified.length} từ chưa phân loại.\n- ${khacClassified.length} từ đang ở danh mục "Khác".\n\nNhập số để chọn chế độ phân loại:\n1 - Chỉ phân loại từ chưa phân nhóm (${unclassified.length} từ)\n2 - Chỉ phân loại lại các từ ở danh mục "Khác" (${khacClassified.length} từ)\n3 - Phân loại cả hai (${unclassified.length + khacClassified.length} từ)\n\nNhấn Cancel hoặc nhập ký tự khác để Hủy.`,
+        "1"
       );
-      if (reclassifyOthers) {
-        targets = [...unclassified, ...khacClassified];
-        startMessage = `Bắt đầu phân loại ${targets.length} từ (bao gồm cả các từ thuộc danh mục "Khác")...`;
-      } else {
+      if (choice === "1") {
         targets = unclassified;
         startMessage = `Bắt đầu phân loại ${targets.length} từ chưa phân loại...`;
+      } else if (choice === "2") {
+        targets = khacClassified;
+        startMessage = `Bắt đầu phân loại lại ${targets.length} từ ở danh mục "Khác"...`;
+      } else if (choice === "3") {
+        targets = [...unclassified, ...khacClassified];
+        startMessage = `Bắt đầu phân loại toàn bộ ${targets.length} từ...`;
+      } else {
+        return; // Cancel
       }
     } else if (unclassified.length > 0) {
       if (!confirm(`Bạn có muốn tự động phân loại ${unclassified.length} từ chưa phân loại bằng AI không?`)) {
@@ -296,13 +302,14 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
         if (category) {
           updatedTerms = updatedTerms.map(t => t.id === item.id ? { ...t, category } : t);
           successCount++;
+          // Save progressively after every single classification to prevent data loss on page reload or clear!
+          onUpdateTerms(updatedTerms);
         }
       } catch (err) {
         console.error(`Failed to classify ${item.term}`, err);
       }
     }
 
-    onUpdateTerms(updatedTerms);
     setIsClassifying(false);
     setSyncMessage({ type: 'success', text: `Đã phân loại thành công ${successCount}/${targets.length} từ!` });
     setTimeout(() => setSyncMessage(null), 4000);
@@ -667,6 +674,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                      {/* Category Dropdown (Google Sheets Style) */}
                      <div className="mt-0.5">
                        <select
+                         disabled={isClassifying}
                          value={item.category || ''}
                          onChange={(e) => {
                            if (e.target.value === '__new__') {
@@ -692,13 +700,15 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                      </div>
 
                      {/* Delete Button */}
-                     <button
-                        onClick={() => handleDelete(item.id)}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 bg-white shadow-sm border border-[#D7CCC8] rounded text-[#BCAAA4] hover:text-[#D32F2F] opacity-0 group-hover:opacity-100 transition-all z-10"
-                        title="Xóa"
-                      >
-                        <Trash2 size={10} />
-                      </button>
+                     {!isClassifying && (
+                       <button
+                          onClick={() => handleDelete(item.id)}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 bg-white shadow-sm border border-[#D7CCC8] rounded text-[#BCAAA4] hover:text-[#D32F2F] opacity-0 group-hover:opacity-100 transition-all z-10"
+                          title="Xóa"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                     )}
                   </td>
                 </tr>
               ))
@@ -714,21 +724,24 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 type="text"
                 placeholder="Từ gốc"
                 value={newTerm}
+                disabled={isClassifying}
                 onChange={(e) => setNewTerm(e.target.value)}
-                className="w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] font-serif-sc"
+                className={`w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] font-serif-sc ${isClassifying ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
             <input
                type="text"
                placeholder="Nghĩa TV"
                value={newMeaning}
+               disabled={isClassifying}
                onChange={(e) => setNewMeaning(e.target.value)}
-               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-               className="w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63]"
+               onKeyDown={(e) => e.key === 'Enter' && !isClassifying && handleAdd()}
+               className={`w-1/2 px-1 py-0.5 text-[10px] border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] ${isClassifying ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
          </div>
          <div className="flex gap-1 items-center">
             <select
                value={categoryVal}
+               disabled={isClassifying}
                onChange={(e) => {
                  if (e.target.value === '__new__') {
                    const custom = prompt("Nhập phân loại mới:");
@@ -739,7 +752,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                    setCategoryVal(e.target.value);
                  }
                }}
-               className="w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer"
+               className={`w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer ${isClassifying ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
                <option value="">-- Chọn phân loại --</option>
                {allCategories.map(cat => (
@@ -761,7 +774,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
          </div>
          <button 
             onClick={handleAdd}
-            disabled={!newTerm.trim() || !newMeaning.trim()}
+            disabled={isClassifying || !newTerm.trim() || !newMeaning.trim()}
             className="w-full bg-[#3E2723] text-[#F5E6D3] py-0.5 rounded text-[10px] font-bold uppercase hover:bg-[#4E342E] disabled:opacity-50 flex justify-center items-center gap-1 shadow-sm"
          >
             <Plus size={10} /> Thêm

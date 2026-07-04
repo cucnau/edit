@@ -344,3 +344,47 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
     return { pinyin: "", hanViet: "", meaning: "Lỗi" };
   }
 };
+
+export const smartClassify = async (
+  term: string,
+  meaning: string,
+  existingCategories: string[] = []
+): Promise<{ category: string }> => {
+  await waitForQuota();
+  const categoriesContext = existingCategories.length > 0 
+    ? `Các phân loại hiện có trong hệ thống: ${existingCategories.map(c => `"${c}"`).join(', ')}. Hãy ưu tiên xếp vào một trong các phân loại này nếu phù hợp.` 
+    : '';
+  const prompt = `Bạn là chuyên gia dịch thuật tiểu thuyết Trung-Việt. Hãy phân loại từ vựng sau đây vào một danh mục (mục phân loại) ngắn gọn và thích hợp nhất (ví dụ: Nhân vật, Địa danh, Vật phẩm, Chiêu thức, Môn phái, Thần thú, Trạng thái, Thường dùng, Hành động, Tính từ, Khác...).
+Từ gốc: "${term}"
+Nghĩa: "${meaning}"
+${categoriesContext}
+Yêu cầu: Trả về một đối tượng JSON có trường duy nhất "category" là tên phân loại (viết hoa chữ cái đầu, ví dụ: "Vật phẩm" hoặc "Địa danh" hoặc "Nhân vật", ngắn gọn tối đa 2-3 từ).`;
+
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      category: { type: Type.STRING, description: "Tên mục phân loại của từ" }
+    },
+    required: ["category"]
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.1
+      }
+    });
+    const data = JSON.parse(response.text?.trim() || "{}");
+    return {
+      category: (data.category || "Khác").trim()
+    };
+  } catch (e) {
+    console.error("Smart classify failed", e);
+    return { category: "Khác" };
+  }
+};
+

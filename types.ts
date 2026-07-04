@@ -61,6 +61,7 @@ export interface HistoryItem {
   sourceText: string;
   result: TranslationResponse;
   modelId?: string;
+  completedSegments?: number[];
 }
 
 export interface Chapter {
@@ -92,6 +93,7 @@ export interface TranslationSession {
   error: string | null;
   modelId: string; // Model AI được chọn cho session này
   currentHistoryId?: string; // Liên kết với bản ghi lịch sử
+  currentChapterId?: string; // Liên kết với chương đang biên tập
   
   // Data
   customTerms: CustomTerm[];

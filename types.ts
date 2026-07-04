@@ -33,6 +33,7 @@ export interface CustomTerm {
   novelId: string;
   term: string;
   meaning: string;
+  category?: string;
 }
 
 export interface Character {

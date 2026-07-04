@@ -387,7 +387,7 @@ useEffect(() => {
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
         item.id === session.currentHistoryId 
-          ? { ...item, result: newResult } 
+          ? { ...item, result: newResult, completedSegments: session.completedSegments, timestamp: Date.now() } 
           : item
       ));
     }
@@ -430,7 +430,7 @@ useEffect(() => {
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
         item.id === session.currentHistoryId 
-          ? { ...item, result: newResult } 
+          ? { ...item, result: newResult, completedSegments: session.completedSegments, timestamp: Date.now() } 
           : item
       ));
     }
@@ -506,6 +506,14 @@ useEffect(() => {
         : [...currentCompleted, index];
     
     updateSession({ completedSegments: newCompleted });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, completedSegments: newCompleted, timestamp: Date.now() } 
+          : item
+      ));
+    }
   };
 
   const handleClearSession = async () => {
@@ -718,7 +726,8 @@ useEffect(() => {
         timestamp: Date.now(),
         sourceText: session.inputText,
         result: sanitized as TranslationResponse,
-        modelId: data.modelUsed
+        modelId: data.modelUsed,
+        completedSegments: []
       };
       setHistory(prev => [newHistoryItem, ...prev].slice(0, 50));
     } catch (err: any) {
@@ -737,7 +746,7 @@ useEffect(() => {
       result: sanitizeResult(item.result),
       status: AppStatus.SUCCESS,
       error: null,
-      completedSegments: [],
+      completedSegments: item.completedSegments || [],
       currentHistoryId: item.id
     });
     setShowHistory(false);

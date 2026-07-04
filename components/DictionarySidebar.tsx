@@ -237,31 +237,62 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
   const handleSmartClassifyAll = async () => {
     const unclassified = terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "");
-    if (unclassified.length === 0) {
+    const khacClassified = terms.filter(t => t.category === "Khác" || t.category === "khác");
+    
+    if (unclassified.length === 0 && khacClassified.length === 0) {
       setSyncMessage({ type: 'success', text: "Tất cả từ vựng đều đã được phân loại!" });
       setTimeout(() => setSyncMessage(null), 3000);
       return;
     }
 
-    if (!confirm(`Bạn có muốn tự động phân loại ${unclassified.length} từ chưa phân loại bằng AI không?`)) {
-      return;
+    let targets: CustomTerm[] = [];
+    let startMessage = "";
+
+    if (unclassified.length > 0 && khacClassified.length > 0) {
+      const reclassifyOthers = confirm(
+        `Phát hiện:\n- ${unclassified.length} từ chưa phân loại.\n- ${khacClassified.length} từ đang ở danh mục "Khác".\n\nBạn có muốn dùng AI phân loại lại các từ ở danh mục "Khác" không?\n\n- Ấn OK: Phân loại lại toàn bộ ${unclassified.length + khacClassified.length} từ.\n- Ấn Hủy (Cancel): Chỉ phân loại ${unclassified.length} từ chưa có danh mục.`
+      );
+      if (reclassifyOthers) {
+        targets = [...unclassified, ...khacClassified];
+        startMessage = `Bắt đầu phân loại ${targets.length} từ (bao gồm cả các từ thuộc danh mục "Khác")...`;
+      } else {
+        targets = unclassified;
+        startMessage = `Bắt đầu phân loại ${targets.length} từ chưa phân loại...`;
+      }
+    } else if (unclassified.length > 0) {
+      if (!confirm(`Bạn có muốn tự động phân loại ${unclassified.length} từ chưa phân loại bằng AI không?`)) {
+        return;
+      }
+      targets = unclassified;
+      startMessage = `Bắt đầu phân loại ${targets.length} từ...`;
+    } else {
+      // only khacClassified.length > 0
+      if (!confirm(`Tất cả từ vựng đều đã có danh mục (không còn từ chưa phân loại).\nBạn có muốn dùng AI phân loại lại ${khacClassified.length} từ đang ở danh mục "Khác" không?`)) {
+        return;
+      }
+      targets = khacClassified;
+      startMessage = `Bắt đầu phân loại lại ${targets.length} từ thuộc danh mục "Khác"...`;
     }
 
     setIsClassifying(true);
-    setSyncMessage({ type: 'success', text: `Bắt đầu phân loại ${unclassified.length} từ...` });
+    setSyncMessage({ type: 'success', text: startMessage });
 
     let updatedTerms = [...terms];
     let successCount = 0;
 
-    for (let i = 0; i < unclassified.length; i++) {
-      const item = unclassified[i];
+    // Filter out "Khác" and "Chưa phân loại" from existing categories for AI to choose from,
+    // to prevent the AI from easily choosing "Khác" again.
+    const categoriesForAI = allCategories.filter(c => c !== "Khác" && c !== "khác" && c !== "Chưa phân loại");
+
+    for (let i = 0; i < targets.length; i++) {
+      const item = targets[i];
       setSyncMessage({ 
         type: 'success', 
-        text: `Đang phân loại: "${item.term}" (${i + 1}/${unclassified.length})...` 
+        text: `Đang phân loại: "${item.term}" (${i + 1}/${targets.length})...` 
       });
       
       try {
-        const { category } = await smartClassify(item.term, item.meaning, allCategories);
+        const { category } = await smartClassify(item.term, item.meaning, categoriesForAI);
         if (category) {
           updatedTerms = updatedTerms.map(t => t.id === item.id ? { ...t, category } : t);
           successCount++;
@@ -273,7 +304,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
     onUpdateTerms(updatedTerms);
     setIsClassifying(false);
-    setSyncMessage({ type: 'success', text: `Đã phân loại thành công ${successCount}/${unclassified.length} từ!` });
+    setSyncMessage({ type: 'success', text: `Đã phân loại thành công ${successCount}/${targets.length} từ!` });
     setTimeout(() => setSyncMessage(null), 4000);
   };
 
@@ -558,17 +589,25 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 </button>
              </div>
              
-             {terms.some(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "") && (
-               <button
-                 onClick={handleSmartClassifyAll}
-                 disabled={isClassifying || isSyncing}
-                 className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[9px] font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 rounded shadow-sm transition-all disabled:opacity-50 shrink-0"
-                 title="Phân loại thông minh các từ chưa phân loại"
-               >
-                 {isClassifying ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                 <span>PHÂN LOẠI THÔNG MINH ({terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "").length} từ)</span>
-               </button>
-             )}
+             {(() => {
+               const unclassifiedCount = terms.filter(t => !t.category || t.category === "Chưa phân loại" || t.category.trim() === "").length;
+               const khacCount = terms.filter(t => t.category === "Khác" || t.category === "khác").length;
+               const totalCount = unclassifiedCount + khacCount;
+               
+               if (totalCount === 0) return null;
+               
+               return (
+                 <button
+                   onClick={handleSmartClassifyAll}
+                   disabled={isClassifying || isSyncing}
+                   className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[9px] font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 rounded shadow-sm transition-all disabled:opacity-50 shrink-0"
+                   title="Phân loại thông minh các từ chưa phân loại hoặc ở danh mục 'Khác'"
+                 >
+                   {isClassifying ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                   <span>PHÂN LOẠI THÔNG MINH ({totalCount} từ)</span>
+                 </button>
+               );
+             })()}
           </div>
       )}
       

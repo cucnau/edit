@@ -917,7 +917,7 @@ useEffect(() => {
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
                 refreshTrigger={vpLoaded}
-                onExportExcel={handleExportExcel}
+                
             />
         </div>
 
@@ -1088,7 +1088,7 @@ useEffect(() => {
                 onUpdateNotes={(val) => updateSession({ notes: val })} 
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-                onExportExcel={handleExportExcel}
+                
             />
         </div>
       </div>

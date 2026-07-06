@@ -902,7 +902,7 @@ useEffect(() => {
         <div className={`w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
             <DictionarySidebar 
                 currentNovelId={session.currentNovelId || ''}
-                terms={session.customTerms} 
+                terms={session.customTerms} onExportExcel={handleExportExcel} 
                 onUpdateTerms={(terms) => {
                     try {
                         console.log("App Sidebar: onUpdateTerms called with", terms.length, "terms");

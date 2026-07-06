@@ -713,6 +713,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   }, []);
 
   const handleVocabClick = (event: React.MouseEvent, vocab: VocabItem, type: 'char' | 'custom' | 'ai' = 'ai') => {
+     const selection = window.getSelection();
+     if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+       // Ignore click if the user is currently selecting text
+       return;
+     }
+
      event.stopPropagation();
      const rect = event.currentTarget.getBoundingClientRect();
      const viewportHeight = window.innerHeight;

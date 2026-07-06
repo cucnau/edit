@@ -360,6 +360,24 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
 
 export const alignTextWithAI = async (rawLines: string[], pastedText: string): Promise<string[]> => {
   if (!pastedText.trim()) return new Array(rawLines.length).fill("");
+  
+  // TỐI ƯU QUOTA: Kiểm tra nếu số dòng dịch dán vào khớp chính xác với số dòng gốc có text
+  const tLines = pastedText.split('\n').map(l => l.trim()).filter(l => l);
+  const rLinesWithIndices = rawLines.map((l, i) => ({ text: l.trim(), index: i }));
+  const validRLines = rLinesWithIndices.filter(l => l.text);
+  
+  if (tLines.length > 0 && validRLines.length > 0 && tLines.length === validRLines.length) {
+    const result = new Array(rawLines.length).fill("");
+    let tIdx = 0;
+    validRLines.forEach((rLine) => {
+      if (tIdx < tLines.length) {
+        result[rLine.index] = tLines[tIdx++];
+      }
+    });
+    console.log("Khớp số dòng 1-1, bỏ qua gọi AI để tiết kiệm API.");
+    return result;
+  }
+
   const rawText = rawLines.map((l, i) => `[L${i + 1}] ${l}`).join('\n');
   
   const prompt = `Bạn là một chuyên gia đối chiếu văn bản. Nhiệm vụ của bạn là gióng hàng (align) bản dịch được cung cấp sao cho khớp chính xác với từng dòng của bản gốc (raw text). Bản dịch có thể bị dính dòng, gộp dòng hoặc thừa thiếu xuống dòng so với bản gốc.

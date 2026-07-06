@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter } from './types';
 import { translateText } from './services/geminiService';
+import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
 import { getNovels } from './services/firestoreService';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -72,7 +73,7 @@ const alignTranslation = (rawLines: string[], translation: string): string[] => 
     
     // TRƯỜNG HỢP 1: Bản dịch dán vào đã có cấu trúc phân dòng tốt (số dòng dịch dán vào nhiều hoặc gần bằng số dòng raw)
     // Ta ưu tiên map 1-1 theo dòng gốc để giữ nguyên vẹn cấu trúc xuống dòng cực chuẩn của người dùng dán vào
-    if (tLines.length >= validRLines.length * 0.7 || tLines.length > 2) {
+    if (tLines.length === validRLines.length || Math.abs(tLines.length - validRLines.length) <= 1 && tLines.length >= validRLines.length * 0.9) {
         let tIdx = 0;
         validRLines.forEach((rLine, i) => {
             if (tIdx < tLines.length) {
@@ -678,47 +679,54 @@ useEffect(() => {
     updateSession({ status: AppStatus.LOADING, error: null, result: null, completedSegments: [], currentHistoryId: undefined, currentChapterId: undefined });
 
     try {
-      // --- BƯỚC 2: GỌI AI ---
-      const data = await translateText(
-        session.inputText, 
-        session.customTerms,
-        session.characters,
-        session.relationships
-      );
+      const hasPreEdited = !!(session.preEditedText && session.preEditedText.trim());
+      const hasDeepl = !!(session.deeplText && session.deeplText.trim());
+      let data: any = null;
+
+      if (mode === 'beta' && hasPreEdited) {
+          data = {
+              modelUsed: 'None (Local Alignment)',
+              segments: []
+          };
+      } else {
+          // --- BƯỚC 2: GỌI AI ---
+          data = await translateText(
+            session.inputText, 
+            session.customTerms,
+            session.characters,
+            session.relationships
+          );
+      }
       
       // --- BƯỚC 3: MERGE KẾT QUẢ ---
       let mergedSegments = [];
-      const hasPreEdited = !!(session.preEditedText && session.preEditedText.trim());
 
       if (mode === 'beta' && hasPreEdited) {
          // Align pre-edited text to source lines
-         const preEditedLines = alignTranslation(inputLines, session.preEditedText || "");
+         const preEditedLines = await alignTextWithAI(inputLines, session.preEditedText || "");
          
          // Align GG/DeepL text to source lines if it was provided
-         const hasDeepl = !!(session.deeplText && session.deeplText.trim());
-         const deeplLines = hasDeepl ? alignTranslation(inputLines, session.deeplText) : [];
+         const deeplLines = hasDeepl ? await alignTextWithAI(inputLines, session.deeplText) : [];
 
          mergedSegments = inputLines.map((line, i) => {
              // In Beta mode:
-             // - If GG/DeepL is NOT pasted, we use the AI natural translation as "deepl" reference
+             // - If GG/DeepL is NOT pasted, we just leave it empty since we skip AI
              // - If GG/DeepL IS pasted, we use the aligned GG/DeepL as "deepl" reference
              let refDeepl = "";
              if (hasDeepl) {
                  refDeepl = deeplLines[i] || "";
-             } else {
-                 refDeepl = (data.segments && data.segments[i]) ? data.segments[i].natural : "";
              }
 
              return {
                  source: line,
                  natural: preEditedLines[i] || "", // Main translation is replaced with aligned pre-edited text
-                 quick: vpSegments[i]?.quick || ((data.segments && data.segments[i]) ? data.segments[i].quick : ""),
+                 quick: vpSegments[i]?.quick || "",
                  deepl: refDeepl
              };
          });
       } else {
          // Standard Edit Mode
-         const deeplLines = alignTranslation(inputLines, session.deeplText);
+         const deeplLines = await alignTextWithAI(inputLines, session.deeplText || "");
          mergedSegments = data.segments.map((seg, i) => ({
             ...seg,
             quick: vpSegments[i]?.quick || seg.quick, // Prefer local Vietphrase

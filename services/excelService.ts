@@ -45,7 +45,7 @@ export const exportToExcel = (
 
   // Format filename safely
   const cleanNovelName = novelName.replace(/[^a-zA-Z0-9àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ_-\s]/g, "") || "DuLieu";
-  const fileName = `ChiViet_${cleanNovelName}.xlsx`;
+  const fileName = `${cleanNovelName}.xlsx`;
 
   // Write and download the file
   XLSX.writeFile(wb, fileName);

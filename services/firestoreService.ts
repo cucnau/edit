@@ -2,33 +2,94 @@ import { db, auth } from './firebase';
 import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp } from 'firebase/firestore';
 import { CustomTerm, Character, Relationship, Novel } from '../types';
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 const dbCache = new Map<string, Map<string, any>>(); // Global cache to prevent repeated getDocs on POST
 
 export const getNovels = async (): Promise<Novel[]> => {
   const user = auth.currentUser;
   if (!user) throw new Error('Bạn cần đăng nhập!');
-  const q = query(collection(db, 'novels'), where('userId', '==', user.uid));
-  const snap = await getDocs(q);
-  const novels: Novel[] = [];
-  snap.forEach(d => {
-    novels.push({ id: d.id, name: d.data().name });
-  });
-  return novels;
+  const path = 'novels';
+  try {
+    const q = query(collection(db, path), where('userId', '==', user.uid));
+    const snap = await getDocs(q);
+    const novels: Novel[] = [];
+    snap.forEach(d => {
+      novels.push({ id: d.id, name: d.data().name });
+    });
+    return novels;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
 };
 
 export const createNovel = async (id: string, name: string): Promise<Novel> => {
   const user = auth.currentUser;
   if (!user) throw new Error('Bạn cần đăng nhập!');
-  const novelRef = doc(collection(db, 'novels'), id);
-  await setDoc(novelRef, { userId: user.uid, name, createdAt: Timestamp.now() });
-  return { id, name };
+  const path = `novels/${id}`;
+  try {
+    const novelRef = doc(collection(db, 'novels'), id);
+    await setDoc(novelRef, { userId: user.uid, name, createdAt: Timestamp.now() });
+    return { id, name };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
 };
 
 export const deleteNovel = async (id: string): Promise<void> => {
   const user = auth.currentUser;
   if (!user) throw new Error('Bạn cần đăng nhập!');
-  await deleteDoc(doc(db, 'novels', id));
-  // In a real app we'd also delete all terms/characters associated.
+  const path = `novels/${id}`;
+  try {
+    await deleteDoc(doc(db, 'novels', id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
 };
 
 export const syncFirestoreData = async <T extends { id: string, novelId: string }>(

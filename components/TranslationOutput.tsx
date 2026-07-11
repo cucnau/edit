@@ -1028,7 +1028,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                            <td className={`py-0 px-2 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'}`}>
                               <div className="flex flex-col py-0.5">
                                 <div className={`${isFocusMode ? 'text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-green-600/50' : 'text-[#A1887F]/40'}`}>
+                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
                                        {idx + 1}.
                                    </span>
                                    {renderSourceWithHighlight(cleanSource)}
@@ -1056,7 +1056,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                               </div>
                               <button
                                   onClick={() => onToggleComplete?.(idx)}
-                                  className={`absolute top-0 right-0 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-green-100 border-green-200 text-green-600 hover:bg-green-200' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                  className={`absolute top-0 right-0 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
                                   title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
                                >
                                   <CheckCircle2 size={isFocusMode ? 14 : 12} />

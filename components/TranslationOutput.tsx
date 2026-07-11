@@ -217,23 +217,7 @@ const EditableSegment = ({
     );
 };
 
-const SegmentCopyBtn = ({ text }: { text: string }) => {
-    const [copied, setCopied] = useState(false);
-    const handleCopy = () => {
-        navigator.clipboard.writeText(text.trim());
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-    return (
-        <button
-            onClick={handleCopy}
-            className="absolute top-0 right-0 p-1 rounded-full bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] transition-all opacity-0 group-hover/row:opacity-100 shadow-sm border border-[#D7CCC8] z-10"
-            title="Sao chép đoạn này"
-        >
-            {copied ? <Check size={10} className="text-[#5D4037]" /> : <Copy size={10} />}
-        </button>
-    );
-};
+
 
 export const TranslationOutput: React.FC<TranslationOutputProps> = ({ 
     data, 
@@ -1044,12 +1028,9 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                            <td className={`py-0 px-2 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'}`}>
                               <div className="flex flex-col py-0.5">
                                 <div className={`${isFocusMode ? 'text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <button 
-                                      onClick={() => onToggleComplete?.(idx)}
-                                      className={`inline-flex items-center justify-center mr-1 transition-all select-none align-middle transform -translate-y-[1px] rounded ${isFocusMode ? 'min-w-[20px] h-[20px]' : 'min-w-[16px] h-[16px]'} ${isDone ? 'text-[#5D4037] scale-110' : 'text-[#A1887F]/30 hover:text-[#3E2723] hover:scale-110'}`}
-                                   >
-                                       {isDone ? <CheckCircle2 size={isFocusMode ? 15 : 12} /> : <span className={`${isFocusMode ? 'text-[11px]' : 'text-[9px]'} font-bold`}>{idx + 1}.</span>}
-                                   </button>
+                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-green-600/50' : 'text-[#A1887F]/40'}`}>
+                                       {idx + 1}.
+                                   </span>
                                    {renderSourceWithHighlight(cleanSource)}
                                 </div>
                                 {cleanQuick && (
@@ -1073,7 +1054,13 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                     <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
                                   )}
                               </div>
-                              <SegmentCopyBtn text={cleanNatural} />
+                              <button
+                                  onClick={() => onToggleComplete?.(idx)}
+                                  className={`absolute top-0 right-0 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-green-100 border-green-200 text-green-600 hover:bg-green-200' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                  title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
+                               >
+                                  <CheckCircle2 size={isFocusMode ? 14 : 12} />
+                               </button>
                            </td>
                         </tr>
                       );

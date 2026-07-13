@@ -121,10 +121,15 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       }
   }, [currentNovelId, isSignedIn]);
 
+  const termsRef = useRef(terms);
+  useEffect(() => {
+    termsRef.current = terms;
+  }, [terms]);
   
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
-    return localStorage.getItem('autoSync_vocab') === 'true';
+    const saved = localStorage.getItem('autoSync_vocab');
+    return saved === null ? true : saved === 'true';
   });
   const isInitialMount = useRef(true);
   const isPullingRef = useRef(false); // Flag to ignore changes caused by pulling data
@@ -234,8 +239,8 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       const data = await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'GET');
       
       // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
-      if (silent && data.length === 0 && terms.length > 0) {
-          const hasLocal = terms.some(t => t.novelId === currentNovelId);
+      if (silent && data.length === 0 && termsRef.current.length > 0) {
+          const hasLocal = termsRef.current.some(t => t.novelId === currentNovelId);
           if (hasLocal) {
               console.log("Preserving local terms since cloud is empty");
               if (autoSync) {
@@ -249,9 +254,9 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
       // NO DATA LOSS MERGING: Merge local and cloud smartly to preserve local edits (like AI classifications)
       let mergedData = data;
-      if (terms.length > 0) {
+      if (termsRef.current.length > 0) {
           const localTermsMap = new Map<string, CustomTerm>();
-          terms.filter(t => t.novelId === currentNovelId).forEach(t => {
+          termsRef.current.filter(t => t.novelId === currentNovelId).forEach(t => {
               localTermsMap.set(t.id, t);
           });
 
@@ -273,7 +278,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
           // Also add any local terms that are not on the cloud yet
           const cloudIds = new Set(data.map(t => t.id));
-          const localNewTerms = terms.filter(t => t.novelId === currentNovelId && !cloudIds.has(t.id));
+          const localNewTerms = termsRef.current.filter(t => t.novelId === currentNovelId && !cloudIds.has(t.id));
           mergedData = [...mergedData, ...localNewTerms];
       }
 
@@ -303,7 +308,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     if (!silent) setSyncMessage(null);
     
     try {
-      await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', terms);
+      await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', termsRef.current);
       if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
       else setSyncMessage({ type: 'success', text: 'Đã tự động lưu!' });
     } catch (e: any) {

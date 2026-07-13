@@ -39,9 +39,19 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   const [syncMessage, setSyncMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(!!auth.currentUser);
 
+  const charsRef = useRef(characters);
+  const relsRef = useRef(relationships);
+  useEffect(() => {
+    charsRef.current = characters;
+  }, [characters]);
+  useEffect(() => {
+    relsRef.current = relationships;
+  }, [relationships]);
+
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
-    return localStorage.getItem('autoSync_world') === 'true';
+    const saved = localStorage.getItem('autoSync_world');
+    return saved === null ? true : saved === 'true';
   });
   const isInitialMount = useRef(true);
   const isPullingRef = useRef(false);
@@ -131,8 +141,8 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
         
         // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
         if (silent && data.length === 0) {
-          if (type === 'char' && characters.length > 0) {
-             const hasLocal = characters.some(c => c.novelId === currentNovelId);
+          if (type === 'char' && charsRef.current.length > 0) {
+             const hasLocal = charsRef.current.some(c => c.novelId === currentNovelId);
              if (hasLocal) {
                 console.log("Preserving local characters since cloud is empty");
                 if (autoSync) {
@@ -140,8 +150,8 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                 }
                 return;
              }
-          } else if (type === 'rel' && relationships.length > 0) {
-             const hasLocal = relationships.some(r => r.novelId === currentNovelId);
+          } else if (type === 'rel' && relsRef.current.length > 0) {
+             const hasLocal = relsRef.current.some(r => r.novelId === currentNovelId);
              if (hasLocal) {
                 console.log("Preserving local relationships since cloud is empty");
                 if (autoSync) {
@@ -152,17 +162,28 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
           }
         }
 
+        let mergedData = data;
         if (type === 'char') {
-          onUpdateCharacters(data as Character[]);
+          if (charsRef.current.length > 0) {
+            const cloudIds = new Set(data.map((c: any) => c.id));
+            const localNew = charsRef.current.filter((c: any) => c.novelId === currentNovelId && !cloudIds.has(c.id));
+            mergedData = [...data, ...localNew];
+          }
+          onUpdateCharacters(mergedData as Character[]);
         } else {
-          onUpdateRelationships(data as Relationship[]);
+          if (relsRef.current.length > 0) {
+            const cloudIds = new Set(data.map((r: any) => r.id));
+            const localNew = relsRef.current.filter((r: any) => r.novelId === currentNovelId && !cloudIds.has(r.id));
+            mergedData = [...data, ...localNew];
+          }
+          onUpdateRelationships(mergedData as Relationship[]);
         }
-        setSyncMessage({ type: 'success', text: `Đã tải ${data.length} mục!` });
+        setSyncMessage({ type: 'success', text: `Đã tải ${mergedData.length} mục!` });
       } else {
         if (type === 'char') {
-          await syncFirestoreData<Character>(type, currentNovelId, 'POST', characters);
+          await syncFirestoreData<Character>(type, currentNovelId, 'POST', charsRef.current);
         } else {
-          await syncFirestoreData<Relationship>(type, currentNovelId, 'POST', relationships);
+          await syncFirestoreData<Relationship>(type, currentNovelId, 'POST', relsRef.current);
         }
         if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
         else setSyncMessage({ type: 'success', text: `Đã tự động lưu (${type === 'char' ? 'NV' : 'QH'})` });

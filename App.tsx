@@ -292,14 +292,20 @@ useEffect(() => {
         const sessionToSave = { ...session, customTerms: [] };
         localStorage.setItem('chiVietSingleSession', JSON.stringify(sessionToSave));
     } catch (e) {
-        console.warn("Storage Quota Exceeded for Session");
-        // Nếu lỗi đầy bộ nhớ, thử lưu bản rút gọn (bỏ qua kết quả dịch để cứu nội dung input)
         if (session.result) {
             try {
-                const leanSession = { ...session, customTerms: [], result: null };
+                // Thử lưu bản rút gọn (bỏ bớt segments nặng)
+                const leanResult = { ...session.result, segments: [] };
+                const leanSession = { ...session, customTerms: [], result: leanResult };
                 localStorage.setItem('chiVietSingleSession', JSON.stringify(leanSession));
             } catch (innerE) {
-                console.error("Critical: Cannot save session even without result");
+                try {
+                    // Thử lưu không có result để cứu inputText
+                    const ultraLeanSession = { ...session, customTerms: [], result: null };
+                    localStorage.setItem('chiVietSingleSession', JSON.stringify(ultraLeanSession));
+                } catch (lastE) {
+                    console.warn("Storage Quota Exceeded for Session");
+                }
             }
         }
     }
@@ -310,18 +316,34 @@ useEffect(() => {
     try {
         localStorage.setItem('chiVietHistory', JSON.stringify(history));
     } catch (e) {
-        console.warn("Storage Quota Exceeded for History");
-        // Nếu lỗi, thử cắt bớt lịch sử, chỉ giữ lại 20 mục gần nhất
-        if (history.length > 20) {
+        // Nếu bộ nhớ đầy, nén bớt history bằng cách lược bỏ segments của các bản ghi cũ
+        try {
+            const leanHistory = history.slice(0, 15).map((item, idx) => {
+                if (idx >= 2 && item.result) {
+                    return {
+                        ...item,
+                        result: {
+                            ...item.result,
+                            segments: []
+                        }
+                    };
+                }
+                return item;
+            });
+            localStorage.setItem('chiVietHistory', JSON.stringify(leanHistory));
+        } catch (innerE) {
             try {
-                const leanHistory = history.slice(0, 20);
-                localStorage.setItem('chiVietHistory', JSON.stringify(leanHistory));
-            } catch (innerE) {
-                // Nếu vẫn lỗi, giữ 5 mục
-                 try {
-                    const superLeanHistory = history.slice(0, 5);
-                    localStorage.setItem('chiVietHistory', JSON.stringify(superLeanHistory));
-                } catch (lastE) {}
+                // Nếu vẫn đầy, chỉ giữ 5 bản ghi và bỏ hết segments
+                const superLeanHistory = history.slice(0, 5).map(item => ({
+                    ...item,
+                    result: item.result ? {
+                        ...item.result,
+                        segments: []
+                    } : null
+                }));
+                localStorage.setItem('chiVietHistory', JSON.stringify(superLeanHistory));
+            } catch (lastE) {
+                console.warn("Storage Quota Exceeded for History");
             }
         }
     }

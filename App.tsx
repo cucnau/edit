@@ -1024,7 +1024,7 @@ useEffect(() => {
                               disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
                               className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
                           >
-                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích bằng AI</>)}
+                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích</>)}
                           </button>
                       </div>
                   </div>

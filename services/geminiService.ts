@@ -207,6 +207,10 @@ YÊU CẦU BẮT BUỘC VỀ DỊCH THUẬT (PHẢI TUÂN THỦ 100%):
 - Bạn PHẢI dịch chính xác nguyên văn chữ Hán của tên nhân vật xuất hiện ở câu gốc.
 - TUYỆT ĐỐI KHÔNG ĐƯỢC tự ý suy diễn để thay thế hoặc đồng nhất tên biệt danh, tên tài khoản game, tên gọi khác thành tên thật (hoặc ngược lại).
 - Ví dụ cụ thể: Nếu câu gốc xuất hiện tên tài khoản trong game hoặc biệt danh "周而复始" (Chu Nhi Phục Thủy), bạn PHẢI dịch chính xác là "Chu Nhi Phục Thủy", TUYỆT ĐỐI KHÔNG được tự ý đổi nó thành tên thật là "Chu Tùy" (周随) trong bản dịch, cho dù bạn biết họ là cùng một người từ danh sách nhân vật/bối cảnh. Tuân thủ chính xác 100% chữ Hán gốc của tên riêng xuất hiện trong câu.
+5. PHÂN BIỆT RÕ RÀNG VÀ BẮT BUỘC ƯU TIÊN KHO TỪ VỰNG SO VỚI TÊN NHÂN VẬT:
+- Danh sách "Từ vựng đặc biệt" (kho từ vựng) chứa các từ ngữ, chiêu thức, vật phẩm, danh từ riêng... BẮT BUỘC phải dịch đúng 100% sang nghĩa tiếng Việt đã quy định khi chữ Hán đó xuất hiện.
+- Danh sách "Nhân vật" CHỈ dùng khi đúng tên nhân vật xuất hiện. TUYỆT ĐỐI KHÔNG ĐƯỢC nhầm lẫn hoặc lấy tên nhân vật để dịch đè lên các từ vựng/chiêu thức/vật phẩm có chứa từ ngữ gần giống hoặc nằm trong "Từ vựng đặc biệt".
+- Trường hợp chữ Hán trùng hoặc có thành tố giống nhau, PHẢI ƯU TIÊN ÁP DỤNG NGHĨA TRONG "TỪ VỰNG ĐẶC BIỆT".
 
 BỐI CẢNH & TỪ ĐIỂN CỦA TÁC PHẨM (ƯU TIÊN TỐI ĐA):
 ${customDictionary.length > 0 ? `- Từ vựng đặc biệt: ${customDictionary.map(i => `"${i.term}" PHẢI DỊCH LÀ "${i.meaning}"`).join(', ')}` : ""}
@@ -358,7 +362,7 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
 };
 
 
-export const alignTextWithAI = async (rawLines: string[], pastedText: string): Promise<string[]> => {
+export const alignTextWithAI = async (rawLines: string[], pastedText: string, forceFastAlign = false): Promise<string[]> => {
   if (!pastedText.trim()) return new Array(rawLines.length).fill("");
   
   // TỐI ƯU QUOTA: Kiểm tra nếu số dòng dịch dán vào khớp chính xác với số dòng gốc có text
@@ -366,7 +370,7 @@ export const alignTextWithAI = async (rawLines: string[], pastedText: string): P
   const rLinesWithIndices = rawLines.map((l, i) => ({ text: l.trim(), index: i }));
   const validRLines = rLinesWithIndices.filter(l => l.text);
   
-  if (tLines.length > 0 && validRLines.length > 0 && tLines.length === validRLines.length) {
+  if (tLines.length > 0 && validRLines.length > 0 && (tLines.length === validRLines.length || forceFastAlign)) {
     const result = new Array(rawLines.length).fill("");
     let tIdx = 0;
     validRLines.forEach((rLine) => {

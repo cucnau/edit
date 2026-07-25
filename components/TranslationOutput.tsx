@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Sparkles, Loader2, Pencil, Trash2, Plus, UserPlus } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 // Deleted smartClassify import
 
@@ -247,8 +247,15 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     item: VocabItem; 
     position: { x: number; y: number }; 
     side: 'top' | 'bottom';
-    type?: 'char' | 'custom' | 'ai' 
+    type?: 'char' | 'custom' | 'ai';
+    rawItem?: CustomTerm | Character | VocabItem;
   } | null>(null);
+
+  const [isEditingVocabPopup, setIsEditingVocabPopup] = useState(false);
+  const [popupMeaningInput, setPopupMeaningInput] = useState('');
+  const [popupCategoryInput, setPopupCategoryInput] = useState('');
+  const [popupPronounsInput, setPopupPronounsInput] = useState('Hắn');
+  const [popupDescInput, setPopupDescInput] = useState('');
   const [copiedMode, setCopiedMode] = useState<'all' | 'parallel' | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
@@ -338,17 +345,17 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     });
   }, []);
 
-  // Combined terms map for Vietphrase translate
+  // Combined terms map for Vietphrase translate (customTerms take priority over characters)
   const customMap = React.useMemo(() => {
     const map = new Map<string, string>();
-    customTerms.forEach(t => {
-      if (t.term && t.meaning) {
-        map.set(t.term.trim(), t.meaning.trim());
-      }
-    });
     characters.forEach(c => {
       if (c.chineseName && c.vietName) {
         map.set(c.chineseName.trim(), c.vietName.trim());
+      }
+    });
+    customTerms.forEach(t => {
+      if (t.term && t.meaning) {
+        map.set(t.term.trim(), t.meaning.trim());
       }
     });
     return map;
@@ -401,6 +408,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
   const [vocabMeaning, setVocabMeaning] = useState('');
   const [vocabCategory, setVocabCategory] = useState('');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState('');
   const [charVietName, setCharVietName] = useState('');
   const [charPronoun, setCharPronoun] = useState('Hắn');
   const [charDescription, setCharDescription] = useState('');
@@ -411,8 +420,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const allCategories = useMemo(() => {
     const terms = Array.isArray(customTerms) ? customTerms : [];
     const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
-    return Array.from(new Set([...DEFAULT_CATEGORIES, ...unique]));
-  }, [customTerms]);
+    const categoriesSet = new Set([...DEFAULT_CATEGORIES, ...unique]);
+    if (vocabCategory && vocabCategory.trim() && vocabCategory !== '__new__') {
+      categoriesSet.add(vocabCategory.trim());
+    }
+    return Array.from(categoriesSet);
+  }, [customTerms, vocabCategory]);
 
   const handleSaveSelectedVocab = () => {
     console.log("handleSaveSelectedVocab called", { selectionPopup, vocabMeaning, hasOnUpdateTerms: !!onUpdateTerms });
@@ -452,6 +465,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           setSelectionPopup(null);
           setSaveStatus(null);
           setVocabCategory('');
+          setIsCreatingCategory(false);
+          setNewCategoryInput('');
         }, 800);
         return;
       }
@@ -462,6 +477,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         setSelectionPopup(null);
         setSaveStatus(null);
         setVocabCategory('');
+        setIsCreatingCategory(false);
+        setNewCategoryInput('');
       }, 800);
     } catch (err: any) {
       console.error("Save vocab error:", err);
@@ -696,7 +713,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleVocabClick = (event: React.MouseEvent, vocab: VocabItem, type: 'char' | 'custom' | 'ai' = 'ai') => {
+  const handleVocabClick = (
+    event: React.MouseEvent, 
+    vocab: VocabItem & { rawItem?: CustomTerm | Character | VocabItem }, 
+    type: 'char' | 'custom' | 'ai' = 'ai'
+  ) => {
      const selection = window.getSelection();
      if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
        // Ignore click if the user is currently selecting text
@@ -718,36 +739,136 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
      if (x < 130) x = 130;
      if (x > window.innerWidth - 130) x = window.innerWidth - 130;
      
-     setActiveVocab({ item: vocab, position: { x, y }, side, type });
+     setIsEditingVocabPopup(false);
+     setPopupMeaningInput(vocab.meaning || '');
+
+     if (type === 'custom') {
+       const raw = vocab.rawItem as CustomTerm;
+       setPopupCategoryInput(raw?.category || 'Thường dùng');
+     } else if (type === 'char') {
+       const raw = vocab.rawItem as Character;
+       setPopupMeaningInput(raw?.vietName || vocab.meaning || '');
+       setPopupPronounsInput(raw?.pronouns || 'Hắn');
+       setPopupDescInput(raw?.description || '');
+     } else {
+       setPopupCategoryInput('Thường dùng');
+       setPopupPronounsInput('Hắn');
+       setPopupDescInput(vocab.explanation || '');
+     }
+
+     setActiveVocab({ item: vocab, position: { x, y }, side, type, rawItem: vocab.rawItem });
+  };
+
+  const handleSaveEditVocabPopup = (vocab: NonNullable<typeof activeVocab>) => {
+    if (!vocab) return;
+    if (vocab.type === 'custom') {
+      const raw = vocab.rawItem as CustomTerm;
+      const termToMatch = raw ? raw.term : vocab.item.term;
+      const updatedTerms = customTerms.map(t => {
+        if ((raw && t.id === raw.id) || t.term === termToMatch) {
+          return {
+            ...t,
+            meaning: popupMeaningInput.trim(),
+            category: popupCategoryInput.trim() || undefined
+          };
+        }
+        return t;
+      });
+      onUpdateTerms?.(updatedTerms);
+    } else if (vocab.type === 'char') {
+      const raw = vocab.rawItem as Character;
+      const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
+      const updatedChars = characters.map(c => {
+        if ((raw && c.id === raw.id) || c.chineseName === chineseToMatch) {
+          return {
+            ...c,
+            vietName: popupMeaningInput.trim(),
+            pronouns: popupPronounsInput.trim() || 'Hắn',
+            description: popupDescInput.trim()
+          };
+        }
+        return c;
+      });
+      onUpdateCharacters?.(updatedChars);
+    }
+    setIsEditingVocabPopup(false);
+    setActiveVocab(null);
+  };
+
+  const handleDeleteVocabFromPopup = (vocab: NonNullable<typeof activeVocab>) => {
+    if (!vocab) return;
+    if (vocab.type === 'custom') {
+      const raw = vocab.rawItem as CustomTerm;
+      const termToMatch = raw ? raw.term : vocab.item.term;
+      const updatedTerms = customTerms.filter(t => (raw ? t.id !== raw.id : t.term !== termToMatch));
+      onUpdateTerms?.(updatedTerms);
+    } else if (vocab.type === 'char') {
+      const raw = vocab.rawItem as Character;
+      const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
+      const updatedChars = characters.filter(c => (raw ? c.id !== raw.id : c.chineseName !== chineseToMatch));
+      onUpdateCharacters?.(updatedChars);
+    }
+    setIsEditingVocabPopup(false);
+    setActiveVocab(null);
+  };
+
+  const handleQuickAddAiVocab = (item: VocabItem, addType: 'term' | 'char') => {
+    if (addType === 'term') {
+      const newTerm: CustomTerm = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        term: item.term.trim(),
+        meaning: (popupMeaningInput || item.meaning).trim(),
+        category: (popupCategoryInput || 'Thường dùng').trim()
+      };
+      onUpdateTerms?.([...customTerms, newTerm]);
+    } else {
+      const newChar: Character = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        chineseName: item.term.trim(),
+        vietName: (popupMeaningInput || item.meaning).trim(),
+        pronouns: popupPronounsInput || 'Hắn',
+        description: popupDescInput || item.explanation || ''
+      };
+      onUpdateCharacters?.([...characters, newChar]);
+    }
+    setActiveVocab(null);
   };
 
   const { pattern, termMap } = React.useMemo(() => {
-    const map = new Map<string, VocabItem & { type: 'char' | 'custom' | 'ai' }>();
+    const map = new Map<string, VocabItem & { type: 'char' | 'custom' | 'ai'; rawItem?: CustomTerm | Character | VocabItem }>();
     const aiVocab = data.vocabulary || [];
 
     const allTerms = [
-        ...characters.map(c => ({ term: c.chineseName, item: c, type: 'char' as const })),
         ...customTerms.map(c => ({ term: c.term, item: c, type: 'custom' as const })),
+        ...characters.map(c => ({ term: c.chineseName, item: c, type: 'char' as const })),
         ...aiVocab.map(v => ({ term: v.term, item: v, type: 'ai' as const }))
     ]
     .filter(t => t.term && t.term.trim().length > 0);
 
-    // Sort by length descending
-    allTerms.sort((a, b) => b.term.length - a.term.length);
+    // Sort by length descending, then by type priority (custom > char > ai)
+    const typePriority = { custom: 1, char: 2, ai: 3 };
+    allTerms.sort((a, b) => {
+        if (b.term.length !== a.term.length) {
+            return b.term.length - a.term.length;
+        }
+        return typePriority[a.type] - typePriority[b.type];
+    });
 
     allTerms.forEach(({ term, item, type }) => {
         if (!map.has(term)) {
             let vocabItem: VocabItem;
             if (type === 'char') {
                  const c = item as Character;
-                 vocabItem = { term: c.chineseName, pinyin: "Nhân vật", hanViet: c.vietName, meaning: c.vietName, explanation: `(Ngôi 3: ${c.pronouns}) ${c.description}` };
+                 vocabItem = { term: c.chineseName, pinyin: "Nhân vật", hanViet: c.vietName, meaning: c.vietName, explanation: `(Ngôi 3: ${c.pronouns}) ${c.description || ''}` };
             } else if (type === 'custom') {
                  const c = item as CustomTerm;
-                 vocabItem = { term: c.term, pinyin: "Từ điển riêng", hanViet: "Custom", meaning: c.meaning, explanation: "Từ vựng khớp với danh sách từ điển riêng của bạn." };
+                 vocabItem = { term: c.term, pinyin: "Từ điển riêng", hanViet: c.category || "Custom", meaning: c.meaning, explanation: "Từ vựng khớp với danh sách từ điển riêng của bạn." };
             } else {
                  vocabItem = item as VocabItem;
             }
-            map.set(term, { ...vocabItem, type });
+            map.set(term, { ...vocabItem, type, rawItem: item });
         }
     });
 
@@ -1080,7 +1201,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
             top: activeVocab.position.y, 
             transform: activeVocab.side === 'bottom' ? 'translate(-50%, 0)' : 'translate(-50%, -100%)' 
           }} 
-          className="fixed z-50 w-[240px] bg-[#FFFDF7] rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.2)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-200 overflow-hidden"
+          className="fixed z-50 w-[270px] bg-[#FFFDF7] rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-200 overflow-hidden"
         >
             {activeVocab.side === 'bottom' ? (
                 <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#FFFDF7] border-l border-t border-[#D7CCC8] rotate-45"></div>
@@ -1088,18 +1209,186 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#FFFDF7] border-r border-b border-[#D7CCC8] rotate-45"></div>
             )}
             <div className="p-3">
-                <div className="flex justify-between items-start mb-1">
+                {/* Header */}
+                <div className="flex justify-between items-start mb-2 pb-1.5 border-b border-[#EFEBE9]">
                     <div>
-                        <h3 className="text-base font-serif-sc font-bold text-[#3E2723] leading-none mb-1 flex items-center gap-1.5">{activeVocab.type === 'char' && <Users size={12} className="text-[#8D6E63]" />}{activeVocab.item.term}</h3>
-                        <div className="flex items-center gap-1.5"><span className="bg-[#EFEBE9] text-[#5D4037] px-1 py-0.5 rounded text-[8px] font-mono border border-[#D7CCC8]">{activeVocab.item.pinyin}</span></div>
+                        <h3 className="text-base font-serif-sc font-bold text-[#3E2723] leading-none mb-1 flex items-center gap-1.5">
+                            {activeVocab.type === 'char' && <Users size={12} className="text-[#8D6E63]" />}
+                            {activeVocab.item.term}
+                        </h3>
+                        <div className="flex items-center gap-1">
+                            <span className="bg-[#EFEBE9] text-[#5D4037] px-1 py-0.5 rounded text-[8px] font-mono border border-[#D7CCC8]">
+                                {activeVocab.type === 'char' ? 'Nhân vật' : activeVocab.type === 'custom' ? 'Từ điển riêng' : activeVocab.item.pinyin || 'Gợi ý AI'}
+                            </span>
+                            {activeVocab.item.hanViet && activeVocab.type === 'ai' && (
+                              <span className="text-[10px] text-[#8D6E63] font-medium ml-1">
+                                {activeVocab.item.hanViet}
+                              </span>
+                            )}
+                        </div>
                     </div>
-                    <button onClick={() => setActiveVocab(null)} className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#EFEBE9]"><X size={12} /></button>
+                    <div className="flex items-center gap-1">
+                        {(activeVocab.type === 'custom' || activeVocab.type === 'char') && !isEditingVocabPopup && (
+                            <button 
+                                onClick={() => setIsEditingVocabPopup(true)} 
+                                className="text-[#5D4037] hover:text-[#3E2723] px-1.5 py-0.5 rounded hover:bg-[#EFEBE9] transition-colors flex items-center gap-1 text-[10px] font-bold border border-[#D7CCC8]/60 bg-white shadow-2xs"
+                                title="Sửa từ này"
+                            >
+                                <Pencil size={11} />
+                                <span>Sửa</span>
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => { setActiveVocab(null); setIsEditingVocabPopup(false); }} 
+                            className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#EFEBE9]"
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
                 </div>
-                <div className="space-y-1.5">
-                    <div className="flex justify-between items-baseline border-b border-[#EFEBE9] pb-0.5"><span className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider">{activeVocab.type === 'char' ? 'Tên Việt' : 'Hán Việt'}</span><span className="text-xs text-[#3E2723] font-medium">{activeVocab.item.hanViet}</span></div>
-                    <div><div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">{activeVocab.type === 'char' ? 'Tên hiển thị' : 'Nghĩa'}</div><div className="text-xs font-bold text-[#3E2723] bg-[#FFF8E1] p-1 rounded border-l-2 border-[#5D4037]">{activeVocab.item.meaning}</div></div>
-                    {activeVocab.item.explanation && (<div><div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5 flex items-center gap-1"><Info size={8} /> Chi tiết</div><div className="text-[10px] text-[#5D4037] italic leading-tight bg-white border border-[#EFEBE9] p-1 rounded">{activeVocab.item.explanation}</div></div>)}
-                </div>
+
+                {/* Content Body */}
+                {isEditingVocabPopup && (activeVocab.type === 'custom' || activeVocab.type === 'char') ? (
+                    <div className="space-y-2">
+                        <div className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wider flex items-center gap-1">
+                            <Pencil size={10} /> Chỉnh sửa {activeVocab.type === 'char' ? 'nhân vật' : 'từ vựng'}
+                        </div>
+                        {activeVocab.type === 'custom' ? (
+                            <>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Nghĩa / Tiếng Việt</label>
+                                    <input 
+                                        type="text" 
+                                        value={popupMeaningInput} 
+                                        onChange={(e) => setPopupMeaningInput(e.target.value)}
+                                        className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] font-bold outline-none focus:border-[#8D6E63]" 
+                                        autoFocus
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Phân loại</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="VD: Vật phẩm, Địa danh..." 
+                                        value={popupCategoryInput} 
+                                        onChange={(e) => setPopupCategoryInput(e.target.value)}
+                                        className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63]" 
+                                    />
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Tên Việt hiển thị</label>
+                                    <input 
+                                        type="text" 
+                                        value={popupMeaningInput} 
+                                        onChange={(e) => setPopupMeaningInput(e.target.value)}
+                                        className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] font-bold outline-none focus:border-[#8D6E63]" 
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                        <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Xưng hô (ngôi 3)</label>
+                                        <input 
+                                            type="text" 
+                                            value={popupPronounsInput} 
+                                            onChange={(e) => setPopupPronounsInput(e.target.value)}
+                                            className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63]" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Mô tả</label>
+                                        <input 
+                                            type="text" 
+                                            value={popupDescInput} 
+                                            onChange={(e) => setPopupDescInput(e.target.value)}
+                                            className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63]" 
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        <div className="flex items-center justify-between pt-1">
+                            <button 
+                                type="button"
+                                onClick={() => handleDeleteVocabFromPopup(activeVocab)}
+                                className="px-2 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-[10px] font-bold flex items-center gap-0.5"
+                            >
+                                <Trash2 size={10} /> Xóa
+                            </button>
+                            <div className="flex gap-1">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsEditingVocabPopup(false)} 
+                                    className="px-2 py-1 bg-[#EFEBE9] text-[#5D4037] hover:bg-[#D7CCC8] rounded text-[10px] font-bold"
+                                >
+                                    Hủy
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleSaveEditVocabPopup(activeVocab)} 
+                                    className="px-2 py-1 bg-[#5D4037] text-white hover:bg-[#3E2723] rounded text-[10px] font-bold"
+                                >
+                                    Lưu
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-1.5">
+                        <div className="flex justify-between items-baseline border-b border-[#EFEBE9] pb-0.5">
+                            <span className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider">
+                                {activeVocab.type === 'char' ? 'Tên Việt' : 'Hán Việt'}
+                            </span>
+                            <span className="text-xs text-[#3E2723] font-medium">
+                                {activeVocab.item.hanViet}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">
+                                {activeVocab.type === 'char' ? 'Tên hiển thị' : 'Nghĩa'}
+                            </div>
+                            <div className="text-xs font-bold text-[#3E2723] bg-[#FFF8E1] p-1 rounded border-l-2 border-[#5D4037]">
+                                {activeVocab.item.meaning}
+                            </div>
+                        </div>
+                        {activeVocab.item.explanation && (
+                            <div>
+                                <div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                                    <Info size={8} /> Chi tiết
+                                </div>
+                                <div className="text-[10px] text-[#5D4037] italic leading-tight bg-white border border-[#EFEBE9] p-1 rounded">
+                                    {activeVocab.item.explanation}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Nút Thêm Nhanh dành cho Từ AI (Chưa có trong kho từ vựng) */}
+                        {activeVocab.type === 'ai' && (
+                            <div className="pt-2 border-t border-[#EFEBE9] space-y-1">
+                                <div className="text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider">Thêm nhanh vào kho:</div>
+                                <div className="grid grid-cols-2 gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickAddAiVocab(activeVocab.item, 'term')}
+                                        className="px-2 py-1.5 bg-[#5D4037] text-white hover:bg-[#3E2723] rounded text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                    >
+                                        <Plus size={11} /> + Từ vựng
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickAddAiVocab(activeVocab.item, 'char')}
+                                        className="px-2 py-1.5 bg-[#8D6E63] text-white hover:bg-[#5D4037] rounded text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                    >
+                                        <UserPlus size={11} /> + Nhân vật
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>,
         document.body
@@ -1317,28 +1606,67 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                   </div>
                   <div>
                     <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Phân loại (Không bắt buộc)</label>
-                    <div className="flex gap-1 items-center">
-                      <select
-                        value={vocabCategory}
-                        onChange={(e) => {
-                          if (e.target.value === '__new__') {
-                            const custom = prompt("Nhập phân loại mới:");
-                            if (custom?.trim()) {
-                              setVocabCategory(custom.trim());
+                    {isCreatingCategory ? (
+                      <div className="flex gap-1 items-center">
+                        <input
+                          type="text"
+                          value={newCategoryInput}
+                          onChange={(e) => setNewCategoryInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (newCategoryInput.trim()) {
+                                setVocabCategory(newCategoryInput.trim());
+                              }
+                              setIsCreatingCategory(false);
                             }
-                          } else {
-                            setVocabCategory(e.target.value);
-                          }
-                        }}
-                        className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] cursor-pointer"
-                      >
-                        <option value="">Chưa phân loại</option>
-                        {allCategories.map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                        <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
-                      </select>
-                    </div>
+                          }}
+                          placeholder="Nhập tên phân loại mới..."
+                          className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newCategoryInput.trim()) {
+                              setVocabCategory(newCategoryInput.trim());
+                            }
+                            setIsCreatingCategory(false);
+                          }}
+                          className="px-2 py-1 bg-[#5D4037] text-white rounded text-[10px] font-bold whitespace-nowrap hover:bg-[#3E2723]"
+                        >
+                          Lưu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsCreatingCategory(false)}
+                          className="px-2 py-1 bg-[#D7CCC8] text-[#3E2723] rounded text-[10px] font-bold whitespace-nowrap hover:bg-[#BCAAA4]"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1 items-center">
+                        <select
+                          value={vocabCategory}
+                          onChange={(e) => {
+                            if (e.target.value === '__new__') {
+                              setIsCreatingCategory(true);
+                              setNewCategoryInput('');
+                            } else {
+                              setVocabCategory(e.target.value);
+                            }
+                          }}
+                          className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] cursor-pointer"
+                        >
+                          <option value="">Chưa phân loại</option>
+                          {allCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                          <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
 

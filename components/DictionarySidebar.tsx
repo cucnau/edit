@@ -92,6 +92,8 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   const [newTerm, setNewTerm] = useState('');
   const [newMeaning, setNewMeaning] = useState('');
   const [categoryVal, setCategoryVal] = useState('');
+  const [isCreatingCat, setIsCreatingCat] = useState(false);
+  const [newCatInput, setNewCatInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -184,8 +186,12 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   // Extract all categories in the system
   const allCategories = useMemo(() => {
     const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
-    return Array.from(new Set([...DEFAULT_CATEGORIES, ...unique]));
-  }, [terms]);
+    const categoriesSet = new Set([...DEFAULT_CATEGORIES, ...unique]);
+    if (categoryVal && categoryVal.trim() && categoryVal !== '__new__') {
+      categoriesSet.add(categoryVal.trim());
+    }
+    return Array.from(categoriesSet);
+  }, [terms, categoryVal]);
 
   const filteredTerms = terms.filter(t => 
     t.term.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -644,27 +650,61 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
             />
          </div>
          <div className="flex gap-1 items-center">
-            <select
-               value={categoryVal}
-              
-               onChange={(e) => {
-                 if (e.target.value === '__new__') {
-                   const custom = prompt("Nhập phân loại mới:");
-                   if (custom?.trim()) {
-                     setCategoryVal(custom.trim());
+            {isCreatingCat ? (
+              <div className="flex gap-1 items-center w-full">
+                <input
+                  type="text"
+                  placeholder="Tên phân loại mới..."
+                  value={newCatInput}
+                  onChange={(e) => setNewCatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (newCatInput.trim()) setCategoryVal(newCatInput.trim());
+                      setIsCreatingCat(false);
+                    }
+                  }}
+                  className="w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newCatInput.trim()) setCategoryVal(newCatInput.trim());
+                    setIsCreatingCat(false);
+                  }}
+                  className="px-1.5 py-0.5 bg-[#3E2723] text-[#F5E6D3] rounded text-[10px] font-bold"
+                >
+                  Lưu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingCat(false)}
+                  className="px-1.5 py-0.5 bg-[#D7CCC8] text-[#3E2723] rounded text-[10px] font-bold"
+                >
+                  Hủy
+                </button>
+              </div>
+            ) : (
+              <select
+                 value={categoryVal}
+                 onChange={(e) => {
+                   if (e.target.value === "__new__") {
+                     setIsCreatingCat(true);
+                     setNewCatInput("");
+                   } else {
+                     setCategoryVal(e.target.value);
                    }
-                 } else {
-                   setCategoryVal(e.target.value);
-                 }
-               }}
-               className={`w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer`}
-            >
-               <option value="">-- Chọn phân loại --</option>
-               {allCategories.map(cat => (
-                 <option key={cat} value={cat}>{cat}</option>
-               ))}
-               <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
-            </select>
+                 }}
+                 className={`w-full text-[10px] px-1 py-0.5 border border-[#D7CCC8] rounded outline-none focus:border-[#8D6E63] bg-white cursor-pointer`}
+              >
+                 <option value="">-- Chọn phân loại --</option>
+                 {allCategories.map(cat => (
+                   <option key={cat} value={cat}>{cat}</option>
+                 ))}
+                 <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
+              </select>
+            )}
          </div>
          <button 
             onClick={handleAdd}

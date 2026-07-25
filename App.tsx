@@ -1019,16 +1019,6 @@ useEffect(() => {
                                   {session.inputText.length} ký tự
                               </div>
                           </div>
-
-                          <button
-                              onClick={() => handleTranslate(true)}
-                              disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
-                              className="bg-[#FFFDF7] text-[#5D4037] border border-[#5D4037] hover:bg-[#EFEBE9] disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm"
-                              title="Khớp 1-1 các dòng văn bản theo thứ tự (Không dùng AI, tốc độ tức thì)"
-                          >
-                              {session.status === AppStatus.LOADING ? <Loader2 className="animate-spin" size={14} /> : <BookOpen size={14} />}
-                              Khớp 1-1
-                          </button>
                           <button
                               onClick={() => handleTranslate(false)}
                               disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}

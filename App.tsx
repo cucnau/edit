@@ -14,7 +14,7 @@ import { HistoryModal } from './components/HistoryModal';
 import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen } from 'lucide-react';
+import { BookOpen, Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen } from 'lucide-react';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -553,7 +553,10 @@ useEffect(() => {
         for (const line of lines.slice(0, 5)) {
           if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
             const customMap = new Map<string, string>();
-            session.customTerms.forEach(t => {
+            (session.characters || []).forEach(c => {
+                if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+            });
+            (session.customTerms || []).forEach(t => {
                 if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
             });
             autoName = vietphraseEngine.translate(line, customMap);
@@ -600,7 +603,7 @@ useEffect(() => {
     updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined });
   };
 
-  const handleTranslate = async () => {
+  const handleTranslate = async (forceFastAlign = false) => {
     if (!session.inputText.trim()) return;
     
     // --- BƯỚC TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU ---
@@ -613,7 +616,10 @@ useEffect(() => {
         for (const line of lines.slice(0, 5)) {
           if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
             const customMap = new Map<string, string>();
-            session.customTerms.forEach(t => {
+            (session.characters || []).forEach(c => {
+                if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+            });
+            (session.customTerms || []).forEach(t => {
                 if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
             });
             autoName = vietphraseEngine.translate(line, customMap);
@@ -661,9 +667,12 @@ useEffect(() => {
     // ngay lập tức (vì nó rất nhanh) để sẵn sàng merge khi AI trả về.
     const inputLines = session.inputText.split('\n');
     
-    // Optimize: Convert customTerms to Map once
+    // Optimize: Convert customTerms & characters to Map once (customTerms take priority over characters)
     const customMap = new Map<string, string>();
-    session.customTerms.forEach(t => {
+    (session.characters || []).forEach(c => {
+        if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+    });
+    (session.customTerms || []).forEach(t => {
         if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
     });
 
@@ -1012,11 +1021,20 @@ useEffect(() => {
                           </div>
 
                           <button
-                              onClick={handleTranslate}
+                              onClick={() => handleTranslate(true)}
+                              disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
+                              className="bg-[#FFFDF7] text-[#5D4037] border border-[#5D4037] hover:bg-[#EFEBE9] disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed px-3 py-1.5 rounded text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                              title="Khớp 1-1 các dòng văn bản theo thứ tự (Không dùng AI, tốc độ tức thì)"
+                          >
+                              {session.status === AppStatus.LOADING ? <Loader2 className="animate-spin" size={14} /> : <BookOpen size={14} />}
+                              Khớp 1-1
+                          </button>
+                          <button
+                              onClick={() => handleTranslate(false)}
                               disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
                               className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
                           >
-                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích</>)}
+                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích bằng AI</>)}
                           </button>
                       </div>
                   </div>

@@ -6,14 +6,14 @@ const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || "" }
 
 // Danh sách các model ưu tiên thử nghiệm theo thứ tự khi gặp lỗi
 const FALLBACK_MODELS = [
+  'gemini-3.6-flash',
   'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-pro-preview',
   'gemini-3.1-flash-lite',
   'gemini-3-flash-preview',
-  'gemini-3-pro-preview',
-  'gemini-pro',
-  'gemini-flash',
-  'gemini-flash-lite'
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest'
 ];
 
 // --- CONFIGURATION ---
@@ -342,7 +342,7 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
   // Quick lookup chỉ dùng flash để nhanh
   try {
     const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.6-flash',
         contents: prompt,
         config: { 
             responseMimeType: "application/json", 

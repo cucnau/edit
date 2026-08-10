@@ -246,7 +246,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       
       // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
       if (silent && data.length === 0 && termsRef.current.length > 0) {
-          const hasLocal = termsRef.current.some(t => t.novelId === currentNovelId);
+          const hasLocal = termsRef.current.some(t => !t.novelId || t.novelId === currentNovelId);
           if (hasLocal) {
               console.log("Preserving local terms since cloud is empty");
               if (autoSync) {
@@ -258,18 +258,19 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
           }
       }
 
-      // NO DATA LOSS MERGING: Merge local and cloud smartly to preserve local edits (like AI classifications)
+      // NO DATA LOSS MERGING: Merge local and cloud smartly to preserve local edits
       let mergedData = data;
       if (termsRef.current.length > 0) {
           const localTermsMap = new Map<string, CustomTerm>();
-          termsRef.current.filter(t => t.novelId === currentNovelId).forEach(t => {
-              localTermsMap.set(t.id, t);
+          termsRef.current.forEach(t => {
+              if (!t.novelId || t.novelId === currentNovelId) {
+                  localTermsMap.set(t.id, t);
+              }
           });
 
           mergedData = data.map(cloudTerm => {
               const localTerm = localTermsMap.get(cloudTerm.id);
               if (localTerm) {
-                  // If local term has a category but cloud does not, preserve local category!
                   const hasLocalCat = localTerm.category && localTerm.category !== "Chưa phân loại" && localTerm.category.trim() !== "";
                   const hasCloudCat = cloudTerm.category && cloudTerm.category !== "Chưa phân loại" && cloudTerm.category.trim() !== "";
                   
@@ -284,13 +285,14 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
           // Also add any local terms that are not on the cloud yet
           const cloudIds = new Set(data.map(t => t.id));
-          const localNewTerms = termsRef.current.filter(t => t.novelId === currentNovelId && !cloudIds.has(t.id));
+          const localNewTerms = termsRef.current.filter(t => (!t.novelId || t.novelId === currentNovelId) && !cloudIds.has(t.id));
           mergedData = [...mergedData, ...localNewTerms];
       }
 
       onUpdateTerms(mergedData);
       if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${mergedData.length} từ!` });
     } catch (e: any) {
+      console.warn("Pull from cloud failed:", e);
       if (!silent) setSyncMessage({ type: 'error', text: e.message || "Lỗi tải dữ liệu" });
     } finally {
       setIsSyncing(false);
@@ -316,12 +318,16 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     try {
       await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', termsRef.current);
       if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
-      else setSyncMessage({ type: 'success', text: 'Đã tự động lưu!' });
     } catch (e: any) {
-      setSyncMessage({ type: 'error', text: e.message || "Lỗi lưu dữ liệu" });
+      console.warn("Push to cloud failed:", e);
+      if (!silent) {
+        setSyncMessage({ type: 'error', text: e.message || "Lỗi lưu dữ liệu" });
+      }
     } finally {
       setIsSyncing(false);
-      if (silent) setTimeout(() => setSyncMessage(null), 2000);
+      if (silent && syncMessage?.type === 'success') {
+        setTimeout(() => setSyncMessage(null), 2000);
+      }
     }
   };
 

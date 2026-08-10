@@ -127,18 +127,32 @@ export const db = {
                 tx.onerror = () => reject(tx.error);
                 tx.onabort = () => reject(tx.error);
 
-                const clearReq = store.clear();
-                
-                clearReq.onsuccess = () => {
+                const newTermIds = new Set(terms.map(t => t.id));
+                // Target novel IDs present in incoming terms
+                const targetNovelIds = new Set(terms.map(t => t.novelId || ''));
+
+                const getAllReq = store.getAll();
+                getAllReq.onsuccess = () => {
+                    const existingInDb: CustomTerm[] = getAllReq.result || [];
+                    // Remove items from DB ONLY IF they belong to one of the target novelIds AND are no longer in the incoming terms
+                    existingInDb.forEach(dbTerm => {
+                        const termNovelId = dbTerm.novelId || '';
+                        if (targetNovelIds.has(termNovelId) && !newTermIds.has(dbTerm.id)) {
+                            store.delete(dbTerm.id);
+                        }
+                    });
+
+                    // Put/Update all incoming terms
                     terms.forEach(term => {
                         store.put(term);
                     });
                 };
-                
-                clearReq.onerror = (e) => {
-                     // If clear fails, we should probably abort or reject
-                     console.error("Clear store failed", e);
-                     // The tx.onerror should catch this, but let's be safe
+
+                getAllReq.onerror = () => {
+                    // Fallback to direct put if getAll fails
+                    terms.forEach(term => {
+                        store.put(term);
+                    });
                 };
             });
         } catch (e) {

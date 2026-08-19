@@ -49,6 +49,26 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+const sanitizeData = (obj: any): any => {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== 'object') return obj;
+  if (obj instanceof Timestamp) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeData).filter(v => v !== undefined);
+  }
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val !== undefined && val !== null) {
+      const sanitizedVal = sanitizeData(val);
+      if (sanitizedVal !== undefined && sanitizedVal !== null) {
+        result[key] = sanitizedVal;
+      }
+    }
+  }
+  return result;
+};
+
 const dbCache = new Map<string, Map<string, any>>(); // Global cache to prevent repeated getDocs on POST
 
 export const getNovels = async (): Promise<Novel[]> => {
@@ -176,12 +196,21 @@ export const syncFirestoreData = async <T extends { id: string, novelId: string 
       const dbItem = dbDocsMap!.get(item.id);
       
       if (!dbItem || !areFieldsEqual(item, dbItem)) {
-        const dataToSave = {
+        const rawData = {
             ...item,
             novelId,
             userId: user.uid,
             createdAt: dbItem?.createdAt || Timestamp.now()
         };
+        const dataToSave = sanitizeData(rawData);
+        
+        // Final defensive check: strictly delete any undefined properties from the sanitized object
+        Object.keys(dataToSave).forEach(k => {
+          if (dataToSave[k] === undefined) {
+            delete dataToSave[k];
+          }
+        });
+
         operations.push({
           type: 'set',
           ref: doc(collRef, item.id),

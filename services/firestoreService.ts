@@ -1,6 +1,6 @@
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp } from 'firebase/firestore';
-import { CustomTerm, Character, Relationship, Novel, Chapter } from '../types';
+import { CustomTerm, Character, Relationship, Novel, Chapter, TextShortcut } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -112,10 +112,10 @@ export const deleteNovel = async (id: string): Promise<void> => {
   }
 };
 
-export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapter', id: string): Promise<void> => {
+export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut', id: string): Promise<void> => {
   const user = auth.currentUser;
   if (!user || !id) return;
-  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'chapters';
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
   try {
     await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
@@ -124,14 +124,14 @@ export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapt
 };
 
 export const overwriteFirestoreData = async <T extends { id: string, novelId?: string }>(
-  type: 'vocab' | 'char' | 'rel' | 'chapter',
+  type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut',
   novelId: string,
   newItems: T[]
 ): Promise<void> => {
   const user = auth.currentUser;
   if (!user || !novelId) return;
 
-  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'chapters';
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
   const collRef = collection(db, collectionName);
 
   // 1. Fetch all existing documents belonging to this user and novelId
@@ -184,7 +184,7 @@ export const overwriteFirestoreData = async <T extends { id: string, novelId?: s
 };
 
 export const syncFirestoreData = async <T extends { id: string, novelId?: string }>(
-  type: 'vocab' | 'char' | 'rel' | 'chapter',
+  type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut',
   novelId: string,
   action: 'GET' | 'POST',
   payload?: T[]
@@ -197,7 +197,7 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
     throw new Error('Chưa chọn truyện!');
   }
 
-  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'chapters';
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
   const collRef = collection(db, collectionName);
 
   if (action === 'GET') {
@@ -412,3 +412,30 @@ export const clearNovelChaptersFromCloud = async (novelId: string): Promise<void
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 };
+
+export const getShortcutsFromCloud = async (novelId: string): Promise<TextShortcut[]> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return [];
+  const path = 'shortcuts';
+  try {
+    const q = query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const snap = await getDocs(q);
+    const shortcuts: TextShortcut[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const { userId, createdAt, ...rest } = data;
+      shortcuts.push({ id: d.id, ...rest, novelId: data.novelId || novelId } as TextShortcut);
+    });
+    return shortcuts;
+  } catch (error) {
+    console.warn("Không thể tải phím tắt từ đám mây (đang dùng cache cục bộ):", error);
+    return [];
+  }
+};
+
+export const saveShortcutsToCloud = async (novelId: string, shortcuts: TextShortcut[]): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return;
+  await overwriteFirestoreData('shortcut', novelId, shortcuts);
+};
+

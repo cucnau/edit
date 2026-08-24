@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
+import { TranslationResponse, VocabItem, CustomTerm, Character, TextShortcut } from '../types';
 import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
+import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
 // Deleted smartClassify import
 
 interface TranslationOutputProps {
@@ -109,12 +110,25 @@ const EditableSegment = ({
 }) => {
     const [localText, setLocalText] = useState(text);
     const [isFocused, setIsFocused] = useState(false);
+    const [shortcuts, setShortcuts] = useState<TextShortcut[]>(() => getStoredShortcuts());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
     
     useEffect(() => {
         setLocalText(text);
     }, [text]);
+
+    useEffect(() => {
+        const handleUpdate = () => {
+            setShortcuts(getStoredShortcuts());
+        };
+        window.addEventListener('shortcuts_updated', handleUpdate);
+        window.addEventListener('shortcuts_toggle', handleUpdate);
+        return () => {
+            window.removeEventListener('shortcuts_updated', handleUpdate);
+            window.removeEventListener('shortcuts_toggle', handleUpdate);
+        };
+    }, []);
     
     const adjustHeight = () => {
         if (textareaRef.current) {
@@ -133,6 +147,25 @@ const EditableSegment = ({
             clearTimeout(timer);
         };
     }, [localText, isFocusMode, isFocused]);
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+        if (triggerKeys.includes(e.key)) {
+            const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+            const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+            if (replaced) {
+                e.preventDefault();
+                setLocalText(newText);
+                adjustHeight();
+                if (debounceTimeout.current) {
+                    clearTimeout(debounceTimeout.current);
+                }
+                debounceTimeout.current = setTimeout(() => {
+                    onUpdate(newText);
+                }, 200);
+            }
+        }
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value;
@@ -207,6 +240,7 @@ const EditableSegment = ({
             ref={textareaRef}
             value={localText}
             onChange={handleChange}
+            onKeyDown={handleKeyDown}
             onBlur={handleBlur}
             onFocus={handleFocus}
             className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[19px]' : 'text-[15px]'} focus:ring-0 m-0 block whitespace-normal min-h-0`}

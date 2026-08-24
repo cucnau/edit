@@ -9,27 +9,32 @@ service cloud.firestore {
     }
 
     match /novels/{novelId} {
-      allow read, update, delete: if isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId);
+      allow read, write: if isAuthenticated() && 
+        (resource == null || resource.data.userId == request.auth.uid) && 
+        (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
     }
     match /customTerms/{termId} {
-      allow read, update, delete: if isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId);
+      allow read, write: if isAuthenticated() && 
+        (resource == null || resource.data.userId == request.auth.uid) && 
+        (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
     match /characters/{characterId} {
-      allow read, update, delete: if isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId);
+      allow read, write: if isAuthenticated() && 
+        (resource == null || resource.data.userId == request.auth.uid) && 
+        (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
     match /relationships/{relationshipId} {
-      allow read, update, delete: if isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId);
+      allow read, write: if isAuthenticated() && 
+        (resource == null || resource.data.userId == request.auth.uid) && 
+        (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
     match /chapters/{chapterId} {
-      allow read, update, delete: if isOwner(resource.data.userId);
-      allow create: if isOwner(request.resource.data.userId);
+      allow read, write: if isAuthenticated() && 
+        (resource == null || resource.data.userId == request.auth.uid) && 
+        (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
   }
 }

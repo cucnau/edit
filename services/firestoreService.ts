@@ -112,6 +112,17 @@ export const deleteNovel = async (id: string): Promise<void> => {
   }
 };
 
+export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapter', id: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !id) return;
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'chapters';
+  try {
+    await deleteDoc(doc(db, collectionName, id));
+  } catch (error) {
+    console.warn(`Lỗi xóa ${collectionName}/${id}:`, error);
+  }
+};
+
 export const syncFirestoreData = async <T extends { id: string, novelId?: string }>(
   type: 'vocab' | 'char' | 'rel' | 'chapter',
   novelId: string,
@@ -141,6 +152,25 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
       const { userId, createdAt, ...rest } = data;
       result.push({ id: doc.id, ...rest });
     });
+
+    // Fallback: If no data found for this novelId, also check if there are legacy terms without novelId
+    if (result.length === 0) {
+      try {
+        const legacyQ = query(collRef, where('userId', '==', user.uid));
+        const legacySnapshot = await getDocs(legacyQ);
+        legacySnapshot.forEach(doc => {
+          const data = doc.data();
+          if (!data.novelId || data.novelId === novelId) {
+            localMap.set(doc.id, { ...data, novelId });
+            const { userId, createdAt, ...rest } = data;
+            result.push({ id: doc.id, ...rest, novelId });
+          }
+        });
+      } catch (err) {
+        console.warn("Legacy fallback query error:", err);
+      }
+    }
+
     dbCache.set(`${collectionName}_${novelId}`, localMap);
     return result as T[];
   } else if (action === 'POST' && payload) {
@@ -161,17 +191,6 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
     // Group all operations to chunk them into batches of max 500
     const operations: { type: 'set' | 'delete', ref: any, data?: any }[] = [];
 
-    // Delete removed items
-    const toDeleteIds: string[] = [];
-    dbDocsMap.forEach((data, id) => {
-      if (!payloadIds.has(id)) {
-        operations.push({ type: 'delete', ref: doc(collRef, id) });
-        toDeleteIds.push(id);
-      }
-    });
-    // Update cache
-    toDeleteIds.forEach(id => dbDocsMap!.delete(id));
-
     // Generic field comparison to check if write can be skipped
     const areFieldsEqual = (localItem: any, dbItem: any) => {
       const allKeys = new Set([
@@ -191,8 +210,11 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
       return true;
     };
 
+    // Filter payload to strictly only items of this novelId
+    const targetPayload = payload.filter(item => !item.novelId || item.novelId === novelId);
+
     // Add/Update items only if they are new or modified
-    payload.forEach(item => {
+    targetPayload.forEach(item => {
       const dbItem = dbDocsMap!.get(item.id);
       
       if (!dbItem || !areFieldsEqual(item, dbItem)) {

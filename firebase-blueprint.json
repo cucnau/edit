@@ -46,6 +46,31 @@
         "note": "string",
         "createdAt": "timestamp"
       }
+    },
+    {
+      "name": "novels",
+      "purpose": "Stores novels created by users",
+      "access_pattern": "Users can read and write only their own novels.",
+      "document_schema": {
+        "userId": "string",
+        "name": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    {
+      "name": "chapters",
+      "purpose": "Stores chapter archives and translated content for novels",
+      "access_pattern": "Users can read and write only their own chapters.",
+      "document_schema": {
+        "userId": "string",
+        "novelId": "string",
+        "name": "string",
+        "timestamp": "number",
+        "inputText": "string",
+        "deeplText": "string",
+        "preEditedText": "string",
+        "createdAt": "timestamp"
+      }
     }
   ],
   "auth_required": true

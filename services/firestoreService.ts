@@ -293,6 +293,32 @@ export const saveChapterToCloud = async (chapter: Chapter): Promise<void> => {
   }
 };
 
+export const bulkSaveChaptersToCloud = async (chapters: Chapter[]): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || chapters.length === 0) return;
+  
+  // Batch writes in chunks of 450 (Firestore limit is 500)
+  const chunkSize = 450;
+  for (let i = 0; i < chapters.length; i += chunkSize) {
+    const chunk = chapters.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    chunk.forEach(ch => {
+      if (!ch.id) return;
+      const rawData = {
+        ...ch,
+        userId: user.uid,
+        createdAt: Timestamp.now()
+      };
+      const dataToSave = sanitizeData(rawData);
+      Object.keys(dataToSave).forEach(k => {
+        if (dataToSave[k] === undefined) delete dataToSave[k];
+      });
+      batch.set(doc(db, 'chapters', ch.id), dataToSave, { merge: true });
+    });
+    await batch.commit();
+  }
+};
+
 export const deleteChapterFromCloud = async (chapterId: string): Promise<void> => {
   const user = auth.currentUser;
   if (!user) return;

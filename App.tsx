@@ -18,7 +18,7 @@ import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
 import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard } from 'lucide-react';
-import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled } from './services/shortcutService';
+import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -257,6 +257,11 @@ function AppContent() {
 
   useEffect(() => {
     setShortcuts(getStoredShortcuts(session.currentNovelId));
+    if (session.currentNovelId) {
+      syncShortcutsFromCloud(session.currentNovelId).then(cloudList => {
+        if (cloudList) setShortcuts(cloudList);
+      }).catch(console.warn);
+    }
   }, [session.currentNovelId]);
 
   useEffect(() => {
@@ -1013,8 +1018,9 @@ useEffect(() => {
     const filteredTerms = (session.customTerms || []).filter(t => !currentId || !t.novelId || t.novelId === currentId);
     const filteredChars = (session.characters || []).filter(c => !currentId || !c.novelId || c.novelId === currentId);
     const filteredRels = (session.relationships || []).filter(r => !currentId || !r.novelId || r.novelId === currentId);
+    const filteredShortcuts = getStoredShortcuts(currentId);
 
-    exportToExcel(filteredTerms, filteredChars, filteredRels, novelName);
+    exportToExcel(filteredTerms, filteredChars, filteredRels, novelName, filteredShortcuts);
   };
 
   return (

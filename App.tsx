@@ -4,7 +4,9 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud } from './services/firestoreService';
+import { auth } from './services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
 import { db } from './services/db'; // Import db service
 import { TranslationOutput } from './components/TranslationOutput';
@@ -285,6 +287,36 @@ useEffect(() => {
      });
 }, []);
 
+  // Tự động tải Kho chương từ Cloud Firestore mỗi khi thay đổi truyện hoặc đăng nhập
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCloudChapters = async () => {
+      const user = auth.currentUser;
+      if (!user || !session.currentNovelId) return;
+      try {
+        const cloudChapters = await getChaptersFromCloud(session.currentNovelId);
+        if (isMounted && cloudChapters && cloudChapters.length > 0) {
+          setChapters(prev => {
+            const otherNovelsChapters = prev.filter(c => c.novelId !== session.currentNovelId);
+            return [...cloudChapters, ...otherNovelsChapters];
+          });
+        }
+      } catch (err) {
+        console.error("Lỗi tải chương từ đám mây:", err);
+      }
+    };
+
+    fetchCloudChapters();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) fetchCloudChapters();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [session.currentNovelId]);
+
   // Fix lỗi QuotaExceededError khi lưu Session
   useEffect(() => {
     try {
@@ -395,6 +427,7 @@ useEffect(() => {
           timestamp: Date.now()
         };
         db.saveChapter(updated).catch(err => console.error("Auto-save chapter failed", err));
+        saveChapterToCloud(updated).catch(err => console.error("Auto-save cloud chapter failed", err));
         return updated;
       }
       return c;
@@ -613,6 +646,7 @@ useEffect(() => {
         
         try {
           await db.saveChapter(autoChapter);
+          await saveChapterToCloud(autoChapter);
           setChapters(prev => [autoChapter, ...prev]);
           console.log("Auto-saved draft on clear:", autoName);
         } catch (e) {
@@ -676,6 +710,7 @@ useEffect(() => {
         
         try {
           await db.saveChapter(autoChapter);
+          await saveChapterToCloud(autoChapter);
           setChapters(prev => [autoChapter, ...prev]);
           console.log("Auto-saved previous chapter draft before new translation:", autoName);
         } catch (e) {
@@ -838,6 +873,7 @@ useEffect(() => {
     };
 
     await db.saveChapter(newChapter);
+    await saveChapterToCloud(newChapter);
     setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.name.trim().toLowerCase() !== name.trim().toLowerCase())]);
     updateSession({ currentChapterId: chapterId });
   };
@@ -859,6 +895,7 @@ useEffect(() => {
 
   const handleDeleteChapter = async (id: string) => {
     await db.deleteChapter(id);
+    await deleteChapterFromCloud(id);
     setChapters(prev => prev.filter(c => c.id !== id));
   };
 
@@ -867,11 +904,15 @@ useEffect(() => {
     if (!chapter) return;
     const updated = { ...chapter, name: newName };
     await db.saveChapter(updated);
+    await saveChapterToCloud(updated);
     setChapters(prev => prev.map(c => c.id === id ? updated : c));
   };
 
   const handleClearAllChapters = async () => {
     await db.clearAllChapters();
+    if (session.currentNovelId) {
+      await clearNovelChaptersFromCloud(session.currentNovelId);
+    }
     setChapters([]);
   };
 

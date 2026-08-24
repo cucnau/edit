@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Character, Relationship } from '../types';
 import { Users, Network, Plus, Trash2, Search, Settings, Save, Download, Upload, Loader2, RefreshCw } from 'lucide-react';
-import { syncFirestoreData } from '../services/firestoreService';
+import { syncFirestoreData, deleteFirestoreDoc } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -181,9 +181,11 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
         setSyncMessage({ type: 'success', text: `Đã tải ${mergedData.length} mục!` });
       } else {
         if (type === 'char') {
-          await syncFirestoreData<Character>(type, currentNovelId, 'POST', charsRef.current);
+          const toPush = charsRef.current.filter(c => !c.novelId || c.novelId === currentNovelId).map(c => ({ ...c, novelId: currentNovelId }));
+          await syncFirestoreData<Character>(type, currentNovelId, 'POST', toPush);
         } else {
-          await syncFirestoreData<Relationship>(type, currentNovelId, 'POST', relsRef.current);
+          const toPush = relsRef.current.filter(r => !r.novelId || r.novelId === currentNovelId).map(r => ({ ...r, novelId: currentNovelId }));
+          await syncFirestoreData<Relationship>(type, currentNovelId, 'POST', toPush);
         }
         if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
         else setSyncMessage({ type: 'success', text: `Đã tự động lưu (${type === 'char' ? 'NV' : 'QH'})` });
@@ -218,6 +220,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   };
 
   const deleteChar = (id: string) => {
+    deleteFirestoreDoc('char', id);
     onUpdateCharacters(characters.filter(c => c.id !== id));
   };
 
@@ -240,6 +243,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   };
 
   const deleteRel = (id: string) => {
+    deleteFirestoreDoc('rel', id);
     onUpdateRelationships(relationships.filter(r => r.id !== id));
   };
 

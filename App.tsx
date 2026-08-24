@@ -14,9 +14,11 @@ import { DictionarySidebar } from './components/DictionarySidebar';
 import { WorldInfoPanel } from './components/WorldInfoPanel';
 import { HistoryModal } from './components/HistoryModal'; 
 import { ChapterArchiveModal } from './components/ChapterArchiveModal';
+import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard } from 'lucide-react';
+import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled } from './services/shortcutService';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -248,7 +250,23 @@ function AppContent() {
   const [showHistory, setShowHistory] = useState(false);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [showChapters, setShowChapters] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts());
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(() => isShortcutsEnabled());
   const [vpLoaded, setVpLoaded] = useState(false);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setShortcuts(getStoredShortcuts());
+      setShortcutsEnabled(isShortcutsEnabled());
+    };
+    window.addEventListener('shortcuts_updated', handleUpdate);
+    window.addEventListener('shortcuts_toggle', handleUpdate);
+    return () => {
+      window.removeEventListener('shortcuts_updated', handleUpdate);
+      window.removeEventListener('shortcuts_toggle', handleUpdate);
+    };
+  }, []);
   
   // Undo/Redo/Focus states
   const [undoStack, setUndoStack] = useState<string[][]>([]);
@@ -1031,6 +1049,23 @@ useEffect(() => {
               currentNovelId={session.currentNovelId || ''} 
               onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
             />
+            <button 
+              onClick={() => setShowShortcuts(true)} 
+              className={`flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                shortcutsEnabled 
+                  ? 'text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/40 border-[#FFECB3]/20' 
+                  : 'text-[#A1887F] hover:text-white hover:bg-[#5D4037] border-[#5D4037]'
+              }`}
+              title="Bảng gõ tắt (Auto-replace)"
+            >
+               <Keyboard size={12} />
+               <span>Gõ tắt</span>
+               {shortcuts.length > 0 && (
+                 <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${shortcutsEnabled ? 'bg-[#FFECB3]/20 text-[#FFECB3]' : 'bg-gray-600/40 text-gray-300'}`}>
+                   {shortcuts.filter(s => s.enabled).length}
+                 </span>
+               )}
+            </button>
             <button onClick={() => setShowChapters(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 px-2.5 py-1 rounded-full border border-[#FFECB3]/20 transition-colors">
                <FolderOpen size={12} />
                <span>Kho chương ({currentNovelChapters.length})</span>
@@ -1126,6 +1161,17 @@ useEffect(() => {
                               <textarea
                                   value={session.deeplText}
                                   onChange={(e) => updateSession({ deeplText: e.target.value })}
+                                  onKeyDown={(e) => {
+                                      const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                                      if (triggerKeys.includes(e.key)) {
+                                          const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                                          const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                                          if (replaced) {
+                                              e.preventDefault();
+                                              updateSession({ deeplText: newText });
+                                          }
+                                      }
+                                  }}
                                   placeholder="Dán bản dịch GG/DeepL vào đây..."
                                   className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
                                   spellCheck="false"
@@ -1137,6 +1183,17 @@ useEffect(() => {
                                   <textarea
                                       value={session.preEditedText || ''}
                                       onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                                      onKeyDown={(e) => {
+                                          const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                                          if (triggerKeys.includes(e.key)) {
+                                              const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                                              const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                                              if (replaced) {
+                                                  e.preventDefault();
+                                                  updateSession({ preEditedText: newText });
+                                              }
+                                          }
+                                      }}
                                       placeholder="Dán bản edit sẵn vào đây..."
                                       className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed font-medium text-[#4E342E]"
                                       spellCheck="false"
@@ -1256,6 +1313,11 @@ useEffect(() => {
         onDeleteChapter={handleDeleteChapter} 
         onRenameChapter={handleRenameChapter} 
         onClearAll={handleClearAllChapters} 
+      />
+
+      <ShortcutModal 
+        isOpen={showShortcuts} 
+        onClose={() => setShowShortcuts(false)} 
       />
     </div>
   );

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CustomTerm } from '../types';
-import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet, Sparkles } from 'lucide-react';
+import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet } from 'lucide-react';
 import { syncFirestoreData, deleteFirestoreDoc, overwriteFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';

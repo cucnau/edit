@@ -1,6 +1,6 @@
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp } from 'firebase/firestore';
-import { CustomTerm, Character, Relationship, Novel } from '../types';
+import { CustomTerm, Character, Relationship, Novel, Chapter } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -112,8 +112,8 @@ export const deleteNovel = async (id: string): Promise<void> => {
   }
 };
 
-export const syncFirestoreData = async <T extends { id: string, novelId: string }>(
-  type: 'vocab' | 'char' | 'rel',
+export const syncFirestoreData = async <T extends { id: string, novelId?: string }>(
+  type: 'vocab' | 'char' | 'rel' | 'chapter',
   novelId: string,
   action: 'GET' | 'POST',
   payload?: T[]
@@ -126,7 +126,7 @@ export const syncFirestoreData = async <T extends { id: string, novelId: string 
     throw new Error('Chưa chọn truyện!');
   }
 
-  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : 'relationships';
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'chapters';
   const collRef = collection(db, collectionName);
 
   if (action === 'GET') {
@@ -245,4 +245,73 @@ export const syncFirestoreData = async <T extends { id: string, novelId: string 
     return payload;
   }
   return [];
+};
+
+export const getChaptersFromCloud = async (novelId: string): Promise<Chapter[]> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return [];
+  const path = 'chapters';
+  try {
+    const q = query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const snap = await getDocs(q);
+    const chapters: Chapter[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const { userId, ...rest } = data;
+      chapters.push({ id: d.id, ...rest } as Chapter);
+    });
+    chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return chapters;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+};
+
+export const saveChapterToCloud = async (chapter: Chapter): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return; // Silent return if not logged in
+  if (!chapter.novelId) return;
+  const path = `chapters/${chapter.id}`;
+  try {
+    const rawData = {
+      ...chapter,
+      userId: user.uid,
+      createdAt: Timestamp.now()
+    };
+    const dataToSave = sanitizeData(rawData);
+    Object.keys(dataToSave).forEach(k => {
+      if (dataToSave[k] === undefined) delete dataToSave[k];
+    });
+    await setDoc(doc(db, 'chapters', chapter.id), dataToSave, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const deleteChapterFromCloud = async (chapterId: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+  const path = `chapters/${chapterId}`;
+  try {
+    await deleteDoc(doc(db, 'chapters', chapterId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
+export const clearNovelChaptersFromCloud = async (novelId: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return;
+  const path = 'chapters';
+  try {
+    const q = query(collection(db, 'chapters'), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.forEach(d => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
 };

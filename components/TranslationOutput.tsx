@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, VocabItem, CustomTerm, Character } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Sparkles, Loader2, Pencil, Trash2, Plus, UserPlus } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 // Deleted smartClassify import
 

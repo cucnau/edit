@@ -263,7 +263,8 @@ export const getChaptersFromCloud = async (novelId: string): Promise<Chapter[]> 
     chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     return chapters;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn("Không thể tải chương từ đám mây (đang dùng cache cục bộ):", error);
+    return [];
   }
 };
 

@@ -16,7 +16,7 @@ import { HistoryModal } from './components/HistoryModal';
 import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Sparkles, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen } from 'lucide-react';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -1156,7 +1156,7 @@ useEffect(() => {
                               disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
                               className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
                           >
-                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : (<><Sparkles size={14} /> Phân tích</>)}
+                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : 'Phân tích'}
                           </button>
                       </div>
                   </div>

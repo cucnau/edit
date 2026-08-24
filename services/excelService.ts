@@ -1,11 +1,12 @@
 import * as XLSX from 'xlsx';
-import { CustomTerm, Character, Relationship } from '../types';
+import { CustomTerm, Character, Relationship, TextShortcut } from '../types';
 
 export const exportToExcel = (
   terms: CustomTerm[],
   characters: Character[],
   relationships: Relationship[],
-  novelName: string = "Truyen"
+  novelName: string = "Truyen",
+  shortcuts: TextShortcut[] = []
 ) => {
   // Create a new workbook
   const wb = XLSX.utils.book_new();
@@ -43,6 +44,18 @@ export const exportToExcel = (
   const wsRel = XLSX.utils.json_to_sheet(relData);
   XLSX.utils.book_append_sheet(wb, wsRel, "Quan hệ");
 
+  // 4. Shortcuts Sheet (Gõ tắt)
+  const shortcutData = shortcuts.length > 0 
+    ? shortcuts.map((s, index) => ({
+        "STT": index + 1,
+        "Từ viết tắt": s.shortcut,
+        "Cụm từ thay thế": s.expansion,
+        "Trạng thái": s.enabled ? "Bật" : "Tắt"
+      }))
+    : [{ "STT": 1, "Từ viết tắt": "", "Cụm từ thay thế": "", "Trạng thái": "Bật" }];
+  const wsShortcut = XLSX.utils.json_to_sheet(shortcutData);
+  XLSX.utils.book_append_sheet(wb, wsShortcut, "Gõ tắt");
+
   // Format filename safely
   const cleanNovelName = novelName.replace(/[^a-zA-Z0-9àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ_-\s]/g, "") || "DuLieu";
   const fileName = `${cleanNovelName}.xlsx`;
@@ -50,3 +63,4 @@ export const exportToExcel = (
   // Write and download the file
   XLSX.writeFile(wb, fileName);
 };
+

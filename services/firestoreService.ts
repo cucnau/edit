@@ -123,6 +123,66 @@ export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapt
   }
 };
 
+export const overwriteFirestoreData = async <T extends { id: string, novelId?: string }>(
+  type: 'vocab' | 'char' | 'rel' | 'chapter',
+  novelId: string,
+  newItems: T[]
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return;
+
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'chapters';
+  const collRef = collection(db, collectionName);
+
+  // 1. Fetch all existing documents belonging to this user and novelId
+  const q = query(collRef, where('userId', '==', user.uid), where('novelId', '==', novelId));
+  const snapshot = await getDocs(q);
+
+  const operations: { type: 'set' | 'delete', ref: any, data?: any }[] = [];
+
+  // Delete all existing items
+  snapshot.forEach(docSnap => {
+    operations.push({ type: 'delete', ref: docSnap.ref });
+  });
+
+  // Prepare new items to insert
+  newItems.forEach(item => {
+    const rawData = {
+      ...item,
+      novelId,
+      userId: user.uid,
+      createdAt: Timestamp.now()
+    };
+    const dataToSave = sanitizeData(rawData);
+    Object.keys(dataToSave).forEach(k => {
+      if (dataToSave[k] === undefined) delete dataToSave[k];
+    });
+    operations.push({
+      type: 'set',
+      ref: doc(collRef, item.id),
+      data: dataToSave
+    });
+  });
+
+  // Execute in batches
+  const CHUNK_SIZE = 450;
+  for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+    const chunk = operations.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach(op => {
+      if (op.type === 'delete') {
+        batch.delete(op.ref);
+      } else {
+        batch.set(op.ref, op.data, { merge: true });
+      }
+    });
+    await batch.commit();
+  }
+
+  // Clear cache
+  dbCache.delete(`${collectionName}_${novelId}`);
+};
+
 export const syncFirestoreData = async <T extends { id: string, novelId?: string }>(
   type: 'vocab' | 'char' | 'rel' | 'chapter',
   novelId: string,
@@ -141,35 +201,19 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
   const collRef = collection(db, collectionName);
 
   if (action === 'GET') {
-    const q = query(collRef, where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const q = query(collRef, where('userId', '==', user.uid));
     const querySnapshot = await getDocs(q);
     const result: any[] = [];
     const localMap = new Map<string, any>();
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      localMap.set(doc.id, data);
-      // Remove userId and createdAt before returning to UI
-      const { userId, createdAt, ...rest } = data;
-      result.push({ id: doc.id, ...rest });
-    });
-
-    // Fallback: If no data found for this novelId, also check if there are legacy terms without novelId
-    if (result.length === 0) {
-      try {
-        const legacyQ = query(collRef, where('userId', '==', user.uid));
-        const legacySnapshot = await getDocs(legacyQ);
-        legacySnapshot.forEach(doc => {
-          const data = doc.data();
-          if (!data.novelId || data.novelId === novelId) {
-            localMap.set(doc.id, { ...data, novelId });
-            const { userId, createdAt, ...rest } = data;
-            result.push({ id: doc.id, ...rest, novelId });
-          }
-        });
-      } catch (err) {
-        console.warn("Legacy fallback query error:", err);
+      // Match if belongs to this novelId OR is a global/legacy item without novelId
+      if (!data.novelId || data.novelId === novelId) {
+        localMap.set(doc.id, data);
+        const { userId, createdAt, ...rest } = data;
+        result.push({ id: doc.id, ...rest, novelId: data.novelId || novelId });
       }
-    }
+    });
 
     dbCache.set(`${collectionName}_${novelId}`, localMap);
     return result as T[];

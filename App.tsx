@@ -251,13 +251,17 @@ function AppContent() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [showChapters, setShowChapters] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts());
+  const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts(session.currentNovelId));
   const [shortcutsEnabled, setShortcutsEnabled] = useState(() => isShortcutsEnabled());
   const [vpLoaded, setVpLoaded] = useState(false);
 
   useEffect(() => {
+    setShortcuts(getStoredShortcuts(session.currentNovelId));
+  }, [session.currentNovelId]);
+
+  useEffect(() => {
     const handleUpdate = () => {
-      setShortcuts(getStoredShortcuts());
+      setShortcuts(getStoredShortcuts(session.currentNovelId));
       setShortcutsEnabled(isShortcutsEnabled());
     };
     window.addEventListener('shortcuts_updated', handleUpdate);
@@ -266,7 +270,7 @@ function AppContent() {
       window.removeEventListener('shortcuts_updated', handleUpdate);
       window.removeEventListener('shortcuts_toggle', handleUpdate);
     };
-  }, []);
+  }, [session.currentNovelId]);
   
   // Undo/Redo/Focus states
   const [undoStack, setUndoStack] = useState<string[][]>([]);
@@ -1318,6 +1322,8 @@ useEffect(() => {
       <ShortcutModal 
         isOpen={showShortcuts} 
         onClose={() => setShowShortcuts(false)} 
+        currentNovelId={session.currentNovelId || ''}
+        onSelectNovel={(id) => updateSession({ currentNovelId: id })}
       />
     </div>
   );

@@ -4,37 +4,24 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
 
     match /novels/{novelId} {
-      allow read, write: if isAuthenticated() && 
-        (resource == null || resource.data.userId == request.auth.uid) && 
-        (request.resource == null || request.resource.data.userId == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
     match /users/{userId} {
       allow read, write: if isAuthenticated() && request.auth.uid == userId;
     }
     match /customTerms/{termId} {
-      allow read, write: if isAuthenticated() && 
-        (resource == null || resource.data.userId == request.auth.uid) && 
-        (request.resource == null || request.resource.data.userId == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
     match /characters/{characterId} {
-      allow read, write: if isAuthenticated() && 
-        (resource == null || resource.data.userId == request.auth.uid) && 
-        (request.resource == null || request.resource.data.userId == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
     match /relationships/{relationshipId} {
-      allow read, write: if isAuthenticated() && 
-        (resource == null || resource.data.userId == request.auth.uid) && 
-        (request.resource == null || request.resource.data.userId == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
     match /chapters/{chapterId} {
-      allow read, write: if isAuthenticated() && 
-        (resource == null || resource.data.userId == request.auth.uid) && 
-        (request.resource == null || request.resource.data.userId == request.auth.uid);
+      allow read, write: if isAuthenticated();
     }
   }
 }

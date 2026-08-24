@@ -1003,11 +1003,13 @@ useEffect(() => {
             <DictionarySidebar 
                 currentNovelId={session.currentNovelId || ''}
                 terms={session.customTerms} onExportExcel={handleExportExcel} 
-                onUpdateTerms={(terms) => {
+                onUpdateTerms={(novelTerms) => {
                     try {
-                        console.log("App Sidebar: onUpdateTerms called with", terms.length, "terms");
-                        updateSession({ customTerms: terms });
-                        db.bulkSaveCustomTerms(terms).catch(err => {
+                        const currentId = session.currentNovelId;
+                        const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+                        const merged = [...novelTerms, ...otherTerms];
+                        updateSession({ customTerms: merged });
+                        db.bulkSaveCustomTerms(merged).catch(err => {
                             console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
                         });
                     } catch (err) {
@@ -1140,21 +1142,25 @@ useEffect(() => {
                                 canRedo={redoStack.length > 0}
                                 isFocusMode={isFocusMode}
                                 onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-                                onUpdateTerms={(terms) => {
+                                onUpdateTerms={(novelTerms) => {
                                     try {
-                                        console.log("App Output: onUpdateTerms called", terms.length);
-                                        updateSession({ customTerms: terms });
-                                        db.bulkSaveCustomTerms(terms).catch(err => {
+                                        const currentId = session.currentNovelId;
+                                        const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+                                        const merged = [...novelTerms, ...otherTerms];
+                                        updateSession({ customTerms: merged });
+                                        db.bulkSaveCustomTerms(merged).catch(err => {
                                             console.error("App Output: db.bulkSaveCustomTerms failed", err);
                                         });
                                     } catch (err) {
                                         console.error("App Output: onUpdateTerms caught error:", err);
                                     }
                                 }}
-                                onUpdateCharacters={(chars) => {
+                                onUpdateCharacters={(novelChars) => {
                                     try {
-                                        console.log("App Output: onUpdateCharacters called", chars.length);
-                                        updateSession({ characters: chars });
+                                        const currentId = session.currentNovelId;
+                                        const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
+                                        const merged = [...novelChars, ...otherChars];
+                                        updateSession({ characters: merged });
                                     } catch (err) {
                                         console.error("App Output: onUpdateCharacters caught error:", err);
                                     }

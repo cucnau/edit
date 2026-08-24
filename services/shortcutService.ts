@@ -1,9 +1,13 @@
 import { TextShortcut } from '../types';
+import { auth } from './firebase';
+import { getShortcutsFromCloud, saveShortcutsToCloud } from './firestoreService';
 
 const STORAGE_KEY = 'edit_shortcuts_v1';
 const ENABLED_STORAGE_KEY = 'edit_shortcuts_enabled';
 
 export const DEFAULT_SHORTCUTS: TextShortcut[] = [];
+
+let syncDebounceTimer: NodeJS.Timeout | null = null;
 
 export const getAllStoredShortcuts = (): TextShortcut[] => {
   try {
@@ -27,7 +31,7 @@ export const getStoredShortcuts = (novelId?: string): TextShortcut[] => {
   return all.filter(s => (s.novelId || '') === targetId);
 };
 
-export const saveStoredShortcuts = (novelShortcuts: TextShortcut[], novelId?: string): void => {
+export const saveStoredShortcuts = (novelShortcuts: TextShortcut[], novelId?: string, skipCloudSave = false): void => {
   try {
     const all = getAllStoredShortcuts();
     const targetId = novelId || '';
@@ -39,10 +43,54 @@ export const saveStoredShortcuts = (novelShortcuts: TextShortcut[], novelId?: st
     const fullList = [...remaining, ...updated];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(fullList));
     window.dispatchEvent(new CustomEvent('shortcuts_updated', { detail: { novelId: targetId, shortcuts: updated } }));
+
+    // Tự động lưu lên Firestore nếu đã đăng nhập và có novelId
+    if (!skipCloudSave && auth.currentUser && targetId) {
+      if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+      syncDebounceTimer = setTimeout(() => {
+        saveShortcutsToCloud(targetId, updated).catch(err => {
+          console.warn("Tự động lưu phím tắt lên Firestore thất bại:", err);
+        });
+      }, 1000);
+    }
   } catch (err) {
     console.error("Could not save shortcuts to localStorage", err);
   }
 };
+
+/**
+ * Đồng bộ phím tắt từ đám mây (Firestore) về máy và ngược lại
+ */
+export const syncShortcutsFromCloud = async (novelId?: string): Promise<TextShortcut[]> => {
+  const targetId = novelId || '';
+  const localShortcuts = getStoredShortcuts(targetId);
+  
+  if (!auth.currentUser || !targetId) {
+    return localShortcuts;
+  }
+
+  try {
+    const cloudShortcuts = await getShortcutsFromCloud(targetId);
+    if (cloudShortcuts && cloudShortcuts.length > 0) {
+      // Kết hợp các phím tắt mới tạo cục bộ nếu có
+      const cloudIds = new Set(cloudShortcuts.map(s => s.id));
+      const localNew = localShortcuts.filter(s => !cloudIds.has(s.id));
+      const merged = [...cloudShortcuts, ...localNew];
+
+      saveStoredShortcuts(merged, targetId, true); // true = skipCloudSave to prevent loop
+      return merged;
+    } else if (localShortcuts.length > 0) {
+      // Nếu trên đám mây chưa có nhưng local có thì đẩy lên đám mây
+      await saveShortcutsToCloud(targetId, localShortcuts);
+      return localShortcuts;
+    }
+  } catch (err) {
+    console.warn("Lỗi đồng bộ phím tắt từ Firestore:", err);
+  }
+
+  return localShortcuts;
+};
+
 
 export const isShortcutsEnabled = (): boolean => {
   try {

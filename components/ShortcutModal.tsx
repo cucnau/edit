@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { TextShortcut } from '../types';
+import { TextShortcut, Novel } from '../types';
 import { 
   getStoredShortcuts, 
   saveStoredShortcuts, 
   isShortcutsEnabled, 
   setShortcutsEnabled
 } from '../services/shortcutService';
+import { getNovels } from '../services/firestoreService';
 import { 
   X, 
   Plus, 
@@ -17,15 +18,25 @@ import {
   Keyboard, 
   ToggleLeft, 
   ToggleRight,
-  Edit2
+  Edit2,
+  Book
 } from 'lucide-react';
 
 interface ShortcutModalProps {
   isOpen: boolean;
   onClose: () => void;
+  currentNovelId?: string;
+  onSelectNovel?: (novelId: string) => void;
 }
 
-export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose }) => {
+export const ShortcutModal: React.FC<ShortcutModalProps> = ({ 
+  isOpen, 
+  onClose,
+  currentNovelId = '',
+  onSelectNovel
+}) => {
+  const [activeNovelId, setActiveNovelId] = useState<string>(currentNovelId);
+  const [novels, setNovels] = useState<Novel[]>([]);
   const [shortcuts, setShortcuts] = useState<TextShortcut[]>([]);
   const [enabled, setEnabled] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -47,11 +58,25 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
 
   useEffect(() => {
     if (isOpen) {
-      setShortcuts(getStoredShortcuts());
+      setActiveNovelId(currentNovelId);
+      getNovels().then(list => {
+        if (list && list.length > 0) setNovels(list);
+      }).catch(() => {});
+    }
+  }, [isOpen, currentNovelId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShortcuts(getStoredShortcuts(activeNovelId));
       setEnabled(isShortcutsEnabled());
       setMessage(null);
+      setEditingId(null);
     }
-  }, [isOpen]);
+  }, [isOpen, activeNovelId]);
+
+  const currentNovelObj = useMemo(() => {
+    return novels.find(n => n.id === activeNovelId);
+  }, [novels, activeNovelId]);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setMessage({ type, text });
@@ -80,7 +105,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
       // Cập nhật lại cụm từ thay thế nếu đã tồn tại
       const updated = shortcuts.map(s => s.shortcut.toLowerCase() === sc ? { ...s, expansion: exp, enabled: true } : s);
       setShortcuts(updated);
-      saveStoredShortcuts(updated);
+      saveStoredShortcuts(updated, activeNovelId);
       setNewShortcut('');
       setNewExpansion('');
       showToast(`Đã cập nhật phím tắt "${sc}" -> "${exp}"`);
@@ -89,6 +114,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
 
     const newItem: TextShortcut = {
       id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+      novelId: activeNovelId,
       shortcut: sc,
       expansion: exp,
       enabled: true
@@ -96,7 +122,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
 
     const next = [newItem, ...shortcuts];
     setShortcuts(next);
-    saveStoredShortcuts(next);
+    saveStoredShortcuts(next, activeNovelId);
     setNewShortcut('');
     setNewExpansion('');
     showToast(`Đã thêm phím tắt: ${sc} -> ${exp}`);
@@ -105,13 +131,13 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
   const handleToggleItem = (id: string) => {
     const updated = shortcuts.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s);
     setShortcuts(updated);
-    saveStoredShortcuts(updated);
+    saveStoredShortcuts(updated, activeNovelId);
   };
 
   const handleDeleteItem = (id: string) => {
     const updated = shortcuts.filter(s => s.id !== id);
     setShortcuts(updated);
-    saveStoredShortcuts(updated);
+    saveStoredShortcuts(updated, activeNovelId);
     showToast('Đã xóa phím tắt');
   };
 
@@ -128,7 +154,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
 
     const updated = shortcuts.map(s => s.id === id ? { ...s, shortcut: sc, expansion: exp } : s);
     setShortcuts(updated);
-    saveStoredShortcuts(updated);
+    saveStoredShortcuts(updated, activeNovelId);
     setEditingId(null);
     showToast('Đã lưu thay đổi');
   };
@@ -166,6 +192,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
           } else {
             const newItem: TextShortcut = {
               id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+              novelId: activeNovelId,
               shortcut: sc,
               expansion: exp,
               enabled: true
@@ -179,7 +206,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
 
     const next = Array.from(existingMap.values());
     setShortcuts(next);
-    saveStoredShortcuts(next);
+    saveStoredShortcuts(next, activeNovelId);
     setBulkText('');
     setShowBulk(false);
     showToast(`Đã nạp thành công danh sách phím tắt (${next.length} từ)`);
@@ -187,7 +214,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
 
   const handleBulkOverwrite = () => {
     if (!bulkText.trim()) return;
-    if (!window.confirm('Bạn có chắc chắn muốn GHI ĐÈ TOÀN BỘ danh sách gõ tắt bằng nội dung vừa dán?')) return;
+    if (!window.confirm('Bạn có chắc chắn muốn GHI ĐÈ TOÀN BỘ danh sách gõ tắt của truyện này bằng nội dung vừa dán?')) return;
 
     const lines = bulkText.split('\n');
     const parsedItems: TextShortcut[] = [];
@@ -216,6 +243,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
           seen.add(sc);
           parsedItems.push({
             id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+            novelId: activeNovelId,
             shortcut: sc,
             expansion: exp,
             enabled: true
@@ -230,7 +258,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
     }
 
     setShortcuts(parsedItems);
-    saveStoredShortcuts(parsedItems);
+    saveStoredShortcuts(parsedItems, activeNovelId);
     setBulkText('');
     setShowBulk(false);
     showToast(`Đã ghi đè toàn bộ ${parsedItems.length} phím tắt!`);
@@ -242,7 +270,8 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bang_go_tat_${new Date().toISOString().slice(0, 10)}.txt`;
+    const slugName = (currentNovelObj?.name || 'truyen').replace(/[^a-zA-Z0-9]/g, '_');
+    a.download = `bang_go_tat_${slugName}_${new Date().toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('Đã tải xuống danh sách gõ tắt');
@@ -294,6 +323,37 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
               <X size={18} />
             </button>
           </div>
+        </div>
+
+        {/* NOVEL SELECTION BAR */}
+        <div className="bg-[#EFEBE9] px-5 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-[#D7CCC8]">
+          <div className="flex items-center gap-2">
+            <Book size={14} className="text-[#5D4037]" />
+            <span className="text-xs font-bold text-[#5D4037]">Truyện đang chọn:</span>
+            {novels.length > 0 ? (
+              <select
+                value={activeNovelId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setActiveNovelId(nextId);
+                  onSelectNovel?.(nextId);
+                }}
+                className="bg-white border border-[#BCAAA4] rounded-lg px-2.5 py-1 text-xs font-bold text-[#3E2723] outline-none focus:ring-1 focus:ring-[#5D4037] shadow-sm"
+              >
+                <option value="">-- Truyện mặc định (Chung) --</option>
+                {novels.map(n => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-xs font-bold text-[#3E2723] bg-white px-2.5 py-1 rounded-lg border border-[#D7CCC8] shadow-sm">
+                {currentNovelObj ? currentNovelObj.name : 'Truyện mặc định / Chung'}
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] font-medium text-[#8D6E63]">
+            Kho gõ tắt riêng biệt theo từng bộ truyện
+          </span>
         </div>
 
         {/* TOAST MESSAGE */}
@@ -411,14 +471,14 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({ isOpen, onClose })
               {shortcuts.length > 0 && (
                 <button
                   onClick={() => {
-                    if (window.confirm('Bạn có chắc muốn xóa tất cả từ gõ tắt không?')) {
+                    if (window.confirm('Bạn có chắc muốn xóa tất cả từ gõ tắt của truyện này không?')) {
                       setShortcuts([]);
-                      saveStoredShortcuts([]);
-                      showToast('Đã xóa sạch danh sách gõ tắt');
+                      saveStoredShortcuts([], activeNovelId);
+                      showToast('Đã xóa sạch danh sách gõ tắt của truyện');
                     }
                   }}
                   className="text-[11px] font-medium text-red-600 hover:text-red-800 px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 transition-colors flex items-center gap-1"
-                  title="Xóa tất cả phím tắt hiện có"
+                  title="Xóa tất cả phím tắt của truyện này"
                 >
                   <Trash2 size={12} /> Xóa tất cả
                 </button>

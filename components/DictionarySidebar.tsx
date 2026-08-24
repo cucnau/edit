@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CustomTerm } from '../types';
 import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet, Sparkles } from 'lucide-react';
-import { syncFirestoreData, deleteFirestoreDoc } from '../services/firestoreService';
+import { syncFirestoreData, deleteFirestoreDoc, overwriteFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from '../services/vietphraseService';
@@ -149,31 +149,23 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
      });
   }, [refreshTrigger]);
 
-  // Auto-Pull on mount if empty
+  // Auto-Pull on mount or when switching novel / sign in
   useEffect(() => {
-      // Only run if we have a user, no terms, and not currently syncing
-      if (isSignedIn && terms.length === 0 && !isSyncing && !isPullingRef.current) {
-          // Add a small delay to allow DB load to finish first (if any)
-          const timer = setTimeout(() => {
-              if (terms.length === 0) { // Check again
-                  console.log("Auto-pulling from Cloud due to empty local terms...");
-                  handlePullFromCloud();
-              }
-          }, 1000);
-          return () => clearTimeout(timer);
-      }
-  }, [isSignedIn, terms.length]); // Re-check if terms length changes (e.g. from 0 to N via DB load)
+    if (isSignedIn && currentNovelId && !isSyncing && !isPullingRef.current) {
+      const timer = setTimeout(() => {
+        handlePullFromCloud(true);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isSignedIn, currentNovelId]);
 
   // AUTO SYNC LOGIC (Push)
-    useEffect(() => {
+  useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
     
-    // SAFETY: Never auto-push empty list. 
-    // This prevents wiping the cloud if the local DB hasn't loaded yet or is empty.
-    // User must manually "Push" if they really want to clear it.
     if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0) return;
     
     const timer = setTimeout(() => {
@@ -183,7 +175,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     return () => clearTimeout(timer);
   }, [terms, autoSync, isSignedIn]);
 
-  // Filter terms belonging strictly to current novel
+  // Filter terms belonging strictly to current novel or global
   const currentNovelTerms = useMemo(() => {
     return terms.filter(t => !currentNovelId || !t.novelId || t.novelId === currentNovelId);
   }, [terms, currentNovelId]);
@@ -208,19 +200,26 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     if (!newTerm.trim() || !newMeaning.trim()) return;
     
     const termVal = newTerm.trim();
-    const newItem: CustomTerm = {
-      id: Date.now().toString(),
-      novelId: currentNovelId || '',
-      term: termVal,
-      meaning: newMeaning.trim(),
-      category: (categoryVal.trim() && categoryVal.trim() !== "Chưa phân loại") ? categoryVal.trim() : undefined
-    };
-
-    onUpdateTerms([...currentNovelTerms, newItem]);
+    const existingIndex = currentNovelTerms.findIndex(t => t.term.toLowerCase() === termVal.toLowerCase());
+    
+    if (existingIndex >= 0) {
+      const updated = currentNovelTerms.map((t, idx) => idx === existingIndex ? { ...t, meaning: newMeaning.trim(), category: (categoryVal.trim() && categoryVal.trim() !== "Chưa phân loại") ? categoryVal.trim() : t.category } : t);
+      onUpdateTerms(updated);
+      setSyncMessage({ type: 'success', text: `Đã cập nhật nghĩa từ "${termVal}"!` });
+    } else {
+      const newItem: CustomTerm = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+        novelId: currentNovelId || '',
+        term: termVal,
+        meaning: newMeaning.trim(),
+        category: (categoryVal.trim() && categoryVal.trim() !== "Chưa phân loại") ? categoryVal.trim() : undefined
+      };
+      onUpdateTerms([...currentNovelTerms, newItem]);
+      setSyncMessage({ type: 'success', text: `Đã thêm từ "${termVal}" thành công!` });
+    }
     setNewTerm('');
     setNewMeaning('');
     setCategoryVal('');
-    setSyncMessage({ type: 'success', text: `Đã thêm từ "${termVal}" thành công!` });
     setTimeout(() => setSyncMessage(null), 3000);
   };
 
@@ -437,21 +436,96 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                {!isSignedIn && <div className="text-[10px] text-red-500 mt-1">Đăng nhập để đồng bộ dữ liệu.</div>}
              </div>
 
-             {/* BULK IMPORT SECTION */}
+             {/* BULK IMPORT & OVERWRITE SECTION */}
              <div className="border-t border-[#D7CCC8] pt-3 mt-3">
-                <label className="block text-[10px] font-bold text-[#5D4037] uppercase mb-1 flex items-center gap-1"><FileText size={12}/> Import hàng loạt</label>
+                <label className="block text-[10px] font-bold text-[#5D4037] uppercase mb-1 flex items-center gap-1"><FileText size={12}/> Import hàng loạt / Ghi đè từ Excel</label>
                 <textarea
                   value={bulkText}
                   onChange={(e) => setBulkText(e.target.value)}
-                  placeholder="Trung = Việt&#10;Hoặc copy từ Excel (cột Trung, cột Việt)"
-                  className="w-full h-20 text-[10px] p-2 border border-[#D7CCC8] rounded bg-white outline-none resize-none mb-1"
+                  placeholder="Dán từ Excel vào đây:&#10;Cột 1: Tiếng Trung&#10;Cột 2: Tiếng Việt (hoặc Trung = Việt)&#10;Cột 3: Loại từ (tùy chọn)"
+                  className="w-full h-24 text-[10px] p-2 border border-[#D7CCC8] rounded bg-white outline-none resize-none mb-1.5 focus:ring-1 focus:ring-[#8D6E63]"
                 />
+                <div className="flex gap-1.5">
+                  <button 
+                    onClick={() => {
+                      if (!bulkText.trim()) return;
+                      const lines = bulkText.split('\n');
+                      const newItems: CustomTerm[] = [];
+                      lines.forEach(line => {
+                        if (!line.trim()) return;
+                        let parts: string[] = [];
+                        
+                        if (line.includes('\t')) {
+                          parts = line.split('\t');
+                        } else if (line.includes(' = ')) {
+                          parts = line.split(' = ');
+                        } else if (line.includes('=')) {
+                          parts = line.split('=');
+                        } else if (/\s{2,}/.test(line)) {
+                          parts = line.split(/\s{2,}/);
+                        } else {
+                          const match = line.match(/^(\S+)\s+(.+)$/);
+                          if (match) parts = [match[1], match[2]];
+                        }
+                        
+                        if (parts.length >= 2) {
+                          let termIdx = 0;
+                          let meaningIdx = 1;
+                          let catIdx = 2;
+                          
+                          if (/^\d+$/.test(parts[0].trim()) && parts.length >= 3) {
+                            termIdx = 1;
+                            meaningIdx = 2;
+                            catIdx = 3;
+                          }
+                          
+                          const termStr = parts[termIdx]?.trim();
+                          const meaningStr = parts[meaningIdx]?.trim();
+                          const categoryStr = parts[catIdx] ? parts[catIdx].trim() : undefined;
+                          
+                          if (termStr && meaningStr) {
+                            const alreadyExistsInTerms = currentNovelTerms.some(t => t.term.toLowerCase() === termStr.toLowerCase());
+                            const alreadyExistsInNew = newItems.some(t => t.term.toLowerCase() === termStr.toLowerCase());
+                            
+                            if (!alreadyExistsInTerms && !alreadyExistsInNew) {
+                              newItems.push({
+                                id: Date.now().toString() + Math.random().toString(36).substring(2, 6),
+                                novelId: currentNovelId || '',
+                                term: termStr,
+                                meaning: meaningStr,
+                                category: (categoryStr && categoryStr !== "Chưa phân loại") ? categoryStr : undefined
+                              });
+                            }
+                          }
+                        }
+                      });
+                      if (newItems.length > 0) {
+                          onUpdateTerms([...currentNovelTerms, ...newItems]);
+                          setBulkText('');
+                          setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} từ mới!` });
+                          setTimeout(() => setSyncMessage(null), 3000);
+                      } else {
+                          setSyncMessage({ type: 'error', text: 'Tất cả các từ đều đã tồn tại trong truyện này!' });
+                          setTimeout(() => setSyncMessage(null), 3000);
+                      }
+                    }}
+                   className="flex-1 bg-[#5D4037] text-white text-[10px] py-1.5 rounded hover:bg-[#4E342E] transition-colors font-medium"
+                 >
+                   + Thêm nối tiếp
+                 </button>
+
                  <button 
-                   onClick={() => {
+                   onClick={async () => {
                      if (!bulkText.trim()) return;
+                     if (!window.confirm(`⚠️ Bạn có chắc chắn muốn GHI ĐÈ TOÀN BỘ từ vựng của bộ truyện này bằng danh sách vừa dán?\n(Tất cả từ cũ của bộ truyện này sẽ được thay thế bằng danh sách mới)`)) {
+                       return;
+                     }
+                     
                      const lines = bulkText.split('\n');
-                     const newItems: CustomTerm[] = [];
-                     lines.forEach(line => {
+                     const parsedItems: CustomTerm[] = [];
+                     const seen = new Set<string>();
+
+                     lines.forEach((line, index) => {
                        if (!line.trim()) return;
                        let parts: string[] = [];
                        
@@ -465,9 +539,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                          parts = line.split(/\s{2,}/);
                        } else {
                          const match = line.match(/^(\S+)\s+(.+)$/);
-                         if (match) {
-                           parts = [match[1], match[2]];
-                         }
+                         if (match) parts = [match[1], match[2]];
                        }
                        
                        if (parts.length >= 2) {
@@ -475,7 +547,6 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                          let meaningIdx = 1;
                          let catIdx = 2;
                          
-                         // If first column is STT (numeric) and we have at least 3 columns, shift indices
                          if (/^\d+$/.test(parts[0].trim()) && parts.length >= 3) {
                            termIdx = 1;
                            meaningIdx = 2;
@@ -486,36 +557,45 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                          const meaningStr = parts[meaningIdx]?.trim();
                          const categoryStr = parts[catIdx] ? parts[catIdx].trim() : undefined;
                          
-                         if (termStr && meaningStr) {
-                           const alreadyExistsInTerms = terms.some(t => t.term.toLowerCase() === termStr.toLowerCase());
-                           const alreadyExistsInNew = newItems.some(t => t.term.toLowerCase() === termStr.toLowerCase());
-                           
-                           if (!alreadyExistsInTerms && !alreadyExistsInNew) {
-                             newItems.push({
-                               id: Date.now().toString() + Math.random().toString(),
-                               novelId: currentNovelId || '',
-                               term: termStr,
-                               meaning: meaningStr,
-                               category: (categoryStr && categoryStr !== "Chưa phân loại") ? categoryStr : undefined
-                             });
-                           }
+                         if (termStr && meaningStr && !seen.has(termStr.toLowerCase())) {
+                           seen.add(termStr.toLowerCase());
+                           parsedItems.push({
+                             id: `t_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 5)}`,
+                             novelId: currentNovelId || '',
+                             term: termStr,
+                             meaning: meaningStr,
+                             category: (categoryStr && categoryStr !== "Chưa phân loại") ? categoryStr : undefined
+                           });
                          }
                        }
                      });
-                     if (newItems.length > 0) {
-                         onUpdateTerms([...terms, ...newItems]);
-                         setBulkText('');
-                         setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} từ (đã loại bỏ trùng lặp)!` });
-                         setTimeout(() => setSyncMessage(null), 3000);
-                     } else {
-                         setSyncMessage({ type: 'error', text: 'Tất cả các từ đều đã tồn tại hoặc bị trùng lặp!' });
-                         setTimeout(() => setSyncMessage(null), 3000);
+
+                     if (parsedItems.length === 0) {
+                       setSyncMessage({ type: 'error', text: 'Không tìm thấy dòng từ vựng hợp lệ nào!' });
+                       setTimeout(() => setSyncMessage(null), 3000);
+                       return;
                      }
+
+                     onUpdateTerms(parsedItems);
+                     
+                     if (isSignedIn && currentNovelId) {
+                       try {
+                         await overwriteFirestoreData('vocab', currentNovelId, parsedItems);
+                       } catch (err) {
+                         console.error("Overwrite Cloud failed:", err);
+                       }
+                     }
+
+                     setBulkText('');
+                     setSyncMessage({ type: 'success', text: `Đã ghi đè thành công ${parsedItems.length} từ vào kho!` });
+                     setTimeout(() => setSyncMessage(null), 4000);
                    }}
-                  className="w-full bg-[#5D4037] text-white text-[10px] py-1 rounded hover:bg-[#4E342E] transition-colors"
-                >
-                  Thêm vào từ điển
-                </button>
+                   className="flex-1 bg-red-700 text-white text-[10px] py-1.5 rounded hover:bg-red-800 transition-colors font-bold shadow-sm"
+                   title="Thay thế toàn bộ từ vựng hiện có của bộ truyện bằng các từ vừa dán"
+                 >
+                   Ghi đè toàn bộ
+                 </button>
+                </div>
              </div>
           </div>
       

@@ -4,7 +4,7 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData } from './services/firestoreService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -329,6 +329,45 @@ useEffect(() => {
     fetchCloudChapters();
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) fetchCloudChapters();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [session.currentNovelId]);
+
+  // Tự động tải và đồng bộ Từ vựng của truyện hiện tại từ Cloud Firestore
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCloudVocab = async () => {
+      const user = auth.currentUser;
+      if (!user || !session.currentNovelId) return;
+      try {
+        const cloudTerms = await syncFirestoreData<any>('vocab', session.currentNovelId, 'GET');
+        if (!isMounted || !cloudTerms || cloudTerms.length === 0) return;
+        
+        setSession(prev => {
+          const currentId = session.currentNovelId;
+          const otherTerms = (prev.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+          const localNovelTerms = (prev.customTerms || []).filter(t => !t.novelId || t.novelId === currentId);
+          
+          const termMap = new Map<string, any>();
+          localNovelTerms.forEach(t => termMap.set(t.id, t));
+          cloudTerms.forEach(t => termMap.set(t.id, t));
+          
+          const merged = [...Array.from(termMap.values()), ...otherTerms];
+          db.bulkSaveCustomTerms(merged).catch(console.error);
+          return { ...prev, customTerms: merged };
+        });
+      } catch (err) {
+        console.warn("Auto sync vocab in App error:", err);
+      }
+    };
+
+    fetchCloudVocab();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) fetchCloudVocab();
     });
 
     return () => {
@@ -908,7 +947,8 @@ useEffect(() => {
       error: null,
       completedSegments: chapter.completedSegments || [],
       currentHistoryId: undefined,
-      currentChapterId: chapter.id
+      currentChapterId: chapter.id,
+      currentNovelId: chapter.novelId || session.currentNovelId
     });
     setShowChapters(false);
   };

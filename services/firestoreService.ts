@@ -164,8 +164,8 @@ export const overwriteFirestoreData = async <T extends { id: string, novelId?: s
     });
   });
 
-  // Execute in batches
-  const CHUNK_SIZE = 450;
+  // Execute in small batches to stay well within Firestore 10MB payload & 500 write limit
+  const CHUNK_SIZE = 80;
   for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
     const chunk = operations.slice(i, i + CHUNK_SIZE);
     const batch = writeBatch(db);
@@ -293,8 +293,8 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
 
     console.log(`Syncing ${collectionName}: Performing ${operations.length} writes (${operations.filter(op => op.type === 'set').length} updates/creates, ${operations.filter(op => op.type === 'delete').length} deletions)`);
 
-    // Commit operations in chunks of 500 to adhere to Firestore limits
-    const CHUNK_SIZE = 500;
+    // Commit operations in safe chunks of 80 to adhere strictly to Firestore 10MB payload and 500 write limits
+    const CHUNK_SIZE = 80;
     for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
       const chunk = operations.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
@@ -363,8 +363,8 @@ export const bulkSaveChaptersToCloud = async (chapters: Chapter[]): Promise<void
   const user = auth.currentUser;
   if (!user || chapters.length === 0) return;
   
-  // Batch writes in chunks of 450 (Firestore limit is 500)
-  const chunkSize = 450;
+  // Batch writes in small chunks of 10 chapters because chapter texts are large
+  const chunkSize = 10;
   for (let i = 0; i < chapters.length; i += chunkSize) {
     const chunk = chapters.slice(i, i + chunkSize);
     const batch = writeBatch(db);

@@ -4,9 +4,11 @@ import {
   getStoredShortcuts, 
   saveStoredShortcuts, 
   isShortcutsEnabled, 
-  setShortcutsEnabled
+  setShortcutsEnabled,
+  syncShortcutsFromCloud
 } from '../services/shortcutService';
 import { getNovels } from '../services/firestoreService';
+import { auth } from '../services/firebase';
 import { 
   X, 
   Plus, 
@@ -19,7 +21,9 @@ import {
   ToggleLeft, 
   ToggleRight,
   Edit2,
-  Book
+  Book,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
 
 interface ShortcutModalProps {
@@ -40,6 +44,7 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({
   const [shortcuts, setShortcuts] = useState<TextShortcut[]>([]);
   const [enabled, setEnabled] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Add single form
   const [newShortcut, setNewShortcut] = useState('');
@@ -71,6 +76,17 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({
       setEnabled(isShortcutsEnabled());
       setMessage(null);
       setEditingId(null);
+
+      // Tự động đồng bộ từ Firestore
+      if (activeNovelId && auth.currentUser) {
+        setIsSyncing(true);
+        syncShortcutsFromCloud(activeNovelId)
+          .then(list => {
+            if (list) setShortcuts(list);
+          })
+          .catch(console.warn)
+          .finally(() => setIsSyncing(false));
+      }
     }
   }, [isOpen, activeNovelId]);
 
@@ -351,9 +367,34 @@ export const ShortcutModal: React.FC<ShortcutModalProps> = ({
               </span>
             )}
           </div>
-          <span className="text-[11px] font-medium text-[#8D6E63]">
-            Kho gõ tắt riêng biệt theo từng bộ truyện
-          </span>
+          
+          <div className="flex items-center gap-2">
+            {auth.currentUser ? (
+              <button
+                onClick={() => {
+                  if (activeNovelId) {
+                    setIsSyncing(true);
+                    syncShortcutsFromCloud(activeNovelId)
+                      .then(list => {
+                        if (list) setShortcuts(list);
+                        showToast('Đã đồng bộ dữ liệu gõ tắt với Firestore');
+                      })
+                      .catch(() => showToast('Lỗi khi đồng bộ Firestore', 'error'))
+                      .finally(() => setIsSyncing(false));
+                  }
+                }}
+                className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                title="Dữ liệu gõ tắt được tự động lưu lên Firestore theo từng truyện"
+              >
+                <RefreshCw size={11} className={isSyncing ? "animate-spin" : ""} />
+                <span>{isSyncing ? 'Đang đồng bộ...' : 'Tự lưu Firestore'}</span>
+              </button>
+            ) : (
+              <span className="text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200" title="Đăng nhập để đồng bộ lên Firestore">
+                Lưu cục bộ (Đăng nhập để lưu Firestore)
+              </span>
+            )}
+          </div>
         </div>
 
         {/* TOAST MESSAGE */}

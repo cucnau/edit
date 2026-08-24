@@ -99,7 +99,8 @@ const EditableSegment = ({
     isFocusMode,
     findText,
     matchCase,
-    matchDiacritics
+    matchDiacritics,
+    novelId
 }: { 
     text: string; 
     onUpdate: (val: string) => void;
@@ -107,10 +108,11 @@ const EditableSegment = ({
     findText?: string;
     matchCase?: boolean;
     matchDiacritics?: boolean;
+    novelId?: string;
 }) => {
     const [localText, setLocalText] = useState(text);
     const [isFocused, setIsFocused] = useState(false);
-    const [shortcuts, setShortcuts] = useState<TextShortcut[]>(() => getStoredShortcuts());
+    const [shortcuts, setShortcuts] = useState<TextShortcut[]>(() => getStoredShortcuts(novelId));
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
     
@@ -119,8 +121,12 @@ const EditableSegment = ({
     }, [text]);
 
     useEffect(() => {
+        setShortcuts(getStoredShortcuts(novelId));
+    }, [novelId]);
+
+    useEffect(() => {
         const handleUpdate = () => {
-            setShortcuts(getStoredShortcuts());
+            setShortcuts(getStoredShortcuts(novelId));
         };
         window.addEventListener('shortcuts_updated', handleUpdate);
         window.addEventListener('shortcuts_toggle', handleUpdate);
@@ -128,7 +134,7 @@ const EditableSegment = ({
             window.removeEventListener('shortcuts_updated', handleUpdate);
             window.removeEventListener('shortcuts_toggle', handleUpdate);
         };
-    }, []);
+    }, [novelId]);
     
     const adjustHeight = () => {
         if (textareaRef.current) {
@@ -1204,6 +1210,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                     findText={findText}
                                     matchCase={matchCase}
                                     matchDiacritics={matchDiacritics}
+                                    novelId={currentNovelId}
                                   />
                                   {cleanDeepl && (
                                     <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>

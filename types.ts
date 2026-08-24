@@ -57,6 +57,7 @@ export interface Relationship {
 
 export interface TextShortcut {
   id: string;
+  novelId?: string;      // ID của truyện (tách riêng cho từng truyện)
   shortcut: string;      // Từ viết tắt (ví dụ: xh, dc, ko, ng)
   expansion: string;     // Từ thay thế đầy đủ (ví dụ: xe hơi, được, không, người)
   enabled: boolean;      // Trạng thái kích hoạt

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CustomTerm } from '../types';
 import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet, Sparkles } from 'lucide-react';
-import { syncFirestoreData } from '../services/firestoreService';
+import { syncFirestoreData, deleteFirestoreDoc } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from '../services/vietphraseService';
@@ -183,17 +183,22 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     return () => clearTimeout(timer);
   }, [terms, autoSync, isSignedIn]);
 
-  // Extract all categories in the system
+  // Filter terms belonging strictly to current novel
+  const currentNovelTerms = useMemo(() => {
+    return terms.filter(t => !currentNovelId || !t.novelId || t.novelId === currentNovelId);
+  }, [terms, currentNovelId]);
+
+  // Extract all categories for current novel
   const allCategories = useMemo(() => {
-    const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
+    const unique = Array.from(new Set(currentNovelTerms.map(t => t.category).filter(Boolean))) as string[];
     const categoriesSet = new Set([...DEFAULT_CATEGORIES, ...unique]);
-    if (categoryVal && categoryVal.trim() && categoryVal !== '__new__') {
+    if (categoryVal && categoryVal.trim() && categoryVal !== '__new__' && !categoriesSet.has(categoryVal.trim())) {
       categoriesSet.add(categoryVal.trim());
     }
     return Array.from(categoriesSet);
-  }, [terms, categoryVal]);
+  }, [currentNovelTerms, categoryVal]);
 
-  const filteredTerms = terms.filter(t => 
+  const filteredTerms = currentNovelTerms.filter(t => 
     t.term.toLowerCase().includes(searchTerm.toLowerCase()) || 
     t.meaning.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (t.category && t.category.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -208,10 +213,10 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       novelId: currentNovelId || '',
       term: termVal,
       meaning: newMeaning.trim(),
-      category: categoryVal.trim() || undefined
+      category: (categoryVal.trim() && categoryVal.trim() !== "Chưa phân loại") ? categoryVal.trim() : undefined
     };
 
-    onUpdateTerms([...terms, newItem]);
+    onUpdateTerms([...currentNovelTerms, newItem]);
     setNewTerm('');
     setNewMeaning('');
     setCategoryVal('');
@@ -220,13 +225,12 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   };
 
   const handleUpdateCategory = (id: string, category: string) => {
-    onUpdateTerms(terms.map(t => t.id === id ? { ...t, category } : t));
+    onUpdateTerms(currentNovelTerms.map(t => t.id === id ? { ...t, category } : t));
   };
 
-  // Smart classify handlers deleted
-
   const handleDelete = (id: string) => {
-    onUpdateTerms(terms.filter(t => t.id !== id));
+    deleteFirestoreDoc('vocab', id);
+    onUpdateTerms(currentNovelTerms.filter(t => t.id !== id));
   };
 
   const handlePullFromCloud = async (silent = false) => {
@@ -243,29 +247,25 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     if (!silent) setSyncMessage(null);
     try {
       const data = await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'GET');
+      const currentLocal = termsRef.current.filter(t => !t.novelId || t.novelId === currentNovelId);
       
       // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
-      if (silent && data.length === 0 && termsRef.current.length > 0) {
-          const hasLocal = termsRef.current.some(t => !t.novelId || t.novelId === currentNovelId);
-          if (hasLocal) {
-              console.log("Preserving local terms since cloud is empty");
-              if (autoSync) {
-                  setTimeout(() => {
-                      handlePushToCloud(true);
-                  }, 1000);
-              }
-              return;
+      if (silent && data.length === 0 && currentLocal.length > 0) {
+          console.log("Preserving local terms since cloud is empty");
+          if (autoSync) {
+              setTimeout(() => {
+                  handlePushToCloud(true);
+              }, 1000);
           }
+          return;
       }
 
       // NO DATA LOSS MERGING: Merge local and cloud smartly to preserve local edits
       let mergedData = data;
-      if (termsRef.current.length > 0) {
+      if (currentLocal.length > 0) {
           const localTermsMap = new Map<string, CustomTerm>();
-          termsRef.current.forEach(t => {
-              if (!t.novelId || t.novelId === currentNovelId) {
-                  localTermsMap.set(t.id, t);
-              }
+          currentLocal.forEach(t => {
+              localTermsMap.set(t.id, t);
           });
 
           mergedData = data.map(cloudTerm => {
@@ -276,17 +276,20 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                   
                   return {
                       ...cloudTerm,
+                      novelId: currentNovelId,
                       category: (!hasCloudCat && hasLocalCat) ? localTerm.category : cloudTerm.category,
                       meaning: (localTerm.meaning && !cloudTerm.meaning) ? localTerm.meaning : cloudTerm.meaning
                   };
               }
-              return cloudTerm;
+              return { ...cloudTerm, novelId: currentNovelId };
           });
 
           // Also add any local terms that are not on the cloud yet
           const cloudIds = new Set(data.map(t => t.id));
-          const localNewTerms = termsRef.current.filter(t => (!t.novelId || t.novelId === currentNovelId) && !cloudIds.has(t.id));
+          const localNewTerms = currentLocal.filter(t => !cloudIds.has(t.id)).map(t => ({ ...t, novelId: currentNovelId }));
           mergedData = [...mergedData, ...localNewTerms];
+      } else {
+          mergedData = data.map(t => ({ ...t, novelId: currentNovelId }));
       }
 
       onUpdateTerms(mergedData);
@@ -309,25 +312,20 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
         if (!silent) setSyncMessage({ type: 'error', text: 'Chưa chọn truyện!' });
         return;
     }
-    
-    if (isSyncing) return;
-
     setIsSyncing(true);
     if (!silent) setSyncMessage(null);
-    
     try {
-      await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', termsRef.current);
+      const toPush = termsRef.current.filter(t => !t.novelId || t.novelId === currentNovelId).map(t => ({ ...t, novelId: currentNovelId }));
+      await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', toPush);
       if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
+      else setSyncMessage({ type: 'success', text: 'Đã tự động lưu từ vựng' });
     } catch (e: any) {
       console.warn("Push to cloud failed:", e);
-      if (!silent) {
-        setSyncMessage({ type: 'error', text: e.message || "Lỗi lưu dữ liệu" });
-      }
+      if (!silent) setSyncMessage({ type: 'error', text: e.message || "Lỗi đồng bộ" });
     } finally {
       setIsSyncing(false);
-      if (silent && syncMessage?.type === 'success') {
-        setTimeout(() => setSyncMessage(null), 2000);
-      }
+      if (silent) setTimeout(() => setSyncMessage(null), 2000);
+      else setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 

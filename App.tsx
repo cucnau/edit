@@ -4,7 +4,7 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels, getChaptersFromCloud, saveChapterToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud } from './services/firestoreService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -287,7 +287,7 @@ useEffect(() => {
      });
 }, []);
 
-  // Tự động tải Kho chương từ Cloud Firestore mỗi khi thay đổi truyện hoặc đăng nhập
+  // Tự động tải và đồng bộ Kho chương từ Cloud Firestore
   useEffect(() => {
     let isMounted = true;
     const fetchCloudChapters = async () => {
@@ -295,14 +295,34 @@ useEffect(() => {
       if (!user || !session.currentNovelId) return;
       try {
         const cloudChapters = await getChaptersFromCloud(session.currentNovelId);
-        if (isMounted && cloudChapters && cloudChapters.length > 0) {
-          setChapters(prev => {
-            const otherNovelsChapters = prev.filter(c => c.novelId !== session.currentNovelId);
-            return [...cloudChapters, ...otherNovelsChapters];
-          });
+        if (!isMounted) return;
+
+        // Lấy tất cả chương hiện tại thuộc truyện
+        const allCurrentChapters = await db.getAllChapters();
+        const localChaptersForNovel = (allCurrentChapters || []).filter(c => !c.novelId || c.novelId === session.currentNovelId);
+        
+        // Nếu có chương cục bộ chưa có trên đám mây, đẩy toàn bộ lên đám mây
+        const cloudIds = new Set((cloudChapters || []).map(c => c.id));
+        const unsynced = localChaptersForNovel.filter(c => !cloudIds.has(c.id));
+        if (unsynced.length > 0) {
+          const toUpload = unsynced.map(c => ({ ...c, novelId: session.currentNovelId! }));
+          await bulkSaveChaptersToCloud(toUpload);
+          // Cập nhật lại db cục bộ
+          toUpload.forEach(c => db.saveChapter(c));
         }
+
+        // Hợp nhất dữ liệu
+        const mergedMap = new Map<string, Chapter>();
+        localChaptersForNovel.forEach(c => mergedMap.set(c.id, { ...c, novelId: session.currentNovelId! }));
+        (cloudChapters || []).forEach(c => mergedMap.set(c.id, c));
+        const mergedList = Array.from(mergedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        setChapters(prev => {
+          const otherNovelsChapters = prev.filter(c => c.novelId && c.novelId !== session.currentNovelId);
+          return [...mergedList, ...otherNovelsChapters];
+        });
       } catch (err) {
-        console.error("Lỗi tải chương từ đám mây:", err);
+        console.error("Lỗi tải/đồng bộ chương từ đám mây:", err);
       }
     };
 

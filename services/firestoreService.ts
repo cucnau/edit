@@ -247,7 +247,7 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
   return [];
 };
 
-export const getChaptersFromCloud = async (novelId: string): Promise<Chapter[]> => {
+export const getChaptersFromCloud = async (novelId: string, retryCount = 1): Promise<Chapter[]> => {
   const user = auth.currentUser;
   if (!user || !novelId) return [];
   const path = 'chapters';
@@ -263,6 +263,10 @@ export const getChaptersFromCloud = async (novelId: string): Promise<Chapter[]> 
     chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     return chapters;
   } catch (error) {
+    if (retryCount > 0) {
+      await new Promise(res => setTimeout(res, 1200));
+      return getChaptersFromCloud(novelId, retryCount - 1);
+    }
     console.warn("Không thể tải chương từ đám mây (đang dùng cache cục bộ):", error);
     return [];
   }

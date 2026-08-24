@@ -5,7 +5,7 @@ const ENABLED_STORAGE_KEY = 'edit_shortcuts_enabled';
 
 export const DEFAULT_SHORTCUTS: TextShortcut[] = [];
 
-export const getStoredShortcuts = (): TextShortcut[] => {
+export const getAllStoredShortcuts = (): TextShortcut[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
@@ -21,10 +21,24 @@ export const getStoredShortcuts = (): TextShortcut[] => {
   }
 };
 
-export const saveStoredShortcuts = (shortcuts: TextShortcut[]): void => {
+export const getStoredShortcuts = (novelId?: string): TextShortcut[] => {
+  const all = getAllStoredShortcuts();
+  const targetId = novelId || '';
+  return all.filter(s => (s.novelId || '') === targetId);
+};
+
+export const saveStoredShortcuts = (novelShortcuts: TextShortcut[], novelId?: string): void => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(shortcuts));
-    window.dispatchEvent(new CustomEvent('shortcuts_updated', { detail: shortcuts }));
+    const all = getAllStoredShortcuts();
+    const targetId = novelId || '';
+    const remaining = all.filter(s => (s.novelId || '') !== targetId);
+    const updated = novelShortcuts.map(s => ({
+      ...s,
+      novelId: targetId
+    }));
+    const fullList = [...remaining, ...updated];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(fullList));
+    window.dispatchEvent(new CustomEvent('shortcuts_updated', { detail: { novelId: targetId, shortcuts: updated } }));
   } catch (err) {
     console.error("Could not save shortcuts to localStorage", err);
   }

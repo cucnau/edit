@@ -978,14 +978,21 @@ useEffect(() => {
 
   const handleExportExcel = async () => {
     let novelName = "Truyện";
+    const currentId = session.currentNovelId;
     try {
       const allNovels = await getNovels();
-      const found = allNovels.find(n => n.id === session.currentNovelId);
+      const found = allNovels.find(n => n.id === currentId);
       if (found) novelName = found.name;
     } catch (e) {
       console.warn("Could not fetch novel name for export", e);
     }
-    exportToExcel(session.customTerms, session.characters, session.relationships, novelName);
+
+    // Chỉ xuất dữ liệu của bộ truyện hiện tại
+    const filteredTerms = (session.customTerms || []).filter(t => !currentId || !t.novelId || t.novelId === currentId);
+    const filteredChars = (session.characters || []).filter(c => !currentId || !c.novelId || c.novelId === currentId);
+    const filteredRels = (session.relationships || []).filter(r => !currentId || !r.novelId || r.novelId === currentId);
+
+    exportToExcel(filteredTerms, filteredChars, filteredRels, novelName);
   };
 
   return (

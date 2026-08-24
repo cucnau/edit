@@ -71,6 +71,19 @@
         "preEditedText": "string",
         "createdAt": "timestamp"
       }
+    },
+    {
+      "name": "shortcuts",
+      "purpose": "Stores text shortcuts for typing expansions per novel",
+      "access_pattern": "Users can read and write only their own shortcuts.",
+      "document_schema": {
+        "userId": "string",
+        "novelId": "string",
+        "shortcut": "string",
+        "expansion": "string",
+        "enabled": "boolean",
+        "createdAt": "timestamp"
+      }
     }
   ],
   "auth_required": true

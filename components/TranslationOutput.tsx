@@ -385,21 +385,34 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     });
   }, []);
 
+  // Filter terms and characters for current novel
+  const currentCustomTerms = useMemo(() => {
+    const list = Array.isArray(customTerms) ? customTerms : [];
+    if (!currentNovelId) return list;
+    return list.filter(t => !t.novelId || t.novelId === currentNovelId);
+  }, [customTerms, currentNovelId]);
+
+  const currentCharacters = useMemo(() => {
+    const list = Array.isArray(characters) ? characters : [];
+    if (!currentNovelId) return list;
+    return list.filter(c => !c.novelId || c.novelId === currentNovelId);
+  }, [characters, currentNovelId]);
+
   // Combined terms map for Vietphrase translate (customTerms take priority over characters)
   const customMap = React.useMemo(() => {
     const map = new Map<string, string>();
-    characters.forEach(c => {
+    currentCharacters.forEach(c => {
       if (c.chineseName && c.vietName) {
         map.set(c.chineseName.trim(), c.vietName.trim());
       }
     });
-    customTerms.forEach(t => {
+    currentCustomTerms.forEach(t => {
       if (t.term && t.meaning) {
         map.set(t.term.trim(), t.meaning.trim());
       }
     });
     return map;
-  }, [customTerms, characters]);
+  }, [currentCustomTerms, currentCharacters]);
 
   // --- SELECTION POPUP STATE ---
   const [selectionPopup, setSelectionPopup] = useState<{
@@ -458,14 +471,13 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const DEFAULT_CATEGORIES = ['Vật phẩm', 'Địa danh', 'Chiêu thức', 'Môn phái', 'Nhân vật', 'Thành thị', 'Vũ khí', 'Trạng thái', 'Hành động', 'Thường dùng', 'Khác'];
 
   const allCategories = useMemo(() => {
-    const terms = Array.isArray(customTerms) ? customTerms : [];
-    const unique = Array.from(new Set(terms.map(t => t.category).filter(Boolean))) as string[];
+    const unique = Array.from(new Set(currentCustomTerms.map(t => t.category).filter(Boolean))) as string[];
     const categoriesSet = new Set([...DEFAULT_CATEGORIES, ...unique]);
     if (vocabCategory && vocabCategory.trim() && vocabCategory !== '__new__') {
       categoriesSet.add(vocabCategory.trim());
     }
     return Array.from(categoriesSet);
-  }, [customTerms, vocabCategory]);
+  }, [currentCustomTerms, vocabCategory]);
 
   const handleSaveSelectedVocab = () => {
     console.log("handleSaveSelectedVocab called", { selectionPopup, vocabMeaning, hasOnUpdateTerms: !!onUpdateTerms });
@@ -495,7 +507,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         category: vocabCategory.trim() || undefined
       };
 
-      const safeTerms = Array.isArray(customTerms) ? customTerms : [];
+      const safeTerms = currentCustomTerms;
       
       // Duplicate check
       const duplicateExists = safeTerms.some(t => t.term === cleanTerm && t.meaning === cleanMeaning);
@@ -555,7 +567,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         description: charDescription.trim()
       };
 
-      const safeCharacters = Array.isArray(characters) ? characters : [];
+      const safeCharacters = currentCharacters;
       
       // Duplicate check
       const duplicateExists = safeCharacters.some(c => c.chineseName === cleanChinese && c.vietName === cleanViet);
@@ -804,7 +816,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     if (vocab.type === 'custom') {
       const raw = vocab.rawItem as CustomTerm;
       const termToMatch = raw ? raw.term : vocab.item.term;
-      const updatedTerms = customTerms.map(t => {
+      const updatedTerms = currentCustomTerms.map(t => {
         if ((raw && t.id === raw.id) || t.term === termToMatch) {
           return {
             ...t,
@@ -818,7 +830,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     } else if (vocab.type === 'char') {
       const raw = vocab.rawItem as Character;
       const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
-      const updatedChars = characters.map(c => {
+      const updatedChars = currentCharacters.map(c => {
         if ((raw && c.id === raw.id) || c.chineseName === chineseToMatch) {
           return {
             ...c,
@@ -840,12 +852,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     if (vocab.type === 'custom') {
       const raw = vocab.rawItem as CustomTerm;
       const termToMatch = raw ? raw.term : vocab.item.term;
-      const updatedTerms = customTerms.filter(t => (raw ? t.id !== raw.id : t.term !== termToMatch));
+      const updatedTerms = currentCustomTerms.filter(t => (raw ? t.id !== raw.id : t.term !== termToMatch));
       onUpdateTerms?.(updatedTerms);
     } else if (vocab.type === 'char') {
       const raw = vocab.rawItem as Character;
       const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
-      const updatedChars = characters.filter(c => (raw ? c.id !== raw.id : c.chineseName !== chineseToMatch));
+      const updatedChars = currentCharacters.filter(c => (raw ? c.id !== raw.id : c.chineseName !== chineseToMatch));
       onUpdateCharacters?.(updatedChars);
     }
     setIsEditingVocabPopup(false);
@@ -861,7 +873,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         meaning: (popupMeaningInput || item.meaning).trim(),
         category: (popupCategoryInput || 'Thường dùng').trim()
       };
-      onUpdateTerms?.([...customTerms, newTerm]);
+      onUpdateTerms?.([...currentCustomTerms, newTerm]);
     } else {
       const newChar: Character = {
         id: Date.now().toString(),
@@ -871,7 +883,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         pronouns: popupPronounsInput || 'Hắn',
         description: popupDescInput || item.explanation || ''
       };
-      onUpdateCharacters?.([...characters, newChar]);
+      onUpdateCharacters?.([...currentCharacters, newChar]);
     }
     setActiveVocab(null);
   };
@@ -881,8 +893,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     const aiVocab = data.vocabulary || [];
 
     const allTerms = [
-        ...customTerms.map(c => ({ term: c.term, item: c, type: 'custom' as const })),
-        ...characters.map(c => ({ term: c.chineseName, item: c, type: 'char' as const })),
+        ...currentCustomTerms.map(c => ({ term: c.term, item: c, type: 'custom' as const })),
+        ...currentCharacters.map(c => ({ term: c.chineseName, item: c, type: 'char' as const })),
         ...aiVocab.map(v => ({ term: v.term, item: v, type: 'ai' as const }))
     ]
     .filter(t => t.term && t.term.trim().length > 0);
@@ -918,7 +930,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     const pattern = new RegExp(`(${uniqueTerms.map(t => escapeRegExp(t)).join('|')})`, 'g');
     
     return { pattern, termMap: map };
-  }, [characters, customTerms, data.vocabulary]);
+  }, [currentCharacters, currentCustomTerms, data.vocabulary]);
 
   const renderSourceWithHighlight = (text: string) => {
     const trimmedText = (text || "").trim();

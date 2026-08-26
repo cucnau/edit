@@ -17,7 +17,7 @@ import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, Users } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
@@ -254,6 +254,15 @@ function AppContent() {
   const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts(session.currentNovelId));
   const [shortcutsEnabled, setShortcutsEnabled] = useState(() => isShortcutsEnabled());
   const [vpLoaded, setVpLoaded] = useState(false);
+  const [showDictSidebar, setShowDictSidebar] = useState(false);
+  const [showWorldSidebar, setShowWorldSidebar] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      setShowDictSidebar(true);
+      setShowWorldSidebar(true);
+    }
+  }, []);
 
   useEffect(() => {
     setShortcuts(getStoredShortcuts(session.currentNovelId));
@@ -1023,11 +1032,8 @@ useEffect(() => {
     exportToExcel(filteredTerms, filteredChars, filteredRels, novelName, filteredShortcuts);
   };
 
-  const [showDictSidebar, setShowDictSidebar] = useState(false);
-  const [showWorldSidebar, setShowWorldSidebar] = useState(false);
-
   return (
-    <div className="min-h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-x-hidden">
+    <div className="h-auto md:h-screen md:overflow-hidden overflow-y-auto flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans">
       
       {/* HEADER MATCHING IMAGE 100% */}
       <header className="bg-[#3E2723] text-[#F5E6D3] border-b border-[#2C1A12] h-14 flex items-center justify-between px-3 sm:px-4 shrink-0 z-20 shadow-md sticky top-0 w-full">
@@ -1114,8 +1120,8 @@ useEffect(() => {
 
       {/* MOBILE DRAWER FOR DICTIONARY */}
       {showDictSidebar && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex justify-start animate-in fade-in duration-150">
-          <div className="w-[340px] max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col">
+        <div className="md:hidden fixed inset-0 z-50 bg-black/50 flex justify-start animate-in fade-in duration-150">
+          <div className="w-[340px] max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-left">
             <div className="p-3 bg-[#3E2723] text-[#FFFDF7] flex justify-between items-center">
               <span className="font-bold text-sm">Kho Từ Vựng</span>
               <button onClick={() => setShowDictSidebar(false)} className="text-[#D7CCC8] hover:text-white p-1">✕</button>
@@ -1149,8 +1155,8 @@ useEffect(() => {
 
       {/* MOBILE DRAWER FOR WORLD INFO */}
       {showWorldSidebar && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex justify-end animate-in fade-in duration-150">
-          <div className="w-[360px] max-w-[90vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col">
+        <div className="md:hidden fixed inset-0 z-50 bg-black/50 flex justify-end animate-in fade-in duration-150">
+          <div className="w-[360px] max-w-[90vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-right">
             <div className="p-3 bg-[#3E2723] text-[#FFFDF7] flex justify-between items-center">
               <span className="font-bold text-sm">Kho Nhân Vật & Thiết Lập</span>
               <button onClick={() => setShowWorldSidebar(false)} className="text-[#D7CCC8] hover:text-white p-1">✕</button>
@@ -1173,184 +1179,235 @@ useEffect(() => {
       )}
 
       {/* MAIN WORKSPACE */}
-      <div className="flex-1 flex overflow-y-auto bg-[#F5E6D3] p-2.5 sm:p-4">
-        <main className="max-w-7xl mx-auto w-full flex flex-col gap-4">
-          
-          {/* CARD 1: NGUỒN & THAM CHIẾU (MATCHING IMAGE 100%) */}
-          {!isFocusMode && (
-            <div className="bg-[#FFFDF7] rounded-2xl border border-[#D7CCC8] shadow-sm p-3.5 space-y-3">
-              {/* Header Card 1 */}
-              <div className="flex flex-wrap justify-between items-center gap-2 border-b border-[#EFEBE9] pb-2.5">
-                <div className="flex items-center gap-2.5">
-                  <span className="bg-[#3E2723] text-[#FFFDF7] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-xs">
-                    {mode === 'beta' ? 'NGUỒN & THAM CHIẾU (BETA)' : 'NGUỒN & THAM CHIẾU'}
-                  </span>
-                  <div className="flex items-center gap-1 text-xs text-[#8D6E63] font-semibold">
-                    <Layers size={13} />
-                    <span>{segmentCount} đoạn văn</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => updateSession({ 
-                        inputText: EXAMPLE_TEXT, 
-                        deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
-                        preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
-                    })} 
-                    className="text-xs text-[#8D6E63] hover:text-[#3E2723] flex items-center gap-1 font-medium"
-                  >
-                    <Quote size={13} /> Ví dụ
-                  </button>
-                  <button 
-                    onClick={handleClearSession} 
-                    disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
-                    className="text-xs text-[#8D6E63] hover:text-[#3E2723] flex items-center gap-1 font-medium disabled:opacity-40"
-                  >
-                    <Eraser size={13} /> Xóa
-                  </button>
-                </div>
-              </div>
+      <div className="flex-1 flex md:overflow-hidden overflow-visible min-h-0 relative">
+        {/* INLINE LEFT SIDEBAR (Tablet/Laptop) */}
+        {showDictSidebar && (
+          <div className="hidden md:block w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 h-full overflow-y-auto">
+            <DictionarySidebar 
+              currentNovelId={session.currentNovelId || ''}
+              terms={session.customTerms} 
+              onExportExcel={handleExportExcel} 
+              onUpdateTerms={(novelTerms) => {
+                  try {
+                      const currentId = session.currentNovelId;
+                      const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+                      const merged = [...novelTerms, ...otherTerms];
+                      updateSession({ customTerms: merged });
+                      db.bulkSaveCustomTerms(merged).catch(err => {
+                          console.error("App Sidebar Inline: db.bulkSaveCustomTerms failed", err);
+                      });
+                  } catch (err) {
+                      console.error("App Sidebar Inline: onUpdateTerms caught error:", err);
+                  }
+              }} 
+              sheetUrl={session.sheetUrl} 
+              onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+              refreshTrigger={vpLoaded}
+            />
+          </div>
+        )}
 
-              {/* Textarea Inputs */}
-              <div className="space-y-3">
-                <div>
-                  <div className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-1">1. VĂN BẢN GỐC (TRUNG)</div>
-                  <textarea
-                    ref={textareaRef}
-                    value={session.inputText}
-                    onChange={(e) => updateSession({ inputText: e.target.value })}
-                    placeholder="Nhập văn bản nguồn tiếng Trung..."
-                    className="w-full min-h-[110px] max-h-[160px] p-3 text-lg font-serif-sc bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs"
-                    spellCheck="false"
-                  />
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-1">2. BẢN DỊCH GG / DEEPL</div>
-                  <textarea
-                    value={session.deeplText}
-                    onChange={(e) => updateSession({ deeplText: e.target.value })}
-                    onKeyDown={(e) => {
-                        const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
-                        if (triggerKeys.includes(e.key)) {
-                            const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
-                            const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
-                            if (replaced) {
-                                e.preventDefault();
-                                updateSession({ deeplText: newText });
-                            }
-                        }
-                    }}
-                    placeholder="Dán bản dịch GG/DeepL vào đây..."
-                    className="w-full min-h-[90px] max-h-[140px] p-3 text-sm bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs"
-                    spellCheck="false"
-                  />
-                </div>
-
-                {mode === 'beta' && (
-                  <div>
-                    <div className="text-[11px] font-bold text-[#E64A19] uppercase tracking-wider mb-1 flex items-center gap-1">
-                      3. BẢN EDIT SẴN <span className="bg-[#E64A19] text-white text-[8px] px-1.5 py-0.2 rounded-full uppercase font-bold">Beta</span>
+        {/* CENTER MAIN WORKSPACE */}
+        <main className="flex-1 flex flex-col md:h-full h-auto md:overflow-hidden overflow-visible bg-[#F5E6D3] min-w-[320px]">
+          <div className="flex-1 md:overflow-y-auto overflow-visible overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
+             <div className="flex flex-col gap-4 p-2.5 sm:p-4 max-w-7xl mx-auto w-full">
+                
+                {/* CARD 1: NGUỒN & THAM CHIẾU (MATCHING IMAGE 100%) */}
+                {!isFocusMode && (
+                  <div className="bg-[#FFFDF7] rounded-2xl border border-[#D7CCC8] shadow-sm p-3.5 space-y-3">
+                    {/* Header Card 1 */}
+                    <div className="flex flex-wrap justify-between items-center gap-2 border-b border-[#EFEBE9] pb-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="bg-[#3E2723] text-[#FFFDF7] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-xs">
+                          {mode === 'beta' ? 'NGUỒN & THAM CHIẾU (BETA)' : 'NGUỒN & THAM CHIẾU'}
+                        </span>
+                        <div className="flex items-center gap-1 text-xs text-[#8D6E63] font-semibold">
+                          <Layers size={13} />
+                          <span>{segmentCount} đoạn văn</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => updateSession({ 
+                              inputText: EXAMPLE_TEXT, 
+                              deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
+                              preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
+                          })} 
+                          className="text-xs text-[#8D6E63] hover:text-[#3E2723] flex items-center gap-1 font-medium"
+                        >
+                          <Quote size={13} /> Ví dụ
+                        </button>
+                        <button 
+                          onClick={handleClearSession} 
+                          disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                          className="text-xs text-[#8D6E63] hover:text-[#3E2723] flex items-center gap-1 font-medium disabled:opacity-40"
+                        >
+                          <Eraser size={13} /> Xóa
+                        </button>
+                      </div>
                     </div>
-                    <textarea
-                      value={session.preEditedText || ''}
-                      onChange={(e) => updateSession({ preEditedText: e.target.value })}
-                      onKeyDown={(e) => {
-                          const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
-                          if (triggerKeys.includes(e.key)) {
-                              const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
-                              const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
-                              if (replaced) {
-                                  e.preventDefault();
-                                  updateSession({ preEditedText: newText });
+
+                    {/* Textarea Inputs */}
+                    <div className="space-y-3">
+                      <div>
+                        <div className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-1">1. VĂN BẢN GỐC (TRUNG)</div>
+                        <textarea
+                          ref={textareaRef}
+                          value={session.inputText}
+                          onChange={(e) => updateSession({ inputText: e.target.value })}
+                          placeholder="Nhập văn bản nguồn tiếng Trung..."
+                          className="w-full min-h-[110px] max-h-[160px] p-3 text-lg font-serif-sc bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs"
+                          spellCheck="false"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-1">2. BẢN DỊCH GG / DEEPL</div>
+                        <textarea
+                          value={session.deeplText}
+                          onChange={(e) => updateSession({ deeplText: e.target.value })}
+                          onKeyDown={(e) => {
+                              const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                              if (triggerKeys.includes(e.key)) {
+                                  const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                                  const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                                  if (replaced) {
+                                      e.preventDefault();
+                                      updateSession({ deeplText: newText });
+                                  }
                               }
-                          }
-                      }}
-                      placeholder="Dán bản edit sẵn..."
-                      className="w-full min-h-[90px] max-h-[140px] p-3 text-sm bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs font-medium"
-                      spellCheck="false"
-                    />
+                          }}
+                          placeholder="Dán bản dịch GG/DeepL vào đây..."
+                          className="w-full min-h-[90px] max-h-[140px] p-3 text-sm bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs"
+                          spellCheck="false"
+                        />
+                      </div>
+
+                      {mode === 'beta' && (
+                        <div>
+                          <div className="text-[11px] font-bold text-[#E64A19] uppercase tracking-wider mb-1 flex items-center gap-1">
+                            3. BẢN EDIT SẴN <span className="bg-[#E64A19] text-white text-[8px] px-1.5 py-0.2 rounded-full uppercase font-bold">Beta</span>
+                          </div>
+                          <textarea
+                            value={session.preEditedText || ''}
+                            onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                            onKeyDown={(e) => {
+                                const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                                if (triggerKeys.includes(e.key)) {
+                                    const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                                    const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                                    if (replaced) {
+                                        e.preventDefault();
+                                        updateSession({ preEditedText: newText });
+                                    }
+                                }
+                            }}
+                            placeholder="Dán bản edit sẵn..."
+                            className="w-full min-h-[90px] max-h-[140px] p-3 text-sm bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs font-medium"
+                            spellCheck="false"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer Card 1 */}
+                    <div className="flex justify-between items-center pt-1 border-t border-[#EFEBE9]">
+                      <div className="text-xs font-medium text-[#8D6E63]">
+                        {session.inputText.length} ký tự
+                      </div>
+                      <button
+                        onClick={() => handleTranslate(false)}
+                        disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
+                        className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-md active:scale-95"
+                      >
+                        {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={15} /> Phân tích...</>) : 'Phân tích'}
+                      </button>
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {/* Footer Card 1 */}
-              <div className="flex justify-between items-center pt-1 border-t border-[#EFEBE9]">
-                <div className="text-xs font-medium text-[#8D6E63]">
-                  {session.inputText.length} ký tự
-                </div>
-                <button
-                  onClick={() => handleTranslate(false)}
-                  disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
-                  className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-md active:scale-95"
-                >
-                  {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={15} /> Phân tích...</>) : 'Phân tích'}
-                </button>
-              </div>
-            </div>
-          )}
+                {/* ERROR */}
+                {session.status === AppStatus.ERROR && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-800 text-sm flex gap-3 items-start shrink-0">
+                        <AlertTriangle className="shrink-0 text-red-600" size={16} /> 
+                        <div className="flex-1"><p className="font-bold mb-1">Đã xảy ra lỗi:</p><p className="opacity-90 leading-relaxed whitespace-pre-wrap">{session.error}</p></div>
+                    </div>
+                )}
 
-          {/* ERROR */}
-          {session.status === AppStatus.ERROR && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-800 text-sm flex gap-3 items-start shrink-0">
-                  <AlertTriangle className="shrink-0 text-red-600" size={16} /> 
-                  <div className="flex-1"><p className="font-bold mb-1">Đã xảy ra lỗi:</p><p className="opacity-90 leading-relaxed whitespace-pre-wrap">{session.error}</p></div>
-              </div>
-          )}
-
-          {/* CARD 2: BẢNG ĐỐI CHIẾU (MATCHING IMAGE 100%) */}
-          {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
-              <div className="w-full flex-1">
-                  <TranslationOutput 
-                      data={session.result} 
-                      customTerms={session.customTerms} 
-                      characters={session.characters} 
-                      completedSegments={session.completedSegments || []}
-                      onUpdateSegment={handleUpdateSegment} 
-                      onUpdateAllSegments={handleUpdateAllSegments}
-                      onToggleComplete={handleToggleComplete}
-                      onSaveChapter={handleSaveChapter}
-                      onUndo={handleUndo}
-                      onRedo={handleRedo}
-                      canUndo={undoStack.length > 0}
-                      canRedo={redoStack.length > 0}
-                      isFocusMode={isFocusMode}
-                      onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-                      onUpdateTerms={(novelTerms) => {
-                          try {
-                              const currentId = session.currentNovelId;
-                              const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
-                              const merged = [...novelTerms, ...otherTerms];
-                              updateSession({ customTerms: merged });
-                              db.bulkSaveCustomTerms(merged).catch(err => {
-                                  console.error("App Output: db.bulkSaveCustomTerms failed", err);
-                              });
-                          } catch (err) {
-                              console.error("App Output: onUpdateTerms caught error:", err);
-                          }
-                      }}
-                      onUpdateCharacters={(novelChars) => {
-                          try {
-                              const currentId = session.currentNovelId;
-                              const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
-                              const merged = [...novelChars, ...otherChars];
-                              updateSession({ characters: merged });
-                          } catch (err) {
-                              console.error("App Output: onUpdateCharacters caught error:", err);
-                          }
-                      }}
-                      currentNovelId={session.currentNovelId || ''}
-                  />
-              </div>
-          ) : (
-              session.status === AppStatus.IDLE && (
-                  <div className="flex flex-col items-center justify-center text-[#BCAAA4] border-2 border-dashed border-[#D7CCC8] rounded-2xl py-12 bg-[#FFFDF7]/50">
-                      <Layout size={32} className="mb-2 opacity-50"/>
-                      <p className="text-xs font-semibold">Khu vực hiển thị kết quả đối chiếu</p>
-                  </div>
-              )
-          )}
+                {/* CARD 2: BẢNG ĐỐI CHIẾU (MATCHING IMAGE 100%) */}
+                {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
+                    <div className={isFocusMode ? "mt-1 w-full animate-fade-in" : "md:sticky md:top-2 z-10 w-full"}>
+                        <div className={isFocusMode ? "h-auto md:h-[calc(100vh-4.2rem)]" : "h-auto md:h-[calc(100vh-4.5rem)]"}>
+                            <TranslationOutput 
+                                data={session.result} 
+                                customTerms={session.customTerms} 
+                                characters={session.characters} 
+                                completedSegments={session.completedSegments || []}
+                                onUpdateSegment={handleUpdateSegment} 
+                                onUpdateAllSegments={handleUpdateAllSegments}
+                                onToggleComplete={handleToggleComplete}
+                                onSaveChapter={handleSaveChapter}
+                                onUndo={handleUndo}
+                                onRedo={handleRedo}
+                                canUndo={undoStack.length > 0}
+                                canRedo={redoStack.length > 0}
+                                isFocusMode={isFocusMode}
+                                onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+                                onUpdateTerms={(novelTerms) => {
+                                    try {
+                                        const currentId = session.currentNovelId;
+                                        const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+                                        const merged = [...novelTerms, ...otherTerms];
+                                        updateSession({ customTerms: merged });
+                                        db.bulkSaveCustomTerms(merged).catch(err => {
+                                            console.error("App Output: db.bulkSaveCustomTerms failed", err);
+                                        });
+                                    } catch (err) {
+                                        console.error("App Output: onUpdateTerms caught error:", err);
+                                    }
+                                }}
+                                onUpdateCharacters={(novelChars) => {
+                                    try {
+                                        const currentId = session.currentNovelId;
+                                        const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
+                                        const merged = [...novelChars, ...otherChars];
+                                        updateSession({ characters: merged });
+                                    } catch (err) {
+                                        console.error("App Output: onUpdateCharacters caught error:", err);
+                                    }
+                                }}
+                                currentNovelId={session.currentNovelId || ''}
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    session.status === AppStatus.IDLE && (
+                        <div className="flex flex-col items-center justify-center text-[#BCAAA4] border-2 border-dashed border-[#D7CCC8] rounded-2xl py-12 bg-[#FFFDF7]/50">
+                            <Layout size={32} className="mb-2 opacity-50"/>
+                            <p className="text-xs font-semibold">Khu vực hiển thị kết quả đối chiếu</p>
+                        </div>
+                    )
+                )}
+             </div>
+          </div>
         </main>
+
+        {/* INLINE RIGHT SIDEBAR (Tablet/Laptop) */}
+        {showWorldSidebar && (
+          <div className="hidden md:block w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 h-full overflow-y-auto">
+            <WorldInfoPanel 
+              currentNovelId={session.currentNovelId || ''}
+              characters={session.characters} 
+              onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
+              relationships={session.relationships} 
+              onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+              notes={session.notes} 
+              onUpdateNotes={(val) => updateSession({ notes: val })} 
+              sheetUrl={session.sheetUrl} 
+              onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+            />
+          </div>
+        )}
       </div>
 
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />

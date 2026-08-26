@@ -1172,9 +1172,9 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           )}
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent p-2.5 sm:p-4 space-y-3 pb-6">
+      <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent p-2.5 sm:p-4 pb-6">
         {hasSegments ? (
-             <div className="w-full text-left space-y-3">
+             <div className="w-full text-left space-y-3 sm:space-y-0 sm:divide-y sm:divide-[#EFEBE9]">
                    {data.segments.map((seg, idx) => {
                       const isDone = completedSegments.includes(idx);
                       const cleanSource = (seg.source || '').trim();
@@ -1188,31 +1188,37 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         <div 
                           id={`segment-row-${idx}`}
                           key={idx} 
-                          className={`p-3 rounded-xl border transition-all ${
-                            isDone ? 'bg-[#EFEBE9]/30 border-[#D7CCC8]/60' : 'bg-[#FFFDF7]/60 border-[#EFEBE9]'
+                          className={`p-3 rounded-xl border sm:p-0 sm:rounded-none sm:border-none transition-all flex flex-col sm:flex-row w-full ${
+                            isDone 
+                              ? 'bg-[#EFEBE9]/30 border-[#D7CCC8]/60 sm:bg-[#EFEBE9]/10 sm:hover:bg-[#EFEBE9]/30' 
+                              : 'bg-[#FFFDF7]/60 border-[#EFEBE9] sm:bg-transparent sm:hover:bg-[#F5F5F5]/40'
                           } ${
                             findText && matchingSegmentIndices[currentMatchIndex] === idx 
-                              ? 'ring-2 ring-amber-400 bg-amber-50' 
+                              ? 'ring-2 ring-amber-400 bg-amber-50 sm:ring-0 sm:bg-amber-100/50' 
                               : findText && matchingSegmentIndices.includes(idx) 
-                                ? 'bg-amber-50/80' 
+                                ? 'bg-amber-50/80 sm:bg-amber-50/30' 
                                 : ''
-                          }`}
+                          } group/row py-2.5 sm:py-0`}
                         >
-                           {/* 1. CHINESE RAW TEXT + VIETPHRASE */}
-                           <div className="space-y-1 mb-2">
-                              <div className={`${isFocusMode ? 'text-[18px]' : 'text-[15px]'} font-serif-sc leading-relaxed text-[#3E2723] break-words`}>
-                                 <span className="text-xs font-bold text-[#A1887F] mr-1.5 select-none">{idx + 1}.</span>
-                                 {renderSourceWithHighlight(cleanSource)}
+                           {/* 1. CHINESE RAW TEXT + VIETPHRASE (Left side on sm+, top on mobile) */}
+                           <div className="w-full sm:w-[45%] sm:py-2.5 sm:px-3.5 align-top relative mb-2 sm:mb-0">
+                              <div className="flex flex-col py-0.5 space-y-1">
+                                 <div className={`${isFocusMode ? 'text-[18px] sm:text-[18.5px]' : 'text-[15px] sm:text-[14.5px]'} font-serif-sc leading-relaxed sm:leading-[1.25] text-[#3E2723] m-0 whitespace-normal break-words`}>
+                                    <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[10px] sm:text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
+                                        {idx + 1}.
+                                    </span>
+                                    {renderSourceWithHighlight(cleanSource)}
+                                 </div>
+                                 {cleanQuick && (
+                                   <div className={`${isFocusMode ? 'text-[13px]' : 'text-[12px] sm:text-[10px]'} text-[#8D6E63] leading-normal sm:leading-[1.1] opacity-75 italic pl-4 sm:pl-[18px] break-words`}>
+                                     {cleanQuick}
+                                   </div>
+                                 )}
                               </div>
-                              {cleanQuick && (
-                                <div className="text-xs italic text-[#8D6E63] pl-4 font-sans leading-normal">
-                                  {cleanQuick}
-                                </div>
-                              )}
                            </div>
 
-                           {/* 2. VIETNAMESE TRANSLATED BOX (Matching Image 2) */}
-                           <div className="bg-white p-2.5 rounded-xl border border-[#D7CCC8]/80 shadow-2xs flex items-start gap-2.5 relative">
+                           {/* 2a. VIETNAMESE TRANSLATED BOX ON MOBILE PORTRAIT (< sm) */}
+                           <div className="block sm:hidden bg-white p-2.5 rounded-xl border border-[#D7CCC8]/80 shadow-2xs flex items-start gap-2.5 relative">
                               <button
                                 onClick={() => onToggleComplete?.(idx)}
                                 className={`mt-0.5 p-0.5 rounded-full transition-all shrink-0 ${isDone ? 'text-emerald-700' : 'text-[#A1887F] hover:text-[#3E2723]'}`}
@@ -1236,6 +1242,37 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                     </div>
                                   )}
                               </div>
+                           </div>
+
+                           {/* 2b. VIETNAMESE TRANSLATED COLUMN ON TABLET / LAPTOP (>= sm) */}
+                           <div className="hidden sm:block w-full sm:w-[55%] sm:py-2.5 sm:px-3.5 align-top relative pr-10">
+                              <div className="flex flex-col py-0.5">
+                                  <EditableSegment 
+                                    text={cleanNatural} 
+                                    onUpdate={(val) => onUpdateSegment?.(idx, val)} 
+                                    isFocusMode={isFocusMode} 
+                                    findText={findText}
+                                    matchCase={matchCase}
+                                    matchDiacritics={matchDiacritics}
+                                    novelId={currentNovelId}
+                                  />
+                                  {cleanDeepl && (
+                                    <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[9.5px]'} text-[#A1887F] leading-[1.25] italic opacity-75 mt-0.5 break-words`}>
+                                      <span className="font-bold mr-1 opacity-85 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}
+                                    </div>
+                                  )}
+                              </div>
+                              <button
+                                  onClick={() => onToggleComplete?.(idx)}
+                                  className={`absolute top-2.5 right-2 p-1 rounded-full transition-all shadow-sm border z-10 ${
+                                    isDone 
+                                      ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' 
+                                      : 'opacity-0 group-hover/row:opacity-100 bg-white/75 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'
+                                  }`}
+                                  title={isDone ? "Đã hoàn thành" : "Đánh dấu hoàn thành"}
+                               >
+                                  <CheckCircle2 size={isFocusMode ? 14 : 12} />
+                               </button>
                            </div>
                         </div>
                       );

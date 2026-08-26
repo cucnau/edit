@@ -1023,78 +1023,108 @@ useEffect(() => {
     exportToExcel(filteredTerms, filteredChars, filteredRels, novelName, filteredShortcuts);
   };
 
+  const [showDictSidebar, setShowDictSidebar] = useState(false);
+  const [showWorldSidebar, setShowWorldSidebar] = useState(false);
+
   return (
-    <div className="h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-x-hidden">
       
-      {/* HEADER */}
-      <header className="bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-4 shrink-0 z-20 shadow-md">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="text-[#FFECB3]">
-              <PenLine size={24} />
-            </div>
-            <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1">Edit</h1>
+      {/* HEADER MATCHING IMAGE 100% */}
+      <header className="bg-[#3E2723] text-[#F5E6D3] border-b border-[#2C1A12] h-14 flex items-center justify-between px-3 sm:px-4 shrink-0 z-20 shadow-md sticky top-0 w-full">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-1.5">
+            <PenLine className="text-amber-400" size={22} />
           </div>
 
-          {/* Segmented Mode Control */}
-          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037] ml-2">
+          {/* Segmented Mode Control [ E | B ] */}
+          <div className="flex bg-[#2D1B13] p-0.5 rounded-full border border-[#5D4037]">
             <button
               onClick={() => setMode('edit')}
-              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+              className={`px-3 py-0.5 rounded-full text-xs font-bold transition-all ${mode === 'edit' ? 'bg-[#FFFDF7] text-[#3E2723] shadow-xs' : 'text-[#D7CCC8] hover:text-[#FFFDF7]'}`}
             >
-              Edit
+              E
             </button>
             <button
               onClick={() => setMode('beta')}
-              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+              className={`px-3 py-0.5 rounded-full text-xs font-bold transition-all ${mode === 'beta' ? 'bg-[#FFFDF7] text-[#3E2723] shadow-xs' : 'text-[#D7CCC8] hover:text-[#FFFDF7]'}`}
             >
-              Beta
+              B
             </button>
           </div>
         </div>
         
-        {/* RIGHT CONTROLS */}
-        <div className="flex items-center gap-2">
-            <NovelSelector 
-              currentNovelId={session.currentNovelId || ''} 
-              onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
-            />
+        {/* RIGHT CIRCULAR CONTROLS MATCHING IMAGE */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+            <button 
+              onClick={() => setShowDictSidebar(!showDictSidebar)}
+              className={`w-9 h-9 rounded-full border flex items-center justify-center transition-colors ${
+                showDictSidebar 
+                  ? 'bg-amber-400 text-[#3E2723] border-amber-400' 
+                  : 'border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#4E342E]'
+              }`}
+              title="Kho từ vựng"
+            >
+               <BookOpen size={16} />
+            </button>
+
+            <button 
+              onClick={() => setShowWorldSidebar(!showWorldSidebar)}
+              className={`w-9 h-9 rounded-full border flex items-center justify-center transition-colors ${
+                showWorldSidebar 
+                  ? 'bg-amber-400 text-[#3E2723] border-amber-400' 
+                  : 'border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#4E342E]'
+              }`}
+              title="Kho nhân vật & Thế giới"
+            >
+               <Users size={16} />
+            </button>
+
             <button 
               onClick={() => setShowShortcuts(true)} 
-              className={`flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+              className={`w-9 h-9 rounded-full border flex items-center justify-center transition-colors ${
                 shortcutsEnabled 
-                  ? 'text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/40 border-[#FFECB3]/20' 
-                  : 'text-[#A1887F] hover:text-white hover:bg-[#5D4037] border-[#5D4037]'
+                  ? 'bg-amber-400 text-[#3E2723] border-amber-400' 
+                  : 'border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#4E342E]'
               }`}
-              title="Bảng gõ tắt (Auto-replace)"
+              title="Phím tắt gõ nhanh"
             >
-               <Keyboard size={12} />
-               <span>Gõ tắt</span>
-               {shortcuts.length > 0 && (
-                 <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${shortcutsEnabled ? 'bg-[#FFECB3]/20 text-[#FFECB3]' : 'bg-gray-600/40 text-gray-300'}`}>
-                   {shortcuts.filter(s => s.enabled).length}
-                 </span>
-               )}
+               <Keyboard size={16} />
             </button>
-            <button onClick={() => setShowChapters(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 px-2.5 py-1 rounded-full border border-[#FFECB3]/20 transition-colors">
-               <FolderOpen size={12} />
-               <span>Kho chương ({currentNovelChapters.length})</span>
+
+            <button 
+              onClick={() => setShowChapters(true)} 
+              className="h-9 px-3 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#4E342E] transition-colors flex items-center gap-1 text-xs font-bold"
+              title="Kho chương"
+            >
+               <FolderOpen size={15} />
+               <span>({currentNovelChapters.length})</span>
             </button>
-            <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] px-2 py-1 rounded-full border border-[#5D4037] transition-colors">
-               <History size={12} />
-               <span>Lịch sử</span>
+
+            <button 
+              onClick={() => setShowHistory(true)} 
+              className="w-9 h-9 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#4E342E] transition-colors flex items-center justify-center"
+              title="Lịch sử dịch"
+            >
+               <History size={16} />
             </button>
+
             <AuthPanel />
         </div>
       </header>
 
-      {/* MAIN WORKSPACE */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* LEFT SIDEBAR */}
-        <div className={`w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
-            <DictionarySidebar 
+      {/* MOBILE DRAWER FOR DICTIONARY */}
+      {showDictSidebar && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex justify-start animate-in fade-in duration-150">
+          <div className="w-[340px] max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col">
+            <div className="p-3 bg-[#3E2723] text-[#FFFDF7] flex justify-between items-center">
+              <span className="font-bold text-sm">Kho Từ Vựng</span>
+              <button onClick={() => setShowDictSidebar(false)} className="text-[#D7CCC8] hover:text-white p-1">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <DictionarySidebar 
                 currentNovelId={session.currentNovelId || ''}
-                terms={session.customTerms} onExportExcel={handleExportExcel} 
+                terms={session.customTerms} 
+                onExportExcel={handleExportExcel} 
                 onUpdateTerms={(novelTerms) => {
                     try {
                         const currentId = session.currentNovelId;
@@ -1111,193 +1141,22 @@ useEffect(() => {
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
                 refreshTrigger={vpLoaded}
-                
-            />
-        </div>
-
-        {/* CENTER MAIN CONTENT */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5E6D3] min-w-[320px]">
-          <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
-             <div className="flex flex-col px-2 pb-2">
-                
-                {/* INPUT AREA */}
-                {!isFocusMode && (
-                  <div className="mt-2 bg-white rounded-xl shadow-sm border border-[#D7CCC8] overflow-hidden transition-all focus-within:ring-2 focus-within:ring-[#8D6E63]/20 focus-within:border-[#8D6E63]/50 mb-2 flex flex-col">
-                      <div className="flex justify-between items-center bg-[#EFEBE9]/50 px-3 py-1.5 border-b border-[#EFEBE9]">
-                          <div className="flex items-center gap-2">
-                              <span className="bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                                  {mode === 'beta' ? 'Nguồn & Tham chiếu (Beta)' : 'Nguồn & Tham chiếu'}
-                              </span>
-                              <div className="flex items-center gap-1 text-[10px] font-bold text-[#8D6E63]">
-                                  <Layers size={10} />
-                                  <span>{segmentCount} đoạn văn</span>
-                              </div>
-                          </div>
-                          <div className="flex gap-2">
-                              <button 
-                                  onClick={() => updateSession({ 
-                                      inputText: EXAMPLE_TEXT, 
-                                      deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
-                                      preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
-                                  })} 
-                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"
-                              >
-                                  <Quote size={10} /> Ví dụ
-                              </button>
-                              <button 
-                                  onClick={handleClearSession} 
-                                  disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
-                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
-                              >
-                                  <Eraser size={10} /> Xóa
-                              </button>
-                          </div>
-                      </div>
-
-                      <div className={`grid ${mode === 'beta' ? 'grid-cols-3' : 'grid-cols-2'} flex-1 min-h-[140px] divide-x divide-[#EFEBE9]`}>
-                          <div className="flex flex-col flex-1">
-                              <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">1. Văn bản gốc (Trung)</div>
-                              <textarea
-                                  ref={textareaRef}
-                                  value={session.inputText}
-                                  onChange={(e) => updateSession({ inputText: e.target.value })}
-                                  placeholder="Nhập văn bản nguồn (Trung)..."
-                                  className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
-                                  spellCheck="false"
-                              />
-                          </div>
-                          <div className="flex flex-col flex-1">
-                              <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">2. Bản dịch GG / DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
-                              <textarea
-                                  value={session.deeplText}
-                                  onChange={(e) => updateSession({ deeplText: e.target.value })}
-                                  onKeyDown={(e) => {
-                                      const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
-                                      if (triggerKeys.includes(e.key)) {
-                                          const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
-                                          const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
-                                          if (replaced) {
-                                              e.preventDefault();
-                                              updateSession({ deeplText: newText });
-                                          }
-                                      }
-                                  }}
-                                  placeholder="Dán bản dịch GG/DeepL vào đây..."
-                                  className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
-                                  spellCheck="false"
-                              />
-                          </div>
-                          {mode === 'beta' && (
-                              <div className="flex flex-col flex-1">
-                                  <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40 flex items-center gap-1">3. Bản edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
-                                  <textarea
-                                      value={session.preEditedText || ''}
-                                      onChange={(e) => updateSession({ preEditedText: e.target.value })}
-                                      onKeyDown={(e) => {
-                                          const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
-                                          if (triggerKeys.includes(e.key)) {
-                                              const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
-                                              const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
-                                              if (replaced) {
-                                                  e.preventDefault();
-                                                  updateSession({ preEditedText: newText });
-                                              }
-                                          }
-                                      }}
-                                      placeholder="Dán bản edit sẵn vào đây..."
-                                      className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed font-medium text-[#4E342E]"
-                                      spellCheck="false"
-                                  />
-                              </div>
-                          )}
-                      </div>
-
-                      <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">
-                          <div className="flex items-center gap-4">
-                              <div className="text-[10px] font-medium transition-colors text-[#A1887F]">
-                                  {session.inputText.length} ký tự
-                              </div>
-                          </div>
-                          <button
-                              onClick={() => handleTranslate(false)}
-                              disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
-                              className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
-                          >
-                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : 'Phân tích'}
-                          </button>
-                      </div>
-                  </div>
-                )}
-
-                {/* ERROR */}
-                {session.status === AppStatus.ERROR && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-800 text-sm flex gap-3 items-start shrink-0 mb-6">
-                        <AlertTriangle className="shrink-0 text-red-600" size={16} /> 
-                        <div className="flex-1"><p className="font-bold mb-1">Đã xảy ra lỗi:</p><p className="opacity-90 leading-relaxed whitespace-pre-wrap">{session.error}</p></div>
-                    </div>
-                )}
-
-                {/* RESULT */}
-                {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
-                    <div className={isFocusMode ? "mt-1" : "sticky top-2 z-10"}>
-                        <div className={isFocusMode ? "h-[calc(100vh-4.2rem)]" : "h-[calc(100vh-4.5rem)]"}>
-                            <TranslationOutput 
-                                data={session.result} 
-                                customTerms={session.customTerms} 
-                                characters={session.characters} 
-                                completedSegments={session.completedSegments || []}
-                                onUpdateSegment={handleUpdateSegment} 
-                                onUpdateAllSegments={handleUpdateAllSegments}
-                                onToggleComplete={handleToggleComplete}
-                                onSaveChapter={handleSaveChapter}
-                                onUndo={handleUndo}
-                                onRedo={handleRedo}
-                                canUndo={undoStack.length > 0}
-                                canRedo={redoStack.length > 0}
-                                isFocusMode={isFocusMode}
-                                onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-                                onUpdateTerms={(novelTerms) => {
-                                    try {
-                                        const currentId = session.currentNovelId;
-                                        const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
-                                        const merged = [...novelTerms, ...otherTerms];
-                                        updateSession({ customTerms: merged });
-                                        db.bulkSaveCustomTerms(merged).catch(err => {
-                                            console.error("App Output: db.bulkSaveCustomTerms failed", err);
-                                        });
-                                    } catch (err) {
-                                        console.error("App Output: onUpdateTerms caught error:", err);
-                                    }
-                                }}
-                                onUpdateCharacters={(novelChars) => {
-                                    try {
-                                        const currentId = session.currentNovelId;
-                                        const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
-                                        const merged = [...novelChars, ...otherChars];
-                                        updateSession({ characters: merged });
-                                    } catch (err) {
-                                        console.error("App Output: onUpdateCharacters caught error:", err);
-                                    }
-                                }}
-                                currentNovelId={session.currentNovelId || ''}
-                            />
-                        </div>
-                    </div>
-                ) : (
-                    session.status === AppStatus.IDLE && (
-                        <div className="flex flex-col items-center justify-center text-[#BCAAA4] border-2 border-dashed border-[#D7CCC8] rounded-xl py-12">
-                            <Layout size={32} className="mb-2 opacity-50"/>
-                            <p className="text-xs">Khu vực hiển thị kết quả</p>
-                        </div>
-                    )
-                )}
-             </div>
+              />
+            </div>
           </div>
-        </main>
+        </div>
+      )}
 
-        {/* RIGHT SIDEBAR */}
-        <div className={`w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
-            <WorldInfoPanel 
+      {/* MOBILE DRAWER FOR WORLD INFO */}
+      {showWorldSidebar && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex justify-end animate-in fade-in duration-150">
+          <div className="w-[360px] max-w-[90vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col">
+            <div className="p-3 bg-[#3E2723] text-[#FFFDF7] flex justify-between items-center">
+              <span className="font-bold text-sm">Kho Nhân Vật & Thiết Lập</span>
+              <button onClick={() => setShowWorldSidebar(false)} className="text-[#D7CCC8] hover:text-white p-1">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <WorldInfoPanel 
                 currentNovelId={session.currentNovelId || ''}
                 characters={session.characters} 
                 onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
@@ -1307,9 +1166,191 @@ useEffect(() => {
                 onUpdateNotes={(val) => updateSession({ notes: val })} 
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
-                
-            />
+              />
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* MAIN WORKSPACE */}
+      <div className="flex-1 flex overflow-y-auto bg-[#F5E6D3] p-2.5 sm:p-4">
+        <main className="max-w-7xl mx-auto w-full flex flex-col gap-4">
+          
+          {/* CARD 1: NGUỒN & THAM CHIẾU (MATCHING IMAGE 100%) */}
+          {!isFocusMode && (
+            <div className="bg-[#FFFDF7] rounded-2xl border border-[#D7CCC8] shadow-sm p-3.5 space-y-3">
+              {/* Header Card 1 */}
+              <div className="flex flex-wrap justify-between items-center gap-2 border-b border-[#EFEBE9] pb-2.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="bg-[#3E2723] text-[#FFFDF7] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-xs">
+                    {mode === 'beta' ? 'NGUỒN & THAM CHIẾU (BETA)' : 'NGUỒN & THAM CHIẾU'}
+                  </span>
+                  <div className="flex items-center gap-1 text-xs text-[#8D6E63] font-semibold">
+                    <Layers size={13} />
+                    <span>{segmentCount} đoạn văn</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => updateSession({ 
+                        inputText: EXAMPLE_TEXT, 
+                        deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
+                        preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
+                    })} 
+                    className="text-xs text-[#8D6E63] hover:text-[#3E2723] flex items-center gap-1 font-medium"
+                  >
+                    <Quote size={13} /> Ví dụ
+                  </button>
+                  <button 
+                    onClick={handleClearSession} 
+                    disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                    className="text-xs text-[#8D6E63] hover:text-[#3E2723] flex items-center gap-1 font-medium disabled:opacity-40"
+                  >
+                    <Eraser size={13} /> Xóa
+                  </button>
+                </div>
+              </div>
+
+              {/* Textarea Inputs */}
+              <div className="space-y-3">
+                <div>
+                  <div className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-1">1. VĂN BẢN GỐC (TRUNG)</div>
+                  <textarea
+                    ref={textareaRef}
+                    value={session.inputText}
+                    onChange={(e) => updateSession({ inputText: e.target.value })}
+                    placeholder="Nhập văn bản nguồn tiếng Trung..."
+                    className="w-full min-h-[110px] max-h-[160px] p-3 text-lg font-serif-sc bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs"
+                    spellCheck="false"
+                  />
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-1">2. BẢN DỊCH GG / DEEPL</div>
+                  <textarea
+                    value={session.deeplText}
+                    onChange={(e) => updateSession({ deeplText: e.target.value })}
+                    onKeyDown={(e) => {
+                        const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                        if (triggerKeys.includes(e.key)) {
+                            const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                            const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                            if (replaced) {
+                                e.preventDefault();
+                                updateSession({ deeplText: newText });
+                            }
+                        }
+                    }}
+                    placeholder="Dán bản dịch GG/DeepL vào đây..."
+                    className="w-full min-h-[90px] max-h-[140px] p-3 text-sm bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs"
+                    spellCheck="false"
+                  />
+                </div>
+
+                {mode === 'beta' && (
+                  <div>
+                    <div className="text-[11px] font-bold text-[#E64A19] uppercase tracking-wider mb-1 flex items-center gap-1">
+                      3. BẢN EDIT SẴN <span className="bg-[#E64A19] text-white text-[8px] px-1.5 py-0.2 rounded-full uppercase font-bold">Beta</span>
+                    </div>
+                    <textarea
+                      value={session.preEditedText || ''}
+                      onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                      onKeyDown={(e) => {
+                          const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                          if (triggerKeys.includes(e.key)) {
+                              const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                              const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                              if (replaced) {
+                                  e.preventDefault();
+                                  updateSession({ preEditedText: newText });
+                              }
+                          }
+                      }}
+                      placeholder="Dán bản edit sẵn..."
+                      className="w-full min-h-[90px] max-h-[140px] p-3 text-sm bg-[#FFFDF7]/40 border border-[#EFEBE9] rounded-xl outline-none focus:border-[#8D6E63] resize-y text-[#3E2723] leading-relaxed shadow-2xs font-medium"
+                      spellCheck="false"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Card 1 */}
+              <div className="flex justify-between items-center pt-1 border-t border-[#EFEBE9]">
+                <div className="text-xs font-medium text-[#8D6E63]">
+                  {session.inputText.length} ký tự
+                </div>
+                <button
+                  onClick={() => handleTranslate(false)}
+                  disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
+                  className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-md active:scale-95"
+                >
+                  {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={15} /> Phân tích...</>) : 'Phân tích'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ERROR */}
+          {session.status === AppStatus.ERROR && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-800 text-sm flex gap-3 items-start shrink-0">
+                  <AlertTriangle className="shrink-0 text-red-600" size={16} /> 
+                  <div className="flex-1"><p className="font-bold mb-1">Đã xảy ra lỗi:</p><p className="opacity-90 leading-relaxed whitespace-pre-wrap">{session.error}</p></div>
+              </div>
+          )}
+
+          {/* CARD 2: BẢNG ĐỐI CHIẾU (MATCHING IMAGE 100%) */}
+          {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
+              <div className="w-full flex-1">
+                  <TranslationOutput 
+                      data={session.result} 
+                      customTerms={session.customTerms} 
+                      characters={session.characters} 
+                      completedSegments={session.completedSegments || []}
+                      onUpdateSegment={handleUpdateSegment} 
+                      onUpdateAllSegments={handleUpdateAllSegments}
+                      onToggleComplete={handleToggleComplete}
+                      onSaveChapter={handleSaveChapter}
+                      onUndo={handleUndo}
+                      onRedo={handleRedo}
+                      canUndo={undoStack.length > 0}
+                      canRedo={redoStack.length > 0}
+                      isFocusMode={isFocusMode}
+                      onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+                      onUpdateTerms={(novelTerms) => {
+                          try {
+                              const currentId = session.currentNovelId;
+                              const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+                              const merged = [...novelTerms, ...otherTerms];
+                              updateSession({ customTerms: merged });
+                              db.bulkSaveCustomTerms(merged).catch(err => {
+                                  console.error("App Output: db.bulkSaveCustomTerms failed", err);
+                              });
+                          } catch (err) {
+                              console.error("App Output: onUpdateTerms caught error:", err);
+                          }
+                      }}
+                      onUpdateCharacters={(novelChars) => {
+                          try {
+                              const currentId = session.currentNovelId;
+                              const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
+                              const merged = [...novelChars, ...otherChars];
+                              updateSession({ characters: merged });
+                          } catch (err) {
+                              console.error("App Output: onUpdateCharacters caught error:", err);
+                          }
+                      }}
+                      currentNovelId={session.currentNovelId || ''}
+                  />
+              </div>
+          ) : (
+              session.status === AppStatus.IDLE && (
+                  <div className="flex flex-col items-center justify-center text-[#BCAAA4] border-2 border-dashed border-[#D7CCC8] rounded-2xl py-12 bg-[#FFFDF7]/50">
+                      <Layout size={32} className="mb-2 opacity-50"/>
+                      <p className="text-xs font-semibold">Khu vực hiển thị kết quả đối chiếu</p>
+                  </div>
+              )
+          )}
+        </main>
       </div>
 
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />

@@ -1033,7 +1033,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="h-auto md:h-screen md:overflow-hidden overflow-y-auto flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans">
+    <div className="h-auto lg:h-screen lg:overflow-hidden overflow-y-auto flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans">
       
       {/* HEADER MATCHING IMAGE 100% */}
       <header className="bg-[#3E2723] text-[#F5E6D3] border-b border-[#2C1A12] h-14 flex items-center justify-between px-3 sm:px-4 shrink-0 z-20 shadow-md sticky top-0 w-full">
@@ -1120,7 +1120,7 @@ useEffect(() => {
 
       {/* MOBILE DRAWER FOR DICTIONARY */}
       {showDictSidebar && (
-        <div className="md:hidden fixed inset-0 z-50 bg-black/50 flex justify-start animate-in fade-in duration-150">
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/50 flex justify-start animate-in fade-in duration-150">
           <div className="w-[340px] max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-left">
             <div className="p-3 bg-[#3E2723] text-[#FFFDF7] flex justify-between items-center">
               <span className="font-bold text-sm">Kho Từ Vựng</span>
@@ -1155,7 +1155,7 @@ useEffect(() => {
 
       {/* MOBILE DRAWER FOR WORLD INFO */}
       {showWorldSidebar && (
-        <div className="md:hidden fixed inset-0 z-50 bg-black/50 flex justify-end animate-in fade-in duration-150">
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/50 flex justify-end animate-in fade-in duration-150">
           <div className="w-[360px] max-w-[90vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-right">
             <div className="p-3 bg-[#3E2723] text-[#FFFDF7] flex justify-between items-center">
               <span className="font-bold text-sm">Kho Nhân Vật & Thiết Lập</span>
@@ -1179,10 +1179,10 @@ useEffect(() => {
       )}
 
       {/* MAIN WORKSPACE */}
-      <div className="flex-1 flex md:overflow-hidden overflow-visible min-h-0 relative">
+      <div className="flex-1 flex lg:overflow-hidden overflow-visible min-h-0 relative">
         {/* INLINE LEFT SIDEBAR (Tablet/Laptop) */}
         {showDictSidebar && (
-          <div className="hidden md:block w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 h-full overflow-y-auto">
+          <div className="hidden lg:block w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 h-full overflow-y-auto">
             <DictionarySidebar 
               currentNovelId={session.currentNovelId || ''}
               terms={session.customTerms} 
@@ -1208,8 +1208,8 @@ useEffect(() => {
         )}
 
         {/* CENTER MAIN WORKSPACE */}
-        <main className="flex-1 flex flex-col md:h-full h-auto md:overflow-hidden overflow-visible bg-[#F5E6D3] min-w-[320px]">
-          <div className="flex-1 md:overflow-y-auto overflow-visible overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
+        <main className="flex-1 flex flex-col lg:h-full h-auto lg:overflow-hidden overflow-visible bg-[#F5E6D3] min-w-[320px]">
+          <div className="flex-1 lg:overflow-y-auto overflow-visible overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
              <div className="flex flex-col gap-4 p-2.5 sm:p-4 max-w-7xl mx-auto w-full">
                 
                 {/* CARD 1: NGUỒN & THAM CHIẾU (MATCHING IMAGE 100%) */}
@@ -1336,8 +1336,8 @@ useEffect(() => {
 
                 {/* CARD 2: BẢNG ĐỐI CHIẾU (MATCHING IMAGE 100%) */}
                 {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
-                    <div className={isFocusMode ? "mt-1 w-full animate-fade-in" : "md:sticky md:top-2 z-10 w-full"}>
-                        <div className={isFocusMode ? "h-auto md:h-[calc(100vh-4.2rem)]" : "h-auto md:h-[calc(100vh-4.5rem)]"}>
+                    <div className={isFocusMode ? "mt-1 w-full animate-fade-in" : "lg:sticky lg:top-2 z-10 w-full"}>
+                        <div className={isFocusMode ? "h-auto lg:h-[calc(100vh-4.2rem)]" : "h-auto lg:h-[calc(100vh-4.5rem)]"}>
                             <TranslationOutput 
                                 data={session.result} 
                                 customTerms={session.customTerms} 
@@ -1394,7 +1394,7 @@ useEffect(() => {
 
         {/* INLINE RIGHT SIDEBAR (Tablet/Laptop) */}
         {showWorldSidebar && (
-          <div className="hidden md:block w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 h-full overflow-y-auto">
+          <div className="hidden lg:block w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 h-full overflow-y-auto">
             <WorldInfoPanel 
               currentNovelId={session.currentNovelId || ''}
               characters={session.characters} 

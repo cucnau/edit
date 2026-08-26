@@ -1172,9 +1172,9 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           )}
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent pb-4">
+      <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent p-2.5 sm:p-4 space-y-3 pb-6">
         {hasSegments ? (
-             <div className="w-full text-left m-0 p-0 divide-y divide-[#EFEBE9]">
+             <div className="w-full text-left space-y-3">
                    {data.segments.map((seg, idx) => {
                       const isDone = completedSegments.includes(idx);
                       const cleanSource = (seg.source || '').trim();
@@ -1188,31 +1188,39 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         <div 
                           id={`segment-row-${idx}`}
                           key={idx} 
-                          className={`flex flex-col sm:flex-row w-full ${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
+                          className={`p-3 rounded-xl border transition-all ${
+                            isDone ? 'bg-[#EFEBE9]/30 border-[#D7CCC8]/60' : 'bg-[#FFFDF7]/60 border-[#EFEBE9]'
+                          } ${
                             findText && matchingSegmentIndices[currentMatchIndex] === idx 
-                              ? 'bg-amber-100/70 border-2 border-amber-400 ring-2 ring-amber-400/50' 
+                              ? 'ring-2 ring-amber-400 bg-amber-50' 
                               : findText && matchingSegmentIndices.includes(idx) 
-                                ? 'bg-amber-50/50' 
+                                ? 'bg-amber-50/80' 
                                 : ''
-                          } transition-all duration-300 group/row border-none py-2.5 sm:py-0`}
+                          }`}
                         >
-                           <div className={`w-full sm:w-[45%] py-2 px-3 align-top sm:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} border-b sm:border-b-0 border-dashed border-[#EFEBE9]/60`}>
-                              <div className="flex flex-col py-0.5">
-                                <div className={`${isFocusMode ? 'text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
-                                       {idx + 1}.
-                                   </span>
-                                   {renderSourceWithHighlight(cleanSource)}
-                                </div>
-                                {cleanQuick && (
-                                  <div className={`${isFocusMode ? 'text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[18px] -mt-0.5 break-words`}>
-                                    {cleanQuick}
-                                  </div>
-                                )}
+                           {/* 1. CHINESE RAW TEXT + VIETPHRASE */}
+                           <div className="space-y-1 mb-2">
+                              <div className={`${isFocusMode ? 'text-[18px]' : 'text-[15px]'} font-serif-sc leading-relaxed text-[#3E2723] break-words`}>
+                                 <span className="text-xs font-bold text-[#A1887F] mr-1.5 select-none">{idx + 1}.</span>
+                                 {renderSourceWithHighlight(cleanSource)}
                               </div>
+                              {cleanQuick && (
+                                <div className="text-xs italic text-[#8D6E63] pl-4 font-sans leading-normal">
+                                  {cleanQuick}
+                                </div>
+                              )}
                            </div>
-                           <div className="w-full sm:w-[55%] py-2 px-3 align-top relative pr-8">
-                              <div className="flex flex-col py-0.5">
+
+                           {/* 2. VIETNAMESE TRANSLATED BOX (Matching Image 2) */}
+                           <div className="bg-white p-2.5 rounded-xl border border-[#D7CCC8]/80 shadow-2xs flex items-start gap-2.5 relative">
+                              <button
+                                onClick={() => onToggleComplete?.(idx)}
+                                className={`mt-0.5 p-0.5 rounded-full transition-all shrink-0 ${isDone ? 'text-emerald-700' : 'text-[#A1887F] hover:text-[#3E2723]'}`}
+                                title={isDone ? "Đã hoàn thành" : "Đánh dấu hoàn thành"}
+                              >
+                                <CheckCircle2 size={16} className={isDone ? "fill-emerald-100 text-emerald-700" : ""} />
+                              </button>
+                              <div className="flex-1 min-w-0 pr-2">
                                   <EditableSegment 
                                     text={cleanNatural} 
                                     onUpdate={(val) => onUpdateSegment?.(idx, val)} 
@@ -1223,16 +1231,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                     novelId={currentNovelId}
                                   />
                                   {cleanDeepl && (
-                                    <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
+                                    <div className="text-[11px] text-[#8D6E63] mt-1 font-sans">
+                                      <span className="font-semibold text-[#5D4037]">GG/DL:</span> {cleanDeepl}
+                                    </div>
                                   )}
                               </div>
-                              <button
-                                  onClick={() => onToggleComplete?.(idx)}
-                                  className={`absolute top-2 right-2 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
-                                  title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
-                               >
-                                  <CheckCircle2 size={isFocusMode ? 14 : 12} />
-                               </button>
                            </div>
                         </div>
                       );

@@ -1206,10 +1206,10 @@ useEffect(() => {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-hidden">
+    <div className="min-h-screen lg:h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans lg:overflow-hidden">
       
       {/* HEADER */}
-      <header className="bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-2 sm:px-4 shrink-0 z-20 shadow-md overflow-x-auto no-scrollbar touch-pan-x w-full max-w-full select-none">
+      <header className="sticky top-0 bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-2 sm:px-4 shrink-0 z-20 shadow-md overflow-x-auto no-scrollbar touch-pan-x w-full max-w-full select-none">
         <div className="flex items-center gap-1.5 sm:gap-4 shrink-0 pr-2">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <div className="text-[#FFECB3] shrink-0">
@@ -1312,7 +1312,7 @@ useEffect(() => {
       )}
 
       {/* MAIN WORKSPACE */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex lg:overflow-hidden">
         {/* LEFT SIDEBAR */}
         <div className={`hidden lg:block w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'lg:hidden' : ''}`}>
             <DictionarySidebar 
@@ -1339,8 +1339,8 @@ useEffect(() => {
         </div>
 
         {/* CENTER MAIN CONTENT */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5E6D3] min-w-0 sm:min-w-[320px]">
-          <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
+        <main className="flex-1 flex flex-col lg:h-full lg:overflow-hidden bg-[#F5E6D3] min-w-0 sm:min-w-[320px]">
+          <div className="flex-1 lg:overflow-y-auto lg:overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
              <div className="flex flex-col px-2 pb-2">
                 
                 {/* INPUT AREA */}

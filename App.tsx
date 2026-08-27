@@ -17,7 +17,7 @@ import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
@@ -251,6 +251,8 @@ function AppContent() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [showChapters, setShowChapters] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showMobileDict, setShowMobileDict] = useState(false);
+  const [showMobileWorld, setShowMobileWorld] = useState(false);
   const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts(session.currentNovelId));
   const [shortcutsEnabled, setShortcutsEnabled] = useState(() => isShortcutsEnabled());
   const [vpLoaded, setVpLoaded] = useState(false);
@@ -1027,41 +1029,66 @@ useEffect(() => {
     <div className="h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-hidden">
       
       {/* HEADER */}
-      <header className="bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-4 shrink-0 z-20 shadow-md">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
+      <header className="bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-3 sm:px-4 shrink-0 z-20 shadow-md">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <div className="text-[#FFECB3]">
-              <PenLine size={24} />
+              <PenLine size={22} className="sm:w-6 sm:h-6" />
             </div>
-            <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1">Edit</h1>
+            <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-xl sm:text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1 hidden sm:block">Edit</h1>
           </div>
 
           {/* Segmented Mode Control */}
-          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037] ml-2">
+          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037]">
             <button
               onClick={() => setMode('edit')}
-              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
-              Edit
+              <span className="sm:hidden">E</span>
+              <span className="hidden sm:inline">Edit</span>
             </button>
             <button
               onClick={() => setMode('beta')}
-              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
-              Beta
+              <span className="sm:hidden">B</span>
+              <span className="hidden sm:inline">Beta</span>
             </button>
           </div>
         </div>
         
         {/* RIGHT CONTROLS */}
-        <div className="flex items-center gap-2">
-            <NovelSelector 
-              currentNovelId={session.currentNovelId || ''} 
-              onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
-            />
+        <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="hidden md:block">
+                <NovelSelector 
+                  currentNovelId={session.currentNovelId || ''} 
+                  onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
+                />
+            </div>
+            
+            {/* 1. Icon Từ điển di động - Chỉ hiện trên mobile/tablet (< lg) */}
+            <button 
+              onClick={() => setShowMobileDict(true)}
+              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20"
+              title="Từ điển riêng"
+            >
+              <div className="w-5 h-5 border border-[#FFECB3]/40 rounded flex items-center justify-center font-bold text-[10px] text-[#FFECB3]">
+                A
+              </div>
+            </button>
+
+            {/* 2. Icon Nhân vật di động - Chỉ hiện trên mobile/tablet (< lg) */}
+            <button 
+              onClick={() => setShowMobileWorld(true)}
+              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20"
+              title="Nhân vật & Thiết lập thế giới"
+            >
+              <Users size={14} className="text-[#FFECB3]" />
+            </button>
+
             <button 
               onClick={() => setShowShortcuts(true)} 
-              className={`flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+              className={`flex items-center justify-center gap-1 text-[10px] font-medium h-8 px-2 sm:px-2.5 rounded-full border transition-colors ${
                 shortcutsEnabled 
                   ? 'text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/40 border-[#FFECB3]/20' 
                   : 'text-[#A1887F] hover:text-white hover:bg-[#5D4037] border-[#5D4037]'
@@ -1069,20 +1096,21 @@ useEffect(() => {
               title="Bảng gõ tắt (Auto-replace)"
             >
                <Keyboard size={12} />
-               <span>Gõ tắt</span>
+               <span className="hidden sm:inline">Gõ tắt</span>
                {shortcuts.length > 0 && (
                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${shortcutsEnabled ? 'bg-[#FFECB3]/20 text-[#FFECB3]' : 'bg-gray-600/40 text-gray-300'}`}>
                    {shortcuts.filter(s => s.enabled).length}
                  </span>
                )}
             </button>
-            <button onClick={() => setShowChapters(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 px-2.5 py-1 rounded-full border border-[#FFECB3]/20 transition-colors">
+            <button onClick={() => setShowChapters(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 px-2 sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors">
                <FolderOpen size={12} />
-               <span>Kho chương ({currentNovelChapters.length})</span>
+               <span className="hidden sm:inline">Kho chương</span>
+               <span className="font-mono text-[9px] font-bold">({currentNovelChapters.length})</span>
             </button>
-            <button onClick={() => setShowHistory(true)} className="flex items-center gap-1.5 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] px-2 py-1 rounded-full border border-[#5D4037] transition-colors">
+            <button onClick={() => setShowHistory(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] h-8 px-2 sm:px-2.5 rounded-full border border-[#5D4037] transition-colors">
                <History size={12} />
-               <span>Lịch sử</span>
+               <span className="hidden sm:inline">Lịch sử</span>
             </button>
             <AuthPanel />
         </div>
@@ -1091,7 +1119,7 @@ useEffect(() => {
       {/* MAIN WORKSPACE */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT SIDEBAR */}
-        <div className={`w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
+        <div className={`hidden lg:block w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'lg:hidden' : ''}`}>
             <DictionarySidebar 
                 currentNovelId={session.currentNovelId || ''}
                 terms={session.customTerms} onExportExcel={handleExportExcel} 
@@ -1116,7 +1144,7 @@ useEffect(() => {
         </div>
 
         {/* CENTER MAIN CONTENT */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5E6D3] min-w-[320px]">
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#F5E6D3] min-w-0 sm:min-w-[320px]">
           <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent">
              <div className="flex flex-col px-2 pb-2">
                 
@@ -1296,7 +1324,7 @@ useEffect(() => {
         </main>
 
         {/* RIGHT SIDEBAR */}
-        <div className={`w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'hidden' : 'block'}`}>
+        <div className={`hidden lg:block w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'lg:hidden' : ''}`}>
             <WorldInfoPanel 
                 currentNovelId={session.currentNovelId || ''}
                 characters={session.characters} 
@@ -1311,6 +1339,73 @@ useEffect(() => {
             />
         </div>
       </div>
+
+      {/* MOBILE LEFT SIDEBAR DICTIONARY (OVERLAY) */}
+      {showMobileDict && (
+        <div className="fixed inset-0 z-50 flex lg:hidden bg-black/40 backdrop-blur-xs transition-opacity">
+          <div className="relative w-80 max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-left">
+            <button 
+              onClick={() => setShowMobileDict(false)}
+              className="absolute top-2 right-2 p-1.5 rounded-full bg-white/80 hover:bg-white text-[#3E2723] shadow-sm z-50 border border-[#D7CCC8]"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex-1 overflow-hidden pt-10">
+              <DictionarySidebar 
+                  currentNovelId={session.currentNovelId || ''}
+                  terms={session.customTerms} onExportExcel={handleExportExcel} 
+                  onUpdateTerms={(novelTerms) => {
+                      try {
+                          const currentId = session.currentNovelId;
+                          const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
+                          const merged = [...novelTerms, ...otherTerms];
+                          updateSession({ customTerms: merged });
+                          db.bulkSaveCustomTerms(merged).catch(err => {
+                              console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
+                          });
+                      } catch (err) {
+                          console.error("App Sidebar: onUpdateTerms caught error:", err);
+                      }
+                  }} 
+                  sheetUrl={session.sheetUrl} 
+                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                  refreshTrigger={vpLoaded}
+              />
+            </div>
+          </div>
+          {/* Click outside to close */}
+          <div className="flex-1" onClick={() => setShowMobileDict(false)} />
+        </div>
+      )}
+
+      {/* MOBILE RIGHT SIDEBAR WORLD INFO (OVERLAY) */}
+      {showMobileWorld && (
+        <div className="fixed inset-0 z-50 flex lg:hidden bg-black/40 backdrop-blur-xs transition-opacity justify-end">
+          {/* Click outside to close */}
+          <div className="flex-1" onClick={() => setShowMobileWorld(false)} />
+          <div className="relative w-[360px] max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-right">
+            <button 
+              onClick={() => setShowMobileWorld(false)}
+              className="absolute top-2 left-2 p-1.5 rounded-full bg-white/80 hover:bg-white text-[#3E2723] shadow-sm z-50 border border-[#D7CCC8]"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex-1 overflow-hidden pt-10">
+              <WorldInfoPanel 
+                  currentNovelId={session.currentNovelId || ''}
+                  characters={session.characters} 
+                  onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
+                  relationships={session.relationships} 
+                  onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                  notes={session.notes} 
+                  onUpdateNotes={(val) => updateSession({ notes: val })} 
+                  sheetUrl={session.sheetUrl} 
+                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />
 

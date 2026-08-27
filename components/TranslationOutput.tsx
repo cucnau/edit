@@ -1213,7 +1213,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                               </div>
                            </div>
                            <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-6 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
-                              <div className="flex flex-row lg:flex-col py-0.5 items-start gap-2">
+                              <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch gap-2 w-full">
                                   {/* Icon check tròn hiển thị bên trái trên mobile */}
                                   <button
                                       onClick={() => onToggleComplete?.(idx)}

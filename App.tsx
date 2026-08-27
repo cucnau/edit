@@ -340,8 +340,8 @@ function AppContent() {
       const user = auth.currentUser;
       if (!user) return;
 
-      // 1. Lắng nghe active session realtime
-      unsubscribeSession = listenToActiveSession(session.currentNovelId, deviceId, (cloudData) => {
+      // 1. Lắng nghe active session realtime theo tài khoản người dùng
+      unsubscribeSession = listenToActiveSession(deviceId, (cloudData) => {
         if (!cloudData) return;
         // Kiểm tra xem dữ liệu từ thiết bị khác có mới hơn không
         if (cloudData.updatedAt && cloudData.updatedAt > (lastLocalUpdateTimestampRef.current - 500)) {
@@ -356,17 +356,21 @@ function AppContent() {
             const cloudSegments = cloudData.result?.segments?.map(s => s.natural).join('\n') || '';
             const segmentsEqual = prevSegments === cloudSegments;
 
+            const novelEqual = (prev.currentNovelId || '') === (cloudData.novelId || '');
             const inputEqual = prev.inputText === cloudData.inputText;
+            const deeplEqual = prev.deeplText === cloudData.deeplText;
+            const preEditedEqual = prev.preEditedText === cloudData.preEditedText;
             const statusEqual = prev.status === cloudData.status;
             const chapterEqual = prev.currentChapterId === cloudData.currentChapterId;
 
-            if (completedEqual && segmentsEqual && inputEqual && statusEqual && chapterEqual) {
+            if (novelEqual && completedEqual && segmentsEqual && inputEqual && deeplEqual && preEditedEqual && statusEqual && chapterEqual) {
               return prev;
             }
 
             const newResult = sanitizeResult(cloudData.result);
             return {
               ...prev,
+              currentNovelId: cloudData.novelId !== undefined ? cloudData.novelId : prev.currentNovelId,
               inputText: cloudData.inputText !== undefined ? cloudData.inputText : prev.inputText,
               deeplText: cloudData.deeplText !== undefined ? cloudData.deeplText : prev.deeplText,
               preEditedText: cloudData.preEditedText !== undefined ? cloudData.preEditedText : prev.preEditedText,
@@ -637,8 +641,11 @@ useEffect(() => {
 
   // --- ACTIONS ---
 
-  const updateSession = (updates: Partial<TranslationSession>) => {
+  const updateSession = (updates: Partial<TranslationSession>, syncToCloud = true) => {
     setSession(prev => ({ ...prev, ...updates }));
+    if (syncToCloud) {
+      debouncedPushSession(updates);
+    }
   };
 
   const autoSaveLinkedChapter = (newResult: any, newCompleted?: number[]) => {
@@ -1231,13 +1238,14 @@ useEffect(() => {
         </div>
         
         {/* RIGHT CONTROLS */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-            <div className="hidden md:block">
-                <NovelSelector 
-                  currentNovelId={session.currentNovelId || ''} 
-                  onSelectNovel={(id) => updateSession({ currentNovelId: id })} 
-                />
-            </div>
+        <div className="flex items-center gap-1 sm:gap-2">
+            <NovelSelector 
+              currentNovelId={session.currentNovelId || ''} 
+              onSelectNovel={(id) => {
+                updateSession({ currentNovelId: id });
+                pushActiveSessionToCloud({ novelId: id });
+              }} 
+            />
             
             {/* 1. Icon Từ điển di động - Chỉ hiện trên mobile/tablet (< lg) */}
             <button 

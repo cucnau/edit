@@ -454,8 +454,8 @@ export interface ActiveSessionCloudData {
   result: TranslationResponse | null;
 }
 
-export const getActiveSessionDocId = (userId: string, novelId?: string) => {
-  return `session_${userId}_${novelId || 'global'}`;
+export const getActiveSessionDocId = (userId: string) => {
+  return `session_${userId}`;
 };
 
 export const saveActiveSessionToCloud = async (
@@ -475,12 +475,12 @@ export const saveActiveSessionToCloud = async (
   const user = auth.currentUser;
   if (!user) return;
 
-  const docId = getActiveSessionDocId(user.uid, sessionData.novelId);
+  const docId = getActiveSessionDocId(user.uid);
   const docRef = doc(db, 'activeSessions', docId);
 
   const rawData: ActiveSessionCloudData = {
     userId: user.uid,
-    novelId: sessionData.novelId || 'global',
+    novelId: sessionData.novelId || '',
     updatedAt: Date.now(),
     deviceId: sessionData.deviceId,
     currentChapterId: sessionData.currentChapterId || '',
@@ -506,14 +506,13 @@ export const saveActiveSessionToCloud = async (
 };
 
 export const listenToActiveSession = (
-  novelId: string | undefined,
   currentDeviceId: string,
   onUpdate: (data: ActiveSessionCloudData) => void
 ): Unsubscribe | null => {
   const user = auth.currentUser;
   if (!user) return null;
 
-  const docId = getActiveSessionDocId(user.uid, novelId);
+  const docId = getActiveSessionDocId(user.uid);
   const docRef = doc(db, 'activeSessions', docId);
 
   return onSnapshot(docRef, (docSnap) => {

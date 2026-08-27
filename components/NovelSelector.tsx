@@ -57,13 +57,13 @@ export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, on
 
   const handleCreate = async () => {
     const name = prompt('Nhập tên truyện mới:');
-    if (!name) return;
+    if (!name || !name.trim()) return;
     const id = Date.now().toString();
     try {
       setLoading(true);
       setError(null);
-      const newNovel = await createNovel(id, name);
-      setNovels([...novels, newNovel]);
+      const newNovel = await createNovel(id, name.trim());
+      setNovels(prev => [...prev, newNovel]);
       onSelectNovel(newNovel.id);
     } catch (e: any) {
       console.error(e);
@@ -85,24 +85,29 @@ export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, on
   if (!isSignedIn) return null;
 
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex items-center gap-1 bg-[#5D4037] rounded-md border border-[#4E342E] px-2 py-1">
-        <Book size={12} className="text-[#D7CCC8]" />
+    <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 bg-[#5D4037]/80 hover:bg-[#5D4037] rounded-full border border-[#FFECB3]/30 px-2 py-1 transition-colors h-8">
+        <Book size={12} className="text-[#FFECB3] shrink-0" />
         {loading ? (
           <Loader2 size={12} className="animate-spin text-[#D7CCC8]" />
         ) : (
           <select 
             value={currentNovelId || ''} 
             onChange={(e) => onSelectNovel(e.target.value)}
-            className="bg-transparent text-[#D7CCC8] text-[10px] outline-none max-w-[120px]"
+            className="bg-transparent text-[#FFECB3] font-medium text-[10px] sm:text-[11px] outline-none max-w-[85px] sm:max-w-[130px] md:max-w-[170px] truncate cursor-pointer"
+            title="Chọn bộ truyện để edit & đồng bộ"
           >
-            <option value="" disabled>-- Chọn truyện --</option>
+            <option value="" disabled className="text-black bg-white">-- Chọn truyện --</option>
             {novels.map(n => (
               <option key={n.id} value={n.id} className="text-black bg-white">{n.name}</option>
             ))}
           </select>
         )}
-        <button onClick={handleCreate} className="ml-1 text-[#D7CCC8] hover:text-white" title="Tạo truyện mới">
+        <button 
+          onClick={handleCreate} 
+          className="text-[#D7CCC8] hover:text-[#FFECB3] p-0.5 rounded transition-colors" 
+          title="Tạo truyện mới"
+        >
           <Plus size={12} />
         </button>
       </div>
@@ -112,7 +117,7 @@ export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, on
           title={`${error} - Bấm để tải lại`}
           onClick={fetchNovels}
         >
-          ⚠️ Lỗi tải
+          ⚠️ Lỗi
         </span>
       )}
     </div>

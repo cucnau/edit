@@ -26,6 +26,9 @@ service cloud.firestore {
     match /shortcuts/{shortcutId} {
       allow read, write: if isAuthenticated();
     }
+    match /activeSessions/{sessionId} {
+      allow read, write: if isAuthenticated();
+    }
   }
 }
 

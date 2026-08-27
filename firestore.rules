@@ -14,16 +14,28 @@ service cloud.firestore {
     match /customTerms/{termId} {
       allow read, write: if isAuthenticated();
     }
+    match /customTerms_bundles/{bundleId} {
+      allow read, write: if isAuthenticated();
+    }
     match /characters/{characterId} {
       allow read, write: if isAuthenticated();
     }
+    match /characters_bundles/{bundleId} {
+      allow read, write: if isAuthenticated();
+    }
     match /relationships/{relationshipId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /relationships_bundles/{bundleId} {
       allow read, write: if isAuthenticated();
     }
     match /chapters/{chapterId} {
       allow read, write: if isAuthenticated();
     }
     match /shortcuts/{shortcutId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /shortcuts_bundles/{bundleId} {
       allow read, write: if isAuthenticated();
     }
     match /activeSessions/{sessionId} {

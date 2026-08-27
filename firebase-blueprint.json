@@ -84,6 +84,24 @@
         "enabled": "boolean",
         "createdAt": "timestamp"
       }
+    },
+    {
+      "name": "activeSessions",
+      "purpose": "Stores real-time active editing session state for multi-device synchronization (laptop and phone)",
+      "access_pattern": "Users can read and write only their own active sessions.",
+      "document_schema": {
+        "userId": "string",
+        "novelId": "string",
+        "updatedAt": "number",
+        "deviceId": "string",
+        "currentChapterId": "string",
+        "inputText": "string",
+        "deeplText": "string",
+        "preEditedText": "string",
+        "status": "string",
+        "completedSegments": "array",
+        "result": "object"
+      }
     }
   ],
   "auth_required": true

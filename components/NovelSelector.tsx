@@ -85,8 +85,8 @@ export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, on
   if (!isSignedIn) return null;
 
   return (
-    <div className="flex items-center gap-1">
-      <div className="flex items-center gap-1 bg-[#5D4037]/80 hover:bg-[#5D4037] rounded-full border border-[#FFECB3]/30 px-2 py-1 transition-colors h-8">
+    <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-1 bg-[#5D4037]/80 hover:bg-[#5D4037] rounded-full border border-[#FFECB3]/30 px-2 py-1 transition-colors h-8 shrink-0">
         <Book size={12} className="text-[#FFECB3] shrink-0" />
         {loading ? (
           <Loader2 size={12} className="animate-spin text-[#D7CCC8]" />

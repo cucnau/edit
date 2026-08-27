@@ -1165,7 +1165,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
              </div>
           )}
           {hasSegments && (
-             <div className="flex w-full bg-[#EFEBE9] text-[#5D4037] text-[9px] font-bold uppercase tracking-wider shadow-sm border-t border-[#D7CCC8]">
+             <div className="hidden lg:flex w-full bg-[#EFEBE9] text-[#5D4037] text-[9px] font-bold uppercase tracking-wider shadow-sm border-t border-[#D7CCC8]">
                  <div className="w-[45%] p-1 border-r border-[#D7CCC8] pl-2">Nguồn</div>
                  <div className="w-[55%] p-1 pl-2">Bản edit</div>
              </div>
@@ -1174,9 +1174,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
       <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent pb-4">
         {hasSegments ? (
-             <table className="w-full text-left border-collapse table-fixed m-0 p-0 border-none">
-                <colgroup><col className="w-[45%]" /><col className="w-[55%]" /></colgroup>
-                <tbody className="divide-y divide-[#EFEBE9]">
+             <div className="w-full text-left m-0 p-0 border-none block lg:table lg:table-fixed border-collapse">
+                <div className="divide-y divide-[#EFEBE9] block lg:table-row-group">
                    {data.segments.map((seg, idx) => {
                       const isDone = completedSegments.includes(idx);
                       const cleanSource = (seg.source || '').trim();
@@ -1187,18 +1186,18 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       if (!cleanSource && !cleanNatural) return null;
 
                       return (
-                        <tr 
+                        <div 
                           id={`segment-row-${idx}`}
                           key={idx} 
-                          className={`${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
+                          className={`flex flex-col lg:table-row ${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
                             findText && matchingSegmentIndices[currentMatchIndex] === idx 
-                              ? 'bg-amber-100/70 border-2 border-amber-400 ring-2 ring-amber-400/50' 
+                              ? 'bg-amber-100/70 border-2 border-amber-400 ring-2 ring-amber-400/50 lg:ring-0 lg:border-none' 
                               : findText && matchingSegmentIndices.includes(idx) 
                                 ? 'bg-amber-50/50' 
                                 : ''
-                          } transition-all duration-300 group/row border-none`}
+                          } transition-all duration-300 group/row border-b border-[#EFEBE9] lg:border-none pb-2.5 lg:pb-0`}
                         >
-                           <td className={`py-0 px-2 align-top border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'}`}>
+                           <div className={`py-1.5 lg:py-0.5 px-2 align-top lg:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} block lg:table-cell lg:w-[45%] lg:max-w-0`}>
                               <div className="flex flex-col py-0.5">
                                 <div className={`${isFocusMode ? 'text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
                                    <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
@@ -1212,35 +1211,48 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                   </div>
                                 )}
                               </div>
-                           </td>
-                           <td className="py-0 px-2 align-top relative pr-6 border-none">
-                              <div className="flex flex-col py-0.5">
-                                  <EditableSegment 
-                                    text={cleanNatural} 
-                                    onUpdate={(val) => onUpdateSegment?.(idx, val)} 
-                                    isFocusMode={isFocusMode} 
-                                    findText={findText}
-                                    matchCase={matchCase}
-                                    matchDiacritics={matchDiacritics}
-                                    novelId={currentNovelId}
-                                  />
-                                  {cleanDeepl && (
-                                    <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 -mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
-                                  )}
+                           </div>
+                           <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-6 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
+                              <div className="flex flex-row lg:flex-col py-0.5 items-start gap-2">
+                                  {/* Icon check tròn hiển thị bên trái trên mobile */}
+                                  <button
+                                      onClick={() => onToggleComplete?.(idx)}
+                                      className={`lg:hidden p-1 rounded-full transition-all shadow-sm border z-10 shrink-0 mt-1 ${isDone ? 'bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037]' : 'bg-white border-[#D7CCC8] text-[#A1887F]'}`}
+                                      title={isDone ? "Đã hoàn thành" : "Chưa hoàn thành"}
+                                   >
+                                      <CheckCircle2 size={12} />
+                                   </button>
+                                   
+                                   <div className="flex-1 min-w-0">
+                                      <EditableSegment 
+                                        text={cleanNatural} 
+                                        onUpdate={(val) => onUpdateSegment?.(idx, val)} 
+                                        isFocusMode={isFocusMode} 
+                                        findText={findText}
+                                        matchCase={matchCase}
+                                        matchDiacritics={matchDiacritics}
+                                        novelId={currentNovelId}
+                                      />
+                                      {cleanDeepl && (
+                                        <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
+                                      )}
+                                   </div>
+                                   
+                                   {/* Nút check tròn hiển thị tuyệt đối trên laptop */}
+                                   <button
+                                      onClick={() => onToggleComplete?.(idx)}
+                                      className={`hidden lg:inline-flex absolute top-0 right-0 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                      title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
+                                   >
+                                      <CheckCircle2 size={isFocusMode ? 14 : 12} />
+                                   </button>
                               </div>
-                              <button
-                                  onClick={() => onToggleComplete?.(idx)}
-                                  className={`absolute top-0 right-0 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
-                                  title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
-                               >
-                                  <CheckCircle2 size={isFocusMode ? 14 : 12} />
-                               </button>
-                           </td>
-                        </tr>
+                           </div>
+                        </div>
                       );
                    })}
-                </tbody>
-             </table>
+                </div>
+             </div>
         ) : (
              <div className="p-3"><p className="text-[15px] leading-[1.2] text-[#3E2723] whitespace-normal">{data.naturalTranslation.trim()}</p></div>
         )}

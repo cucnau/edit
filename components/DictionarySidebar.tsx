@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { CustomTerm } from '../types';
+import { CustomTerm, VietphraseFile } from '../types';
 import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet } from 'lucide-react';
 import { syncFirestoreData, deleteFirestoreDoc, overwriteFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
@@ -99,6 +99,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   const [showCode, setShowCode] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [vpCount, setVpCount] = useState(0);
+  const [vpFiles, setVpFiles] = useState<VietphraseFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Sync States
@@ -141,11 +142,13 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     localStorage.setItem('autoSync_vocab', String(autoSync));
   }, [autoSync]);
 
-  // Load VP size on mount/render
+  // Load VP size and files list on mount/render
   useEffect(() => {
      setVpCount(vietphraseEngine.getSize());
+     setVpFiles(vietphraseEngine.getFiles());
      return vietphraseEngine.subscribe(() => {
          setVpCount(vietphraseEngine.getSize());
+         setVpFiles(vietphraseEngine.getFiles());
      });
   }, [refreshTrigger]);
 
@@ -329,21 +332,27 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const selectedFiles = e.target.files;
+    if (!selectedFiles || selectedFiles.length === 0) return;
 
-    setSyncMessage({ type: 'success', text: 'Đang đọc file...' });
-    const reader = new FileReader();
-    reader.onload = (evt) => {
+    setSyncMessage({ type: 'success', text: `Đang xử lý ${selectedFiles.length} file...` });
+    
+    let loadedCount = 0;
+    Array.from(selectedFiles).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
         const content = evt.target?.result as string;
         if (content) {
-            const count = vietphraseEngine.loadDictionary(content);
-            setVpCount(count);
-            setSyncMessage({ type: 'success', text: `Đã nạp ${count} từ Vietphrase` });
-            setTimeout(() => setSyncMessage(null), 3000);
+            vietphraseEngine.addFile(file.name, content);
+            loadedCount++;
+            if (loadedCount === selectedFiles.length) {
+              setSyncMessage({ type: 'success', text: `Đã nạp thành công ${selectedFiles.length} file Vietphrase!` });
+              setTimeout(() => setSyncMessage(null), 3000);
+            }
         }
-    };
-    reader.readAsText(file);
+      };
+      reader.readAsText(file);
+    });
     e.target.value = ''; // Reset to allow re-selection
   };
 
@@ -401,16 +410,68 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                     className="w-full flex items-center justify-center gap-2 bg-[#F5E6D3] hover:bg-[#D7CCC8] text-[#3E2723] py-2 rounded border border-dashed border-[#8D6E63] transition-colors text-xs font-bold"
                 >
                     <FileUp size={14} />
-                    {vpCount > 0 ? "Nạp lại file khác" : "Chọn file Vietphrase.txt"}
+                    <span>+ Thêm file Vietphrase.txt</span>
                 </button>
-                <p className="text-[9px] text-[#8D6E63] mt-1.5 italic leading-tight">
-                    * Dữ liệu Vietphrase được dùng để tự động điền vào dòng "Quick Trans" giúp đối chiếu bản dịch AI.
+
+                {/* List of Loaded Vietphrase Files */}
+                {vpFiles.length > 0 && (
+                  <div className="mt-3 space-y-1.5 border-t border-[#D7CCC8]/40 pt-2.5 max-h-48 overflow-y-auto pr-1">
+                    <span className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider block mb-1">Các file đã nạp ({vpFiles.length})</span>
+                    {vpFiles.map(file => {
+                      // Calculate words count in this file
+                      const lines = file.content.split(/\r?\n/);
+                      let wordsCount = 0;
+                      for (const line of lines) {
+                        if (!line.trim() || line.startsWith('#')) continue;
+                        const parts = line.split('=');
+                        if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
+                          wordsCount++;
+                        }
+                      }
+                      return (
+                        <div key={file.id} className="flex items-center justify-between p-1.5 rounded-lg bg-[#F5E6D3]/20 border border-[#D7CCC8]/30 hover:bg-[#F5E6D3]/40 transition-all text-xs">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <input 
+                              type="checkbox"
+                              checked={file.enabled}
+                              onChange={() => vietphraseEngine.toggleFile(file.id)}
+                              className="rounded text-[#5D4037] focus:ring-[#8D6E63] h-3 w-3 cursor-pointer"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <span className={`block text-[11px] font-medium truncate ${file.enabled ? 'text-[#3E2723]' : 'text-[#8D6E63] line-through'}`} title={file.name}>
+                                {file.name}
+                              </span>
+                              <span className="text-[9px] text-[#8D6E63] block">
+                                {wordsCount.toLocaleString()} từ
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Bạn có chắc chắn muốn xóa file Vietphrase "${file.name}"?`)) {
+                                vietphraseEngine.removeFile(file.id);
+                              }
+                            }}
+                            className="p-1 text-[#8D6E63] hover:text-[#D32F2F] rounded hover:bg-red-50 transition-colors shrink-0"
+                            title="Xóa file"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <p className="text-[9px] text-[#8D6E63] mt-2 italic leading-tight">
+                    * Dữ liệu từ các file hoạt động được gộp chung để tạo "Quick Trans" dịch đối chiếu. Bạn có thể chọn nhiều file cùng lúc.
                 </p>
                 <input 
                     type="file" 
                     ref={fileInputRef} 
                     className="hidden" 
                     accept=".txt" 
+                    multiple={true}
                     onChange={handleFileUpload} 
                 />
              </div>

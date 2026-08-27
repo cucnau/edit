@@ -1,6 +1,6 @@
 import { db, auth } from './firebase';
-import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp } from 'firebase/firestore';
-import { CustomTerm, Character, Relationship, Novel, Chapter, TextShortcut } from '../types';
+import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { CustomTerm, Character, Relationship, Novel, Chapter, TextShortcut, TranslationResponse } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -438,4 +438,116 @@ export const saveShortcutsToCloud = async (novelId: string, shortcuts: TextShort
   if (!user || !novelId) return;
   await overwriteFirestoreData('shortcut', novelId, shortcuts);
 };
+
+export interface ActiveSessionCloudData {
+  userId: string;
+  novelId: string;
+  updatedAt: number;
+  deviceId: string;
+  currentChapterId?: string;
+  currentHistoryId?: string;
+  inputText: string;
+  deeplText: string;
+  preEditedText: string;
+  status: string;
+  completedSegments: number[];
+  result: TranslationResponse | null;
+}
+
+export const getActiveSessionDocId = (userId: string, novelId?: string) => {
+  return `session_${userId}_${novelId || 'global'}`;
+};
+
+export const saveActiveSessionToCloud = async (
+  sessionData: {
+    novelId?: string;
+    deviceId: string;
+    currentChapterId?: string;
+    currentHistoryId?: string;
+    inputText: string;
+    deeplText: string;
+    preEditedText: string;
+    status: string;
+    completedSegments: number[];
+    result: TranslationResponse | null;
+  }
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const docId = getActiveSessionDocId(user.uid, sessionData.novelId);
+  const docRef = doc(db, 'activeSessions', docId);
+
+  const rawData: ActiveSessionCloudData = {
+    userId: user.uid,
+    novelId: sessionData.novelId || 'global',
+    updatedAt: Date.now(),
+    deviceId: sessionData.deviceId,
+    currentChapterId: sessionData.currentChapterId || '',
+    currentHistoryId: sessionData.currentHistoryId || '',
+    inputText: sessionData.inputText || '',
+    deeplText: sessionData.deeplText || '',
+    preEditedText: sessionData.preEditedText || '',
+    status: sessionData.status || 'idle',
+    completedSegments: sessionData.completedSegments || [],
+    result: sessionData.result || null
+  };
+
+  const dataToSave = sanitizeData(rawData);
+  Object.keys(dataToSave).forEach(k => {
+    if (dataToSave[k] === undefined) delete dataToSave[k];
+  });
+
+  try {
+    await setDoc(docRef, dataToSave, { merge: true });
+  } catch (error) {
+    console.warn("Lỗi lưu active session lên đám mây:", error);
+  }
+};
+
+export const listenToActiveSession = (
+  novelId: string | undefined,
+  currentDeviceId: string,
+  onUpdate: (data: ActiveSessionCloudData) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  const docId = getActiveSessionDocId(user.uid, novelId);
+  const docRef = doc(db, 'activeSessions', docId);
+
+  return onSnapshot(docRef, (docSnap) => {
+    if (!docSnap.exists()) return;
+    const data = docSnap.data() as ActiveSessionCloudData;
+    // Bỏ qua các cập nhật được phát ra từ chính tab/thiết bị này
+    if (data.deviceId === currentDeviceId) return;
+    onUpdate(data);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe active session realtime:", error);
+  });
+};
+
+export const listenToChaptersRealtime = (
+  novelId: string | undefined,
+  onUpdate: (chapters: Chapter[]) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return null;
+
+  const q = query(collection(db, 'chapters'), where('userId', '==', user.uid), where('novelId', '==', novelId));
+  
+  return onSnapshot(q, (snapshot) => {
+    const chapters: Chapter[] = [];
+    snapshot.forEach(d => {
+      const data = d.data();
+      const { userId, ...rest } = data;
+      chapters.push({ id: d.id, ...rest } as Chapter);
+    });
+    chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    onUpdate(chapters);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe kho chương realtime:", error);
+  });
+};
+
 

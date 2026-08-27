@@ -173,7 +173,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     
     const timer = setTimeout(() => {
       handlePushToCloud(true);
-    }, 2000);
+    }, 3500);
 
     return () => clearTimeout(timer);
   }, [terms, autoSync, isSignedIn]);

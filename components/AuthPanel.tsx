@@ -216,11 +216,11 @@ export const AuthPanel: React.FC = () => {
         <div className="flex items-center gap-1.5 sm:gap-2">
           <button 
             onClick={handleOpenModal}
-            className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors"
+            className="flex items-center justify-center sm:justify-start sm:gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 w-8 sm:w-auto sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors"
             title="Quản lý tài khoản"
           >
             <UserIcon size={12} />
-            <span className="max-w-[80px] sm:max-w-[120px] truncate">{user.displayName || user.email}</span>
+            <span className="hidden sm:inline max-w-[80px] sm:max-w-[120px] truncate">{user.displayName || user.email}</span>
           </button>
           
           <button 
@@ -234,10 +234,11 @@ export const AuthPanel: React.FC = () => {
       ) : (
         <button 
           onClick={handleOpenModal} 
-          className="flex items-center gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white bg-[#5D4037] hover:bg-[#4E342E] h-8 px-3 rounded-full border border-[#FFECB3]/30 transition-colors"
+          className="flex items-center justify-center sm:gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white bg-[#5D4037] hover:bg-[#4E342E] h-8 w-8 sm:w-auto sm:px-3 rounded-full border border-[#FFECB3]/30 transition-colors"
+          title="Đăng nhập"
         >
           <LogIn size={12} />
-          <span>Đăng nhập</span>
+          <span className="hidden sm:inline">Đăng nhập</span>
         </button>
       )}
 

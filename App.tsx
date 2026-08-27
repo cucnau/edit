@@ -4,7 +4,7 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime } from './services/firestoreService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -17,7 +17,7 @@ import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
@@ -284,6 +284,144 @@ function AppContent() {
   const [redoStack, setRedoStack] = useState<string[][]>([]);
   const [isFocusMode, setIsFocusMode] = useState(false);
 
+  // --- REAL-TIME DEVICE IDENTIFIER & SYNC STATE ---
+  const deviceId = useMemo(() => {
+    try {
+      let id = sessionStorage.getItem('app_device_id');
+      if (!id) {
+        id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+        sessionStorage.setItem('app_device_id', id);
+      }
+      return id;
+    } catch (e) {
+      return 'dev_' + Math.random().toString(36).substring(2, 9);
+    }
+  }, []);
+
+  const [realtimeNotify, setRealtimeNotify] = useState<string | null>(null);
+  const lastLocalUpdateTimestampRef = useRef<number>(0);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const debounceTimerRef = useRef<any>(null);
+
+  // Hàm đẩy trạng thái phiên làm việc hiện tại lên Cloud cho các thiết bị khác nhận realtime
+  const pushActiveSessionToCloud = (customUpdates?: Partial<TranslationSession>) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const current = { ...sessionRef.current, ...customUpdates };
+    lastLocalUpdateTimestampRef.current = Date.now();
+    saveActiveSessionToCloud({
+      novelId: current.currentNovelId,
+      deviceId,
+      currentChapterId: current.currentChapterId,
+      currentHistoryId: current.currentHistoryId,
+      inputText: current.inputText,
+      deeplText: current.deeplText,
+      preEditedText: current.preEditedText,
+      status: current.status,
+      completedSegments: current.completedSegments || [],
+      result: current.result
+    });
+  };
+
+  const debouncedPushSession = (customUpdates?: Partial<TranslationSession>) => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      pushActiveSessionToCloud(customUpdates);
+    }, 400);
+  };
+
+  // LẮNG NGHE ĐỒNG BỘ PHIÊN LÀM VIỆC THỜI GIAN THỰC (LAPTOP <-> ĐIỆN THOẠI)
+  useEffect(() => {
+    let unsubscribeSession: (() => void) | null = null;
+    let unsubscribeChapters: (() => void) | null = null;
+
+    const setupRealtimeListeners = () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // 1. Lắng nghe active session realtime
+      unsubscribeSession = listenToActiveSession(session.currentNovelId, deviceId, (cloudData) => {
+        if (!cloudData) return;
+        // Kiểm tra xem dữ liệu từ thiết bị khác có mới hơn không
+        if (cloudData.updatedAt && cloudData.updatedAt > (lastLocalUpdateTimestampRef.current - 500)) {
+          lastLocalUpdateTimestampRef.current = cloudData.updatedAt;
+          
+          setSession(prev => {
+            const prevCompleted = prev.completedSegments || [];
+            const cloudCompleted = cloudData.completedSegments || [];
+            const completedEqual = prevCompleted.length === cloudCompleted.length && prevCompleted.every((v, i) => v === cloudCompleted[i]);
+            
+            const prevSegments = prev.result?.segments?.map(s => s.natural).join('\n') || '';
+            const cloudSegments = cloudData.result?.segments?.map(s => s.natural).join('\n') || '';
+            const segmentsEqual = prevSegments === cloudSegments;
+
+            const inputEqual = prev.inputText === cloudData.inputText;
+            const statusEqual = prev.status === cloudData.status;
+            const chapterEqual = prev.currentChapterId === cloudData.currentChapterId;
+
+            if (completedEqual && segmentsEqual && inputEqual && statusEqual && chapterEqual) {
+              return prev;
+            }
+
+            const newResult = sanitizeResult(cloudData.result);
+            return {
+              ...prev,
+              inputText: cloudData.inputText !== undefined ? cloudData.inputText : prev.inputText,
+              deeplText: cloudData.deeplText !== undefined ? cloudData.deeplText : prev.deeplText,
+              preEditedText: cloudData.preEditedText !== undefined ? cloudData.preEditedText : prev.preEditedText,
+              status: (cloudData.status as AppStatus) || prev.status,
+              result: newResult !== null ? newResult : prev.result,
+              completedSegments: cloudCompleted,
+              currentChapterId: cloudData.currentChapterId || prev.currentChapterId,
+              currentHistoryId: cloudData.currentHistoryId || prev.currentHistoryId
+            };
+          });
+
+          setRealtimeNotify("⚡ Đã đồng bộ từ thiết bị khác");
+          setTimeout(() => setRealtimeNotify(null), 2500);
+        }
+      });
+
+      // 2. Lắng nghe kho chương realtime
+      unsubscribeChapters = listenToChaptersRealtime(session.currentNovelId, (cloudChapters) => {
+        setChapters(prev => {
+          const other = prev.filter(c => c.novelId && c.novelId !== session.currentNovelId);
+          return [...cloudChapters, ...other];
+        });
+
+        // Nếu đang mở một chapter, cập nhật tiến độ nếu chapter đó vừa được sửa trên máy khác
+        const curChapId = sessionRef.current.currentChapterId;
+        if (curChapId) {
+          const matched = cloudChapters.find(c => c.id === curChapId);
+          if (matched && matched.timestamp && matched.timestamp > (lastLocalUpdateTimestampRef.current - 500)) {
+            setSession(prev => ({
+              ...prev,
+              completedSegments: matched.completedSegments || [],
+              result: sanitizeResult(matched.result) || prev.result
+            }));
+          }
+        }
+      });
+    };
+
+    setupRealtimeListeners();
+    const authUnsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setupRealtimeListeners();
+      } else {
+        if (unsubscribeSession) unsubscribeSession();
+        if (unsubscribeChapters) unsubscribeChapters();
+      }
+    });
+
+    return () => {
+      authUnsub();
+      if (unsubscribeSession) unsubscribeSession();
+      if (unsubscribeChapters) unsubscribeChapters();
+    };
+  }, [session.currentNovelId, deviceId]);
+
   // --- REFS ---
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -546,6 +684,7 @@ useEffect(() => {
     
     updateSession({ result: newResult });
     autoSaveLinkedChapter(newResult);
+    debouncedPushSession({ result: newResult });
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -590,6 +729,7 @@ useEffect(() => {
     
     updateSession({ result: newResult });
     autoSaveLinkedChapter(newResult);
+    pushActiveSessionToCloud({ result: newResult });
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -622,6 +762,7 @@ useEffect(() => {
     
     updateSession({ result: newResult });
     autoSaveLinkedChapter(newResult);
+    pushActiveSessionToCloud({ result: newResult });
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -654,6 +795,7 @@ useEffect(() => {
     
     updateSession({ result: newResult });
     autoSaveLinkedChapter(newResult);
+    pushActiveSessionToCloud({ result: newResult });
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -673,6 +815,8 @@ useEffect(() => {
     
     updateSession({ completedSegments: newCompleted });
     autoSaveLinkedChapter(session.result, newCompleted);
+    // Đẩy đồng bộ thời gian thực tức thì sang Điện thoại / Laptop
+    pushActiveSessionToCloud({ completedSegments: newCompleted });
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -744,7 +888,8 @@ useEffect(() => {
     }
 
     // Tiến hành xóa session
-    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined });
+    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
+    pushActiveSessionToCloud({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
   };
 
   const handleTranslate = async (forceFastAlign = false) => {
@@ -903,7 +1048,15 @@ useEffect(() => {
       updateSession({ 
         result: sanitized, 
         status: AppStatus.SUCCESS,
-        currentHistoryId: historyId 
+        currentHistoryId: historyId,
+        completedSegments: []
+      });
+
+      pushActiveSessionToCloud({
+        result: sanitized,
+        status: AppStatus.SUCCESS,
+        currentHistoryId: historyId,
+        completedSegments: []
       });
       
       const newHistoryItem: HistoryItem = {
@@ -931,6 +1084,15 @@ useEffect(() => {
       result: sanitizeResult(item.result),
       status: AppStatus.SUCCESS,
       error: null,
+      completedSegments: item.completedSegments || [],
+      currentHistoryId: item.id
+    });
+    pushActiveSessionToCloud({
+      inputText: item.sourceText,
+      deeplText: item.result?.deeplTranslation || "",
+      preEditedText: item.result?.naturalTranslation || "",
+      result: sanitizeResult(item.result),
+      status: AppStatus.SUCCESS,
       completedSegments: item.completedSegments || [],
       currentHistoryId: item.id
     });
@@ -964,6 +1126,7 @@ useEffect(() => {
     await saveChapterToCloud(newChapter);
     setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.name.trim().toLowerCase() !== name.trim().toLowerCase())]);
     updateSession({ currentChapterId: chapterId });
+    pushActiveSessionToCloud({ currentChapterId: chapterId });
   };
 
   const handleRestoreChapter = (chapter: Chapter) => {
@@ -978,6 +1141,16 @@ useEffect(() => {
       currentHistoryId: undefined,
       currentChapterId: chapter.id,
       currentNovelId: chapter.novelId || session.currentNovelId
+    });
+    pushActiveSessionToCloud({
+      novelId: chapter.novelId || session.currentNovelId,
+      inputText: chapter.inputText,
+      deeplText: chapter.deeplText || "",
+      preEditedText: chapter.preEditedText || "",
+      result: sanitizeResult(chapter.result),
+      status: AppStatus.SUCCESS,
+      completedSegments: chapter.completedSegments || [],
+      currentChapterId: chapter.id
     });
     setShowChapters(false);
   };
@@ -1112,9 +1285,23 @@ useEffect(() => {
                <History size={12} />
                <span className="hidden sm:inline">Lịch sử</span>
             </button>
+            {auth.currentUser && (
+              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-[#3E2723]/80 rounded-full border border-[#5D4037] text-[10px] text-[#A5D6A7]" title="Đồng bộ thời gian thực hai chiều giữa Laptop và Điện thoại">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#66BB6A] animate-pulse"></span>
+                <span className="font-semibold text-[#C8E6C9]">Realtime Sync</span>
+              </div>
+            )}
             <AuthPanel />
         </div>
       </header>
+
+      {/* FLOATING REALTIME NOTIFICATION TOAST */}
+      {realtimeNotify && (
+        <div className="fixed top-16 right-4 z-50 bg-[#2E7D32] text-white px-3.5 py-2 rounded-lg shadow-xl border border-[#43A047] text-xs font-bold flex items-center gap-2 transition-all">
+          <RefreshCw size={14} className="animate-spin text-[#C8E6C9]" />
+          <span>{realtimeNotify}</span>
+        </div>
+      )}
 
       {/* MAIN WORKSPACE */}
       <div className="flex-1 flex overflow-hidden">

@@ -328,7 +328,7 @@ function AppContent() {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       pushActiveSessionToCloud(customUpdates);
-    }, 400);
+    }, 1500);
   };
 
   // LẮNG NGHE ĐỒNG BỘ PHIÊN LÀM VIỆC THỜI GIAN THỰC (LAPTOP <-> ĐIỆN THOẠI)

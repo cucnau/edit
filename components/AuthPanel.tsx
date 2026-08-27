@@ -213,10 +213,10 @@ export const AuthPanel: React.FC = () => {
   return (
     <>
       {user ? (
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button 
             onClick={handleOpenModal}
-            className="flex items-center justify-center sm:justify-start sm:gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 w-8 sm:w-auto sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors"
+            className="flex items-center justify-center sm:justify-start sm:gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 w-8 sm:w-auto sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors shrink-0"
             title="Quản lý tài khoản"
           >
             <UserIcon size={12} />
@@ -225,7 +225,7 @@ export const AuthPanel: React.FC = () => {
           
           <button 
             onClick={handleSignOut} 
-            className="flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20" 
+            className="flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20 shrink-0" 
             title="Đăng xuất"
           >
             <LogOut size={12} />
@@ -234,7 +234,7 @@ export const AuthPanel: React.FC = () => {
       ) : (
         <button 
           onClick={handleOpenModal} 
-          className="flex items-center justify-center sm:gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white bg-[#5D4037] hover:bg-[#4E342E] h-8 w-8 sm:w-auto sm:px-3 rounded-full border border-[#FFECB3]/30 transition-colors"
+          className="flex items-center justify-center sm:gap-1.5 text-[10px] font-medium text-[#FFECB3] hover:text-white bg-[#5D4037] hover:bg-[#4E342E] h-8 w-8 sm:w-auto sm:px-3 rounded-full border border-[#FFECB3]/30 transition-colors shrink-0"
           title="Đăng nhập"
         >
           <LogIn size={12} />

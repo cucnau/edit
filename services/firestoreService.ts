@@ -183,6 +183,7 @@ export const overwriteFirestoreData = async <T extends { id: string, novelId?: s
   dbCache.delete(`${collectionName}_${novelId}`);
 };
 
+// Tối ưu hóa Firestore: Gom toàn bộ từ vựng / nhân vật / mối quan hệ / phím tắt vào một document duy nhất theo novelId
 export const syncFirestoreData = async <T extends { id: string, novelId?: string }>(
   type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut',
   novelId: string,
@@ -197,119 +198,53 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
     throw new Error('Chưa chọn truyện!');
   }
 
+  // Đối với vocab, char, rel, shortcut: Gom thành 1 document duy nhất `store_${type}_${novelId}`
+  // Giúp giảm từ hàng nghìn lần read/write xuống đúng 1 lần đọc và 1 lần ghi!
+  const isChunkedType = type !== 'chapter';
   const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
-  const collRef = collection(db, collectionName);
 
-  if (action === 'GET') {
-    const q = query(collRef, where('userId', '==', user.uid));
-    const querySnapshot = await getDocs(q);
-    const result: any[] = [];
-    const localMap = new Map<string, any>();
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      // Match if belongs to this novelId OR is a global/legacy item without novelId
-      if (!data.novelId || data.novelId === novelId) {
-        localMap.set(doc.id, data);
-        const { userId, createdAt, ...rest } = data;
-        result.push({ id: doc.id, ...rest, novelId: data.novelId || novelId });
-      }
-    });
+  if (isChunkedType) {
+    const docId = `bundle_${user.uid}_${novelId}`;
+    const chunkDocRef = doc(db, `${collectionName}_bundles`, docId);
 
-    dbCache.set(`${collectionName}_${novelId}`, localMap);
-    return result as T[];
-  } else if (action === 'POST' && payload) {
-    const cacheKey = `${collectionName}_${novelId}`;
-    let dbDocsMap = dbCache.get(cacheKey);
-    if (!dbDocsMap) {
-      const q = query(collRef, where('userId', '==', user.uid), where('novelId', '==', novelId));
-      const querySnapshot = await getDocs(q);
-      dbDocsMap = new Map<string, any>();
-      querySnapshot.forEach(doc => {
-        dbDocsMap!.set(doc.id, doc.data());
-      });
-      dbCache.set(cacheKey, dbDocsMap);
-    }
-    
-    const payloadIds = new Set(payload.map(item => item.id));
-
-    // Group all operations to chunk them into batches of max 500
-    const operations: { type: 'set' | 'delete', ref: any, data?: any }[] = [];
-
-    // Generic field comparison to check if write can be skipped
-    const areFieldsEqual = (localItem: any, dbItem: any) => {
-      const allKeys = new Set([
-        ...Object.keys(localItem),
-        ...Object.keys(dbItem)
-      ]);
-      for (const key of allKeys) {
-        if (key === 'createdAt' || key === 'userId') continue;
-        const localVal = localItem[key];
-        const dbVal = dbItem[key];
-        if (localVal !== dbVal) {
-          // If both values are falsy, treat them as equal (e.g. empty string vs undefined)
-          if (!localVal && !dbVal) continue;
-          return false;
+    if (action === 'GET') {
+      try {
+        const docSnap = await getDocs(query(collection(db, `${collectionName}_bundles`), where('userId', '==', user.uid), where('novelId', '==', novelId)));
+        if (!docSnap.empty) {
+          const data = docSnap.docs[0].data();
+          return (data.items || []) as T[];
         }
-      }
-      return true;
-    };
 
-    // Filter payload to strictly only items of this novelId
-    const targetPayload = payload.filter(item => !item.novelId || item.novelId === novelId);
-
-    // Add/Update items only if they are new or modified
-    targetPayload.forEach(item => {
-      const dbItem = dbDocsMap!.get(item.id);
-      
-      if (!dbItem || !areFieldsEqual(item, dbItem)) {
-        const rawData = {
-            ...item,
-            novelId,
-            userId: user.uid,
-            createdAt: dbItem?.createdAt || Timestamp.now()
-        };
-        const dataToSave = sanitizeData(rawData);
-        
-        // Final defensive check: strictly delete any undefined properties from the sanitized object
-        Object.keys(dataToSave).forEach(k => {
-          if (dataToSave[k] === undefined) {
-            delete dataToSave[k];
+        // Fallback kiểm tra dữ liệu cũ nếu chưa gom bundle
+        const collRef = collection(db, collectionName);
+        const q = query(collRef, where('userId', '==', user.uid));
+        const legacySnap = await getDocs(q);
+        const legacyItems: any[] = [];
+        legacySnap.forEach(d => {
+          const itemData = d.data();
+          if (!itemData.novelId || itemData.novelId === novelId) {
+            const { userId, createdAt, ...rest } = itemData;
+            legacyItems.push({ id: d.id, ...rest, novelId: itemData.novelId || novelId });
           }
         });
-
-        operations.push({
-          type: 'set',
-          ref: doc(collRef, item.id),
-          data: dataToSave
-        });
-        dbDocsMap!.set(item.id, dataToSave);
+        return legacyItems as T[];
+      } catch (err) {
+        console.warn(`Lỗi lấy dữ liệu ${collectionName}:`, err);
+        return [];
       }
-    });
-
-    if (operations.length === 0) {
-      console.log(`Sync skipped for ${collectionName}: No changes detected.`);
+    } else if (action === 'POST' && payload) {
+      const targetPayload = payload.filter(item => !item.novelId || item.novelId === novelId);
+      const dataToSave = sanitizeData({
+        userId: user.uid,
+        novelId,
+        items: targetPayload,
+        updatedAt: Date.now()
+      });
+      await setDoc(chunkDocRef, dataToSave, { merge: true });
       return payload;
     }
-
-    console.log(`Syncing ${collectionName}: Performing ${operations.length} writes (${operations.filter(op => op.type === 'set').length} updates/creates, ${operations.filter(op => op.type === 'delete').length} deletions)`);
-
-    // Commit operations in safe chunks of 80 to adhere strictly to Firestore 10MB payload and 500 write limits
-    const CHUNK_SIZE = 80;
-    for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
-      const chunk = operations.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
-      chunk.forEach(op => {
-        if (op.type === 'delete') {
-          batch.delete(op.ref);
-        } else {
-          batch.set(op.ref, op.data, { merge: true });
-        }
-      });
-      await batch.commit();
-    }
-
-    return payload;
   }
+
   return [];
 };
 

@@ -36,6 +36,14 @@ export interface CustomTerm {
   category?: string;
 }
 
+export interface VietphraseFile {
+  id: string;
+  name: string;
+  content: string;
+  enabled: boolean;
+  addedAt: number;
+}
+
 export interface Character {
   id: string;
   novelId: string;

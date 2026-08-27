@@ -233,7 +233,7 @@ const EditableSegment = ({
                     setIsFocused(true);
                     setTimeout(() => textareaRef.current?.focus(), 20);
                 }}
-                className={`w-full bg-transparent border-none p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[19px]' : 'text-[15px]'} m-0 block whitespace-pre-wrap break-words min-h-[1.2em] cursor-text`}
+                className={`w-full bg-transparent border-none p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[15px] lg:text-[19px]' : 'text-[15px]'} m-0 block whitespace-pre-wrap break-words min-h-[1.2em] cursor-text`}
                 style={{ fontWeight: 400, display: 'block', margin: 0 }}
             >
                 {renderSearchTextHighlight(localText)}
@@ -249,7 +249,7 @@ const EditableSegment = ({
             onKeyDown={handleKeyDown}
             onBlur={handleBlur}
             onFocus={handleFocus}
-            className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[19px]' : 'text-[15px]'} focus:ring-0 m-0 block whitespace-normal min-h-0`}
+            className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[15px] lg:text-[19px]' : 'text-[15px]'} focus:ring-0 m-0 block whitespace-normal min-h-0`}
             style={{ fontWeight: 400, display: 'block', margin: 0 }}
             rows={1}
             spellCheck={false}
@@ -1199,14 +1199,14 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         >
                            <div className={`py-1.5 lg:py-0.5 px-2 align-top lg:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} block lg:table-cell lg:w-[45%] lg:max-w-0`}>
                               <div className="flex flex-col py-0.5">
-                                <div className={`${isFocusMode ? 'text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[11px] min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
+                                <div className={`${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
+                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[9px] min-w-[16px] lg:text-[11px] lg:min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
                                        {idx + 1}.
                                    </span>
                                    {renderSourceWithHighlight(cleanSource)}
                                 </div>
                                 {cleanQuick && (
-                                  <div className={`${isFocusMode ? 'text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[18px] -mt-0.5 break-words`}>
+                                  <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[18px] -mt-0.5 break-words`}>
                                     {cleanQuick}
                                   </div>
                                 )}
@@ -1234,7 +1234,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                         novelId={currentNovelId}
                                       />
                                       {cleanDeepl && (
-                                        <div className={`${isFocusMode ? 'text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
+                                        <div className={`${isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
                                       )}
                                    </div>
                                    

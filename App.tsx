@@ -382,7 +382,7 @@ function AppContent() {
             };
           });
 
-          setRealtimeNotify("⚡ Đã đồng bộ từ thiết bị khác");
+          setRealtimeNotify("Đã đồng bộ từ thiết bị khác");
           setTimeout(() => setRealtimeNotify(null), 2500);
         }
       });
@@ -1209,27 +1209,27 @@ useEffect(() => {
     <div className="h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans overflow-hidden">
       
       {/* HEADER */}
-      <header className="bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-3 sm:px-4 shrink-0 z-20 shadow-md">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <div className="text-[#FFECB3]">
-              <PenLine size={22} className="sm:w-6 sm:h-6" />
+      <header className="bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-2 sm:px-4 shrink-0 z-20 shadow-md overflow-x-auto no-scrollbar touch-pan-x w-full max-w-full select-none">
+        <div className="flex items-center gap-1.5 sm:gap-4 shrink-0 pr-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="text-[#FFECB3] shrink-0">
+              <PenLine size={20} className="sm:w-6 sm:h-6" />
             </div>
             <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-xl sm:text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1 hidden sm:block">Edit</h1>
           </div>
 
           {/* Segmented Mode Control */}
-          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037]">
+          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037] shrink-0">
             <button
               onClick={() => setMode('edit')}
-              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center shrink-0 ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
               <span className="sm:hidden">E</span>
               <span className="hidden sm:inline">Edit</span>
             </button>
             <button
               onClick={() => setMode('beta')}
-              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center shrink-0 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
               <span className="sm:hidden">B</span>
               <span className="hidden sm:inline">Beta</span>
@@ -1238,7 +1238,7 @@ useEffect(() => {
         </div>
         
         {/* RIGHT CONTROLS */}
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <NovelSelector 
               currentNovelId={session.currentNovelId || ''} 
               onSelectNovel={(id) => {
@@ -1250,7 +1250,7 @@ useEffect(() => {
             {/* 1. Icon Từ điển di động - Chỉ hiện trên mobile/tablet (< lg) */}
             <button 
               onClick={() => setShowMobileDict(true)}
-              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20"
+              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20 shrink-0"
               title="Từ điển riêng"
             >
               <div className="w-5 h-5 border border-[#FFECB3]/40 rounded flex items-center justify-center font-bold text-[10px] text-[#FFECB3]">
@@ -1261,7 +1261,7 @@ useEffect(() => {
             {/* 2. Icon Nhân vật di động - Chỉ hiện trên mobile/tablet (< lg) */}
             <button 
               onClick={() => setShowMobileWorld(true)}
-              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20"
+              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20 shrink-0"
               title="Nhân vật & Thiết lập thế giới"
             >
               <Users size={14} className="text-[#FFECB3]" />
@@ -1269,7 +1269,7 @@ useEffect(() => {
 
             <button 
               onClick={() => setShowShortcuts(true)} 
-              className={`flex items-center justify-center gap-1 text-[10px] font-medium h-8 px-2 sm:px-2.5 rounded-full border transition-colors ${
+              className={`flex items-center justify-center gap-1 text-[10px] font-medium h-8 px-2 sm:px-2.5 rounded-full border transition-colors shrink-0 ${
                 shortcutsEnabled 
                   ? 'text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/40 border-[#FFECB3]/20' 
                   : 'text-[#A1887F] hover:text-white hover:bg-[#5D4037] border-[#5D4037]'
@@ -1284,17 +1284,17 @@ useEffect(() => {
                  </span>
                )}
             </button>
-            <button onClick={() => setShowChapters(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 px-2 sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors">
+            <button onClick={() => setShowChapters(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 px-2 sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors shrink-0">
                <FolderOpen size={12} />
                <span className="hidden sm:inline">Kho chương</span>
                <span className="font-mono text-[9px] font-bold">({currentNovelChapters.length})</span>
             </button>
-            <button onClick={() => setShowHistory(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] h-8 px-2 sm:px-2.5 rounded-full border border-[#5D4037] transition-colors">
+            <button onClick={() => setShowHistory(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] h-8 px-2 sm:px-2.5 rounded-full border border-[#5D4037] transition-colors shrink-0">
                <History size={12} />
                <span className="hidden sm:inline">Lịch sử</span>
             </button>
             {auth.currentUser && (
-              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-[#3E2723]/80 rounded-full border border-[#5D4037] text-[10px] text-[#A5D6A7]" title="Đồng bộ thời gian thực hai chiều giữa Laptop và Điện thoại">
+              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-[#3E2723]/80 rounded-full border border-[#5D4037] text-[10px] text-[#A5D6A7] shrink-0" title="Đồng bộ thời gian thực hai chiều giữa Laptop và Điện thoại">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#66BB6A] animate-pulse"></span>
                 <span className="font-semibold text-[#C8E6C9]">Realtime Sync</span>
               </div>

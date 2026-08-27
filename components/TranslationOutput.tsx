@@ -1186,7 +1186,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       if (!cleanSource && !cleanNatural) return null;
 
                       return (
-                        <div 
+                         <div 
                           id={`segment-row-${idx}`}
                           key={idx} 
                           className={`flex flex-col lg:table-row ${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
@@ -1199,28 +1199,30 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         >
                            <div className={`py-1.5 lg:py-0.5 px-2 align-top lg:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} block lg:table-cell lg:w-[45%] lg:max-w-0`}>
                               <div className="flex flex-col py-0.5">
-                                <div className={`${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <span className={`inline-flex items-center justify-center mr-1 select-none align-middle transform -translate-y-[1px] ${isFocusMode ? 'text-[9px] min-w-[16px] lg:text-[11px] lg:min-w-[20px]' : 'text-[9px] min-w-[16px]'} font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'}`}>
+                                <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
+                                   <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
                                        {idx + 1}.
                                    </span>
-                                   {renderSourceWithHighlight(cleanSource)}
+                                   <div className="flex-1 min-w-0">
+                                     {renderSourceWithHighlight(cleanSource)}
+                                   </div>
                                 </div>
                                 {cleanQuick && (
-                                  <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[18px] -mt-0.5 break-words`}>
+                                  <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[24px] mt-0.5 break-words`}>
                                     {cleanQuick}
                                   </div>
                                 )}
                               </div>
                            </div>
                            <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-6 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
-                              <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch gap-2 w-full">
-                                  {/* Icon check tròn hiển thị bên trái trên mobile */}
+                              <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch w-full">
+                                  {/* Icon check tròn hiển thị bên trái trên mobile, thẳng hàng với số thứ tự */}
                                   <button
                                       onClick={() => onToggleComplete?.(idx)}
-                                      className={`lg:hidden p-1 rounded-full transition-all shadow-sm border z-10 shrink-0 mt-1 ${isDone ? 'bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037]' : 'bg-white border-[#D7CCC8] text-[#A1887F]'}`}
+                                      className={`lg:hidden w-5 min-w-[20px] h-5 flex items-center justify-start rounded-full transition-all shrink-0 mt-0.5 mr-1 ${isDone ? 'text-[#5D4037]' : 'text-[#A1887F]/60 hover:text-[#5D4037]'}`}
                                       title={isDone ? "Đã hoàn thành" : "Chưa hoàn thành"}
                                    >
-                                      <CheckCircle2 size={12} />
+                                      <CheckCircle2 size={14} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
                                    </button>
                                    
                                    <div className="flex-1 min-w-0">

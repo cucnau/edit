@@ -852,12 +852,14 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     if (vocab.type === 'custom') {
       const raw = vocab.rawItem as CustomTerm;
       const termToMatch = raw ? raw.term : vocab.item.term;
-      const updatedTerms = currentCustomTerms.filter(t => (raw ? t.id !== raw.id : t.term !== termToMatch));
+      const idToMatch = raw ? raw.id : undefined;
+      const updatedTerms = currentCustomTerms.filter(t => (idToMatch ? t.id !== idToMatch : t.term !== termToMatch));
       onUpdateTerms?.(updatedTerms);
     } else if (vocab.type === 'char') {
       const raw = vocab.rawItem as Character;
       const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
-      const updatedChars = currentCharacters.filter(c => (raw ? c.id !== raw.id : c.chineseName !== chineseToMatch));
+      const idToMatch = raw ? raw.id : undefined;
+      const updatedChars = currentCharacters.filter(c => (idToMatch ? c.id !== idToMatch : c.chineseName !== chineseToMatch));
       onUpdateCharacters?.(updatedChars);
     }
     setIsEditingVocabPopup(false);

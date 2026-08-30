@@ -232,7 +232,11 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
   const handleDelete = (id: string) => {
     deleteFirestoreDoc('vocab', id);
-    onUpdateTerms(currentNovelTerms.filter(t => t.id !== id));
+    const updated = currentNovelTerms.filter(t => t.id !== id);
+    onUpdateTerms(updated);
+    if (isSignedIn && currentNovelId) {
+      syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', updated).catch(console.error);
+    }
   };
 
   const handlePullFromCloud = async (silent = false) => {

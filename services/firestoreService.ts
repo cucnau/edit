@@ -131,7 +131,14 @@ export const overwriteFirestoreData = async <T extends { id: string, novelId?: s
   const user = auth.currentUser;
   if (!user || !novelId) return;
 
-  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
+  const isChunkedType = type !== 'chapter';
+  if (isChunkedType) {
+    // Tận dụng lại logic phân mảnh bundle của syncFirestoreData
+    await syncFirestoreData(type, novelId, 'POST', newItems);
+    return;
+  }
+
+  const collectionName = 'chapters';
   const collRef = collection(db, collectionName);
 
   // 1. Fetch all existing documents belonging to this user and novelId
@@ -211,8 +218,14 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
       try {
         const docSnap = await getDocs(query(collection(db, `${collectionName}_bundles`), where('userId', '==', user.uid), where('novelId', '==', novelId)));
         if (!docSnap.empty) {
-          const data = docSnap.docs[0].data();
-          return (data.items || []) as T[];
+          let allItems: any[] = [];
+          docSnap.docs.forEach(d => {
+            const data = d.data();
+            if (data.items) {
+              allItems = allItems.concat(data.items);
+            }
+          });
+          return allItems as T[];
         }
 
         // Fallback kiểm tra dữ liệu cũ nếu chưa gom bundle
@@ -234,13 +247,36 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
       }
     } else if (action === 'POST' && payload) {
       const targetPayload = payload.filter(item => !item.novelId || item.novelId === novelId);
-      const dataToSave = sanitizeData({
-        userId: user.uid,
-        novelId,
-        items: targetPayload,
-        updatedAt: Date.now()
-      });
-      await setDoc(chunkDocRef, dataToSave, { merge: true });
+      
+      try {
+        const BUNDLE_SIZE = 1500; // Giới hạn số lượng item mỗi bundle để tránh lỗi 400 Payload Too Large
+        
+        // 1. Xóa tất cả các bundle cũ
+        const oldBundlesSnap = await getDocs(query(collection(db, `${collectionName}_bundles`), where('userId', '==', user.uid), where('novelId', '==', novelId)));
+        const batch = writeBatch(db);
+        
+        oldBundlesSnap.forEach(d => {
+          batch.delete(d.ref);
+        });
+        
+        // 2. Chia nhỏ targetPayload thành nhiều chunks
+        for (let i = 0; i < targetPayload.length; i += BUNDLE_SIZE) {
+          const chunk = targetPayload.slice(i, i + BUNDLE_SIZE);
+          const chunkId = `bundle_${user.uid}_${novelId}_${i / BUNDLE_SIZE}`;
+          const dataToSave = sanitizeData({
+            userId: user.uid,
+            novelId,
+            items: chunk,
+            updatedAt: Date.now(),
+            chunkIndex: i / BUNDLE_SIZE
+          });
+          batch.set(doc(db, `${collectionName}_bundles`, chunkId), dataToSave);
+        }
+        
+        await batch.commit();
+      } catch (err) {
+        console.error(`Lỗi khi lưu bundle ${collectionName}:`, err);
+      }
       return payload;
     }
   }

@@ -221,7 +221,11 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   const deleteChar = (id: string) => {
     deleteFirestoreDoc('char', id);
-    onUpdateCharacters(characters.filter(c => c.id !== id));
+    const updated = characters.filter(c => c.id !== id);
+    onUpdateCharacters(updated);
+    if (isSignedIn && currentNovelId) {
+      syncFirestoreData<Character>('char', currentNovelId, 'POST', updated).catch(console.error);
+    }
   };
 
   // --- RELATIONSHIP HANDLERS ---
@@ -244,7 +248,11 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   const deleteRel = (id: string) => {
     deleteFirestoreDoc('rel', id);
-    onUpdateRelationships(relationships.filter(r => r.id !== id));
+    const updated = relationships.filter(r => r.id !== id);
+    onUpdateRelationships(updated);
+    if (isSignedIn && currentNovelId) {
+      syncFirestoreData<Relationship>('rel', currentNovelId, 'POST', updated).catch(console.error);
+    }
   };
 
   // --- RENDER HELPERS ---

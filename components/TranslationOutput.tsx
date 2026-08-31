@@ -100,7 +100,9 @@ const EditableSegment = ({
     findText,
     matchCase,
     matchDiacritics,
-    novelId
+    novelId,
+    segmentIndex,
+    onEnterNext
 }: { 
     text: string; 
     onUpdate: (val: string) => void;
@@ -109,6 +111,8 @@ const EditableSegment = ({
     matchCase?: boolean;
     matchDiacritics?: boolean;
     novelId?: string;
+    segmentIndex?: number;
+    onEnterNext?: () => void;
 }) => {
     const [localText, setLocalText] = useState(text);
     const [isFocused, setIsFocused] = useState(false);
@@ -155,6 +159,26 @@ const EditableSegment = ({
     }, [localText, isFocusMode, isFocused]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // Phím tắt ngầm: Nhấn Enter (không kèm Shift) để lưu, đánh dấu hoàn thành và nhảy sang đoạn tiếp theo
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            let currentVal = e.currentTarget.value;
+            const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, '\n');
+            if (replaced) {
+                currentVal = newText;
+                setLocalText(newText);
+                adjustHeight();
+            }
+            if (debounceTimeout.current) {
+                clearTimeout(debounceTimeout.current);
+            }
+            onUpdate(currentVal);
+            if (onEnterNext) {
+                onEnterNext();
+            }
+            return;
+        }
+
         const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
         if (triggerKeys.includes(e.key)) {
             const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
@@ -244,6 +268,7 @@ const EditableSegment = ({
     return (
         <textarea
             ref={textareaRef}
+            data-segment-index={segmentIndex}
             value={localText}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
@@ -1236,6 +1261,20 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                         matchCase={matchCase}
                                         matchDiacritics={matchDiacritics}
                                         novelId={currentNovelId}
+                                        segmentIndex={idx}
+                                        onEnterNext={() => {
+                                          if (!isDone) {
+                                            onToggleComplete?.(idx);
+                                          }
+                                          setTimeout(() => {
+                                            const nextEl = document.querySelector(`textarea[data-segment-index="${idx + 1}"]`) as HTMLTextAreaElement | null;
+                                            if (nextEl) {
+                                              nextEl.focus();
+                                              nextEl.setSelectionRange(nextEl.value.length, nextEl.value.length);
+                                              nextEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                            }
+                                          }, 25);
+                                        }}
                                       />
                                       {cleanDeepl && (
                                         <div className={`${isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>

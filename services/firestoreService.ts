@@ -284,6 +284,45 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
   return [];
 };
 
+export const getAllUserCustomTermsFromCloud = async (): Promise<CustomTerm[]> => {
+  const user = auth.currentUser;
+  if (!user) return [];
+  try {
+    const termsMap = new Map<string, CustomTerm>();
+    
+    // 1. Quét tất cả bundles customTerms_bundles của user này trên Firestore
+    const bundlesSnap = await getDocs(query(collection(db, 'customTerms_bundles'), where('userId', '==', user.uid)));
+    bundlesSnap.forEach(d => {
+      const data = d.data();
+      if (data.items && Array.isArray(data.items)) {
+        data.items.forEach((item: any) => {
+          if (item && item.id && item.term) {
+            termsMap.set(item.id, item as CustomTerm);
+          }
+        });
+      }
+    });
+
+    // 2. Quét cả dữ liệu dạng document đơn lẻ (legacy) nếu có
+    const legacySnap = await getDocs(query(collection(db, 'customTerms'), where('userId', '==', user.uid)));
+    legacySnap.forEach(d => {
+      const itemData = d.data();
+      if (itemData && itemData.term) {
+        const { userId, createdAt, ...rest } = itemData;
+        const term: CustomTerm = { id: d.id, ...rest } as CustomTerm;
+        if (!termsMap.has(term.id)) {
+          termsMap.set(term.id, term);
+        }
+      }
+    });
+
+    return Array.from(termsMap.values());
+  } catch (err) {
+    console.warn("Lỗi khôi phục toàn bộ từ vựng từ Cloud:", err);
+    return [];
+  }
+};
+
 export const getChaptersFromCloud = async (novelId: string, retryCount = 1): Promise<Chapter[]> => {
   const user = auth.currentUser;
   if (!user || !novelId) return [];

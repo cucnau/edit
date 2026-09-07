@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Edit</title>
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="manifest.json">
     
     <!-- Android / Chrome -->
     <meta name="theme-color" content="#4E342E">
@@ -69,7 +69,8 @@
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
     <script>
-      if ('serviceWorker' in navigator) {
+      // Chỉ đăng ký ServiceWorker khi mở trực tiếp ở tab riêng/standalone (tránh SecurityError khi chạy trong iframe)
+      if ('serviceWorker' in navigator && window.self === window.top) {
         window.addEventListener('load', () => {
           const swPath = window.location.pathname.startsWith('/edit/') ? '/edit/sw.js' : '/sw.js';
           navigator.serviceWorker.register(swPath).catch(err => {

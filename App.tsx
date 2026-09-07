@@ -4,7 +4,7 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime, getAllUserCustomTermsFromCloud } from './services/firestoreService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -442,26 +442,67 @@ function AppContent() {
   }, [chapters, session.currentNovelId]);
 
   // --- EFFECTS ---
-  // Init Vietphrase Engine from DB & Load Custom Terms
-useEffect(() => {
-  (async () => {
-    await vietphraseEngine.init();
-    console.log("Vietphrase Engine Initialized");
-    setVpLoaded(true);
-  })();
-     
-     db.getAllCustomTerms().then(terms => {
-         if (terms && terms.length > 0) {
-             setSession(prev => ({ ...prev, customTerms: terms }));
-         }
-     });
+  // Khởi tạo Vietphrase Engine & Tự động phục hồi toàn diện Từ vựng từ IndexedDB và Cloud Firestore
+  useEffect(() => {
+    (async () => {
+      await vietphraseEngine.init();
+      console.log("Vietphrase Engine Initialized");
+      setVpLoaded(true);
+    })();
+       
+    // 1. Tải toàn bộ từ vựng đã lưu trong IndexedDB cục bộ
+    db.getAllCustomTerms().then(terms => {
+      if (terms && terms.length > 0) {
+        setSession(prev => {
+          const map = new Map<string, CustomTerm>();
+          (prev.customTerms || []).forEach(t => map.set(t.id, t));
+          terms.forEach(t => map.set(t.id, t));
+          return { ...prev, customTerms: Array.from(map.values()) };
+        });
+      }
+    });
 
-     db.getAllChapters().then(savedChapters => {
-         if (savedChapters) {
-             setChapters(savedChapters);
-         }
-     });
-}, []);
+    db.getAllChapters().then(savedChapters => {
+      if (savedChapters) {
+        setChapters(savedChapters);
+      }
+    });
+
+    // 2. Tự động quét và phục hồi toàn bộ từ vựng người dùng đã lưu trên Cloud
+    const restoreCloudTerms = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const cloudTerms = await getAllUserCustomTermsFromCloud();
+        if (cloudTerms && cloudTerms.length > 0) {
+          setSession(prev => {
+            const map = new Map<string, CustomTerm>();
+            (prev.customTerms || []).forEach(t => map.set(t.id, t));
+            cloudTerms.forEach(t => {
+              if (!map.has(t.id)) {
+                map.set(t.id, t);
+              }
+            });
+            const merged = Array.from(map.values());
+            // Lưu lại vào IndexedDB để lần sau mở ra không bao giờ bị mất
+            db.bulkSaveCustomTerms(merged).catch(console.error);
+            return { ...prev, customTerms: merged };
+          });
+        }
+      } catch (e) {
+        console.warn("Lỗi tự động phục hồi từ vựng từ Cloud:", e);
+      }
+    };
+
+    restoreCloudTerms();
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) restoreCloudTerms();
+    });
+
+    return () => {
+      unsubscribeAuth();
+    };
+  }, []);
 
   // Tự động tải và đồng bộ Kho chương từ Cloud Firestore
   useEffect(() => {
@@ -614,23 +655,56 @@ useEffect(() => {
     }
   };
 
-  const autoSaveLinkedChapter = (newResult: any, newCompleted?: number[]) => {
-    if (!session.currentChapterId) return;
-    
-    setChapters(prev => prev.map(c => {
-      if (c.id === session.currentChapterId) {
-        const updated = {
-          ...c,
-          result: newResult || c.result,
-          completedSegments: newCompleted !== undefined ? newCompleted : (c.completedSegments || []),
-          timestamp: Date.now()
-        };
-        db.saveChapter(updated).catch(err => console.error("Auto-save chapter failed", err));
-        saveChapterToCloud(updated).catch(err => console.error("Auto-save cloud chapter failed", err));
-        return updated;
+  // Quản lý cập nhật từ vựng an toàn tuyệt đối - không bao giờ làm mất từ vựng đã lưu
+  const handleUpdateTerms = (novelTerms: CustomTerm[]) => {
+    try {
+      const currentId = session.currentNovelId || '';
+      // Giữ lại tất cả các từ của truyện khác và các từ dùng chung không có novelId
+      const otherTerms = (session.customTerms || []).filter(t => t.novelId ? t.novelId !== currentId : false);
+      const globalTerms = (session.customTerms || []).filter(t => !t.novelId);
+
+      const termsMap = new Map<string, CustomTerm>();
+      globalTerms.forEach(t => termsMap.set(t.id, t));
+      otherTerms.forEach(t => termsMap.set(t.id, t));
+      novelTerms.forEach(t => termsMap.set(t.id, { ...t, novelId: t.novelId || currentId }));
+
+      const merged = Array.from(termsMap.values());
+      updateSession({ customTerms: merged });
+      db.bulkSaveCustomTerms(merged).catch(err => {
+        console.error("App: db.bulkSaveCustomTerms failed", err);
+      });
+      if (currentId && auth.currentUser) {
+        syncFirestoreData('vocab', currentId, 'POST', novelTerms).catch(err => {
+          console.error("App: syncFirestoreData vocab failed", err);
+        });
       }
-      return c;
-    }));
+    } catch (err) {
+      console.error("App: handleUpdateTerms caught error:", err);
+    }
+  };
+
+  // Quản lý cập nhật nhân vật an toàn
+  const handleUpdateCharacters = (novelChars: Character[]) => {
+    try {
+      const currentId = session.currentNovelId || '';
+      const otherChars = (session.characters || []).filter(c => c.novelId ? c.novelId !== currentId : false);
+      const globalChars = (session.characters || []).filter(c => !c.novelId);
+
+      const charsMap = new Map<string, Character>();
+      globalChars.forEach(c => charsMap.set(c.id, c));
+      otherChars.forEach(c => charsMap.set(c.id, c));
+      novelChars.forEach(c => charsMap.set(c.id, { ...c, novelId: c.novelId || currentId }));
+
+      const merged = Array.from(charsMap.values());
+      updateSession({ characters: merged });
+      if (currentId && auth.currentUser) {
+        syncFirestoreData('char', currentId, 'POST', novelChars).catch(err => {
+          console.error("App: syncFirestoreData char failed", err);
+        });
+      }
+    } catch (err) {
+      console.error("App: handleUpdateCharacters caught error:", err);
+    }
   };
 
   const handleUpdateSegment = (index: number, newNatural: string) => {
@@ -656,7 +730,6 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
-    autoSaveLinkedChapter(newResult);
     debouncedPushSession({ result: newResult });
 
     if (session.currentHistoryId) {
@@ -701,7 +774,6 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
-    autoSaveLinkedChapter(newResult);
     pushActiveSessionToCloud({ result: newResult });
 
     if (session.currentHistoryId) {
@@ -734,7 +806,6 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
-    autoSaveLinkedChapter(newResult);
     pushActiveSessionToCloud({ result: newResult });
 
     if (session.currentHistoryId) {
@@ -767,7 +838,6 @@ useEffect(() => {
     };
     
     updateSession({ result: newResult });
-    autoSaveLinkedChapter(newResult);
     pushActiveSessionToCloud({ result: newResult });
 
     if (session.currentHistoryId) {
@@ -787,7 +857,6 @@ useEffect(() => {
         : [...currentCompleted, index];
     
     updateSession({ completedSegments: newCompleted });
-    autoSaveLinkedChapter(session.result, newCompleted);
     // Đẩy đồng bộ thời gian thực tức thì sang Điện thoại / Laptop
     pushActiveSessionToCloud({ completedSegments: newCompleted });
 
@@ -1284,19 +1353,7 @@ useEffect(() => {
             <DictionarySidebar 
                 currentNovelId={session.currentNovelId || ''}
                 terms={session.customTerms} onExportExcel={handleExportExcel} 
-                onUpdateTerms={(novelTerms) => {
-                    try {
-                        const currentId = session.currentNovelId;
-                        const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
-                        const merged = [...novelTerms, ...otherTerms];
-                        updateSession({ customTerms: merged });
-                        db.bulkSaveCustomTerms(merged).catch(err => {
-                            console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
-                        });
-                    } catch (err) {
-                        console.error("App Sidebar: onUpdateTerms caught error:", err);
-                    }
-                }} 
+                onUpdateTerms={handleUpdateTerms} 
                 sheetUrl={session.sheetUrl} 
                 onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
                 refreshTrigger={vpLoaded}
@@ -1445,39 +1502,8 @@ useEffect(() => {
                                 canRedo={redoStack.length > 0}
                                 isFocusMode={isFocusMode}
                                 onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-                                onUpdateTerms={(novelTerms) => {
-                                    try {
-                                        const currentId = session.currentNovelId;
-                                        const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
-                                        const merged = [...novelTerms, ...otherTerms];
-                                        updateSession({ customTerms: merged });
-                                        db.bulkSaveCustomTerms(merged).catch(err => {
-                                            console.error("App Output: db.bulkSaveCustomTerms failed", err);
-                                        });
-                                        if (currentId && auth.currentUser) {
-                                            syncFirestoreData('vocab', currentId, 'POST', novelTerms).catch(err => {
-                                                console.error("App Output: syncFirestoreData vocab failed", err);
-                                            });
-                                        }
-                                    } catch (err) {
-                                        console.error("App Output: onUpdateTerms caught error:", err);
-                                    }
-                                }}
-                                onUpdateCharacters={(novelChars) => {
-                                    try {
-                                        const currentId = session.currentNovelId;
-                                        const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
-                                        const merged = [...novelChars, ...otherChars];
-                                        updateSession({ characters: merged });
-                                        if (currentId && auth.currentUser) {
-                                            syncFirestoreData('char', currentId, 'POST', novelChars).catch(err => {
-                                                console.error("App Output: syncFirestoreData char failed", err);
-                                            });
-                                        }
-                                    } catch (err) {
-                                        console.error("App Output: onUpdateCharacters caught error:", err);
-                                    }
-                                }}
+                                onUpdateTerms={handleUpdateTerms}
+                                onUpdateCharacters={handleUpdateCharacters}
                                 currentNovelId={session.currentNovelId || ''}
                             />
                         </div>
@@ -1525,19 +1551,7 @@ useEffect(() => {
               <DictionarySidebar 
                   currentNovelId={session.currentNovelId || ''}
                   terms={session.customTerms} onExportExcel={handleExportExcel} 
-                  onUpdateTerms={(novelTerms) => {
-                      try {
-                          const currentId = session.currentNovelId;
-                          const otherTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
-                          const merged = [...novelTerms, ...otherTerms];
-                          updateSession({ customTerms: merged });
-                          db.bulkSaveCustomTerms(merged).catch(err => {
-                              console.error("App Sidebar: db.bulkSaveCustomTerms failed", err);
-                          });
-                      } catch (err) {
-                          console.error("App Sidebar: onUpdateTerms caught error:", err);
-                      }
-                  }} 
+                  onUpdateTerms={handleUpdateTerms}
                   sheetUrl={session.sheetUrl} 
                   onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
                   refreshTrigger={vpLoaded}

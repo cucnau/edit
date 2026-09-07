@@ -255,51 +255,53 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       const data = await syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'GET');
       const currentLocal = termsRef.current.filter(t => !t.novelId || t.novelId === currentNovelId);
       
-      // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
-      if (silent && data.length === 0 && currentLocal.length > 0) {
-          console.log("Preserving local terms since cloud is empty");
-          if (autoSync) {
-              setTimeout(() => {
-                  handlePushToCloud(true);
-              }, 1000);
+      // BẢO VỆ TUYỆT ĐỐI: Nếu đám mây không có từ vựng nào, KHÔNG BAO GIỜ ghi đè rỗng lên dữ liệu cục bộ!
+      if (!data || data.length === 0) {
+          if (currentLocal.length > 0) {
+              console.log("Preserving local terms since cloud is empty");
+              if (autoSync) {
+                  setTimeout(() => {
+                      handlePushToCloud(true);
+                  }, 1000);
+              }
           }
+          if (!silent) setSyncMessage({ type: 'success', text: `Đám mây hiện chưa có từ vựng riêng cho truyện này.` });
           return;
       }
 
-      // NO DATA LOSS MERGING: Merge local and cloud smartly to preserve local edits
-      let mergedData = data;
-      if (currentLocal.length > 0) {
-          const localTermsMap = new Map<string, CustomTerm>();
-          currentLocal.forEach(t => {
-              localTermsMap.set(t.id, t);
-          });
+      // HỢP NHẤT AN TOÀN TUYỆT ĐỐI: Không bao giờ làm mất từ vựng đã lưu
+      const localTermsMapById = new Map<string, CustomTerm>();
+      const localTermsMapByTerm = new Map<string, CustomTerm>();
+      currentLocal.forEach(t => {
+          localTermsMapById.set(t.id, t);
+          if (t.term) localTermsMapByTerm.set(t.term.trim(), t);
+      });
 
-          mergedData = data.map(cloudTerm => {
-              const localTerm = localTermsMap.get(cloudTerm.id);
-              if (localTerm) {
-                  const hasLocalCat = localTerm.category && localTerm.category !== "Chưa phân loại" && localTerm.category.trim() !== "";
-                  const hasCloudCat = cloudTerm.category && cloudTerm.category !== "Chưa phân loại" && cloudTerm.category.trim() !== "";
-                  
-                  return {
-                      ...cloudTerm,
-                      novelId: currentNovelId,
-                      category: (!hasCloudCat && hasLocalCat) ? localTerm.category : cloudTerm.category,
-                      meaning: (localTerm.meaning && !cloudTerm.meaning) ? localTerm.meaning : cloudTerm.meaning
-                  };
-              }
-              return { ...cloudTerm, novelId: currentNovelId };
-          });
+      const mergedData = data.map(cloudTerm => {
+          const localTerm = localTermsMapById.get(cloudTerm.id) || (cloudTerm.term ? localTermsMapByTerm.get(cloudTerm.term.trim()) : undefined);
+          if (localTerm) {
+              const hasLocalCat = localTerm.category && localTerm.category !== "Chưa phân loại" && localTerm.category.trim() !== "";
+              const hasCloudCat = cloudTerm.category && cloudTerm.category !== "Chưa phân loại" && cloudTerm.category.trim() !== "";
+              
+              return {
+                  ...cloudTerm,
+                  id: localTerm.id || cloudTerm.id,
+                  novelId: currentNovelId,
+                  category: (!hasCloudCat && hasLocalCat) ? localTerm.category : cloudTerm.category,
+                  meaning: localTerm.meaning || cloudTerm.meaning
+              };
+          }
+          return { ...cloudTerm, novelId: currentNovelId };
+      });
 
-          // Also add any local terms that are not on the cloud yet
-          const cloudIds = new Set(data.map(t => t.id));
-          const localNewTerms = currentLocal.filter(t => !cloudIds.has(t.id)).map(t => ({ ...t, novelId: currentNovelId }));
-          mergedData = [...mergedData, ...localNewTerms];
-      } else {
-          mergedData = data.map(t => ({ ...t, novelId: currentNovelId }));
-      }
+      // Bổ sung các từ cục bộ mà trên đám mây chưa có
+      const cloudTermTexts = new Set(data.map(t => (t.term || '').trim()));
+      const cloudIds = new Set(data.map(t => t.id));
+      const localNewTerms = currentLocal.filter(t => !cloudIds.has(t.id) && !cloudTermTexts.has((t.term || '').trim())).map(t => ({ ...t, novelId: currentNovelId }));
+      const finalMerged = [...mergedData, ...localNewTerms];
 
-      onUpdateTerms(mergedData);
-      if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${mergedData.length} từ!` });
+      onUpdateTerms(finalMerged);
+      if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${finalMerged.length} từ!` });
     } catch (e: any) {
       console.warn("Pull from cloud failed:", e);
       if (!silent) setSyncMessage({ type: 'error', text: e.message || "Lỗi tải dữ liệu" });

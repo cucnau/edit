@@ -69,7 +69,8 @@
   <body class="bg-[#F5E6D3] text-[#3E2723] min-h-screen" translate="no">
     <div id="root"></div>
     <script>
-      if ('serviceWorker' in navigator) {
+      // Chỉ đăng ký ServiceWorker khi mở trực tiếp ở tab riêng/standalone (tránh SecurityError khi chạy trong iframe)
+      if ('serviceWorker' in navigator && window.self === window.top) {
         window.addEventListener('load', () => {
           const swPath = window.location.pathname.startsWith('/edit/') ? '/edit/sw.js' : '/sw.js';
           navigator.serviceWorker.register(swPath).catch(err => {

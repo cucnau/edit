@@ -1267,13 +1267,19 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                             onToggleComplete?.(idx);
                                           }
                                           setTimeout(() => {
-                                            const nextEl = document.querySelector(`textarea[data-segment-index="${idx + 1}"]`) as HTMLTextAreaElement | null;
+                                            const allTextareas = Array.from(document.querySelectorAll('textarea[data-segment-index]')) as HTMLTextAreaElement[];
+                                            const currentPos = allTextareas.findIndex(el => el.getAttribute('data-segment-index') === String(idx));
+                                            const nextEl = currentPos >= 0 && currentPos < allTextareas.length - 1 ? allTextareas[currentPos + 1] : null;
+
                                             if (nextEl) {
-                                              nextEl.focus();
+                                              nextEl.focus({ preventScroll: true });
                                               nextEl.setSelectionRange(nextEl.value.length, nextEl.value.length);
-                                              nextEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                              const nextRow = (nextEl.closest('[id^="segment-row-"]') || nextEl) as HTMLElement;
+                                              if (nextRow) {
+                                                nextRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                              }
                                             }
-                                          }, 25);
+                                          }, 30);
                                         }}
                                       />
                                       {cleanDeepl && (

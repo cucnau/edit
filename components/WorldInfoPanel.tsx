@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Character, Relationship } from '../types';
-import { Users, Network, Plus, Trash2, Search, Settings, Save, Download, Upload, Loader2, RefreshCw } from 'lucide-react';
+import { Users, Network, Plus, Trash2, Search, Settings, Save, Download, Upload, Loader2, RefreshCw, Pencil, Check, X } from 'lucide-react';
 import { syncFirestoreData, deleteFirestoreDoc } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -33,6 +33,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [bulkText, setBulkText] = useState('');
+  const [editingCharId, setEditingCharId] = useState<string | null>(null);
   
   // Sync States
   const [isSyncing, setIsSyncing] = useState(false);
@@ -217,6 +218,16 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   const updateChar = (id: string, field: keyof Character, value: string) => {
     onUpdateCharacters(characters.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+
+  const handleSaveChar = (id?: string) => {
+    if (isSignedIn && currentNovelId) {
+      const toPush = characters.filter(c => !c.novelId || c.novelId === currentNovelId).map(c => ({ ...c, novelId: currentNovelId }));
+      syncFirestoreData<Character>('char', currentNovelId, 'POST', toPush).catch(console.error);
+      setSyncMessage({ type: 'success', text: 'Đã lưu nhân vật!' });
+      setTimeout(() => setSyncMessage(null), 2000);
+    }
+    setEditingCharId(null);
   };
 
   const deleteChar = (id: string) => {
@@ -451,46 +462,123 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-[#EFEBE9]">
-                  {filteredCharacters.map(char => (
-                    <tr key={char.id} className="hover:bg-[#FFF8E1] group">
-                      <td className="p-0 border-r border-[#EFEBE9] align-top">
-                        <input type="text" value={char.chineseName} onChange={(e) => updateChar(char.id, 'chineseName', e.target.value)} className="w-full text-[10px] font-serif-sc px-0.5 py-0.5 outline-none bg-transparent leading-tight h-full min-h-[20px]" placeholder="周随" />
-                      </td>
-                      <td className="p-0 border-r border-[#EFEBE9] align-top">
-                        <input type="text" value={char.vietName} onChange={(e) => updateChar(char.id, 'vietName', e.target.value)} className="w-full text-[10px] font-bold text-[#3E2723] px-0.5 py-0.5 outline-none bg-transparent leading-tight h-full min-h-[20px]" placeholder="Chu Tùy" />
-                      </td>
-                      <td className="p-0 border-r border-[#EFEBE9] align-top">
-                        <input type="text" value={char.pronouns} onChange={(e) => updateChar(char.id, 'pronouns', e.target.value)} className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent leading-tight h-full min-h-[20px]" placeholder="cậu" />
-                      </td>
-                      <td className="p-0 align-top relative">
-                        <textarea 
-                          value={char.description} 
-                          onChange={(e) => {
-                            updateChar(char.id, 'description', e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
-                          }}
-                          ref={(el) => {
-                            if (el) {
-                              el.style.height = 'auto';
-                              el.style.height = el.scrollHeight + 'px';
-                            }
-                          }}
-                          className="w-full text-[10px] px-0.5 py-0.5 outline-none bg-transparent resize-none overflow-hidden min-h-[20px] leading-tight" 
-                          placeholder="..." 
-                          rows={1} 
-                        />
-                        {/* Delete Button */}
-                        <button 
-                           onClick={() => deleteChar(char.id)} 
-                           className="absolute top-0 right-0 p-0.5 bg-white border border-[#D7CCC8] shadow-sm rounded text-[#BCAAA4] hover:text-[#D32F2F] opacity-0 group-hover:opacity-100 transition-all z-10"
-                           title="Xóa nhân vật"
-                        >
-                           <Trash2 size={10} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredCharacters.map(char => {
+                    const isEditing = editingCharId === char.id;
+                    return (
+                      <tr 
+                        key={char.id} 
+                        onDoubleClick={() => setEditingCharId(char.id)}
+                        className={`hover:bg-[#FFF8E1] group transition-colors ${isEditing ? 'bg-[#FFF9C4]/70 border-l-2 border-[#8D6E63]' : ''}`}
+                        title="Nhấp đúp hoặc bấm cây bút để sửa thông tin nhân vật"
+                      >
+                        <td className="p-0 border-r border-[#EFEBE9] align-top">
+                          <input 
+                            type="text" 
+                            value={char.chineseName} 
+                            onFocus={() => setEditingCharId(char.id)}
+                            onChange={(e) => updateChar(char.id, 'chineseName', e.target.value)} 
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveChar(char.id);
+                              if (e.key === 'Escape') setEditingCharId(null);
+                            }}
+                            onBlur={() => handleSaveChar(char.id)}
+                            className="w-full text-[10px] font-serif-sc px-1 py-0.5 outline-none bg-transparent focus:bg-white focus:ring-1 focus:ring-[#8D6E63] rounded-xs leading-tight h-full min-h-[22px] transition-all" 
+                            placeholder="周随" 
+                          />
+                        </td>
+                        <td className="p-0 border-r border-[#EFEBE9] align-top">
+                          <input 
+                            type="text" 
+                            value={char.vietName} 
+                            onFocus={() => setEditingCharId(char.id)}
+                            onChange={(e) => updateChar(char.id, 'vietName', e.target.value)} 
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveChar(char.id);
+                              if (e.key === 'Escape') setEditingCharId(null);
+                            }}
+                            onBlur={() => handleSaveChar(char.id)}
+                            className="w-full text-[10px] font-bold text-[#3E2723] px-1 py-0.5 outline-none bg-transparent focus:bg-white focus:ring-1 focus:ring-[#8D6E63] rounded-xs leading-tight h-full min-h-[22px] transition-all" 
+                            placeholder="Chu Tùy" 
+                          />
+                        </td>
+                        <td className="p-0 border-r border-[#EFEBE9] align-top">
+                          <input 
+                            type="text" 
+                            value={char.pronouns} 
+                            onFocus={() => setEditingCharId(char.id)}
+                            onChange={(e) => updateChar(char.id, 'pronouns', e.target.value)} 
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveChar(char.id);
+                              if (e.key === 'Escape') setEditingCharId(null);
+                            }}
+                            onBlur={() => handleSaveChar(char.id)}
+                            className="w-full text-[10px] px-1 py-0.5 outline-none bg-transparent focus:bg-white focus:ring-1 focus:ring-[#8D6E63] rounded-xs leading-tight h-full min-h-[22px] transition-all" 
+                            placeholder="cậu" 
+                          />
+                        </td>
+                        <td className="p-0 align-top relative pr-12">
+                          <textarea 
+                            value={char.description} 
+                            onFocus={() => setEditingCharId(char.id)}
+                            onChange={(e) => {
+                              updateChar(char.id, 'description', e.target.value);
+                              e.target.style.height = 'auto';
+                              e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setEditingCharId(null);
+                            }}
+                            onBlur={() => handleSaveChar(char.id)}
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = 'auto';
+                                el.style.height = el.scrollHeight + 'px';
+                              }
+                            }}
+                            className="w-full text-[10px] px-1 py-0.5 outline-none bg-transparent focus:bg-white focus:ring-1 focus:ring-[#8D6E63] rounded-xs resize-none overflow-hidden min-h-[22px] leading-tight transition-all" 
+                            placeholder="..." 
+                            rows={1} 
+                          />
+                          {/* Action Buttons */}
+                          <div className="absolute top-0.5 right-0.5 flex items-center gap-0.5 z-10">
+                            {isEditing ? (
+                              <>
+                                <button 
+                                  onClick={() => handleSaveChar(char.id)} 
+                                  className="p-1 bg-[#5D4037] text-white rounded text-[9px] font-bold flex items-center hover:bg-[#3E2723] shadow-xs cursor-pointer"
+                                  title="Lưu (Enter)"
+                                >
+                                  <Check size={9} />
+                                </button>
+                                <button 
+                                  onClick={() => setEditingCharId(null)} 
+                                  className="p-1 bg-white border border-[#D7CCC8] rounded text-[#5D4037] hover:bg-[#EFEBE9] shadow-xs cursor-pointer"
+                                  title="Đóng (Esc)"
+                                >
+                                  <X size={9} />
+                                </button>
+                              </>
+                            ) : (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setEditingCharId(char.id); }} 
+                                className="p-1 bg-white border border-[#D7CCC8] shadow-xs rounded text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#EFEBE9] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                                title="Sửa nhân vật"
+                              >
+                                <Pencil size={9} />
+                              </button>
+                            )}
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); deleteChar(char.id); }} 
+                              className="p-1 bg-white border border-[#D7CCC8] shadow-xs rounded text-[#BCAAA4] hover:text-[#D32F2F] hover:bg-[#FFEBEE] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                              title="Xóa nhân vật"
+                            >
+                              <Trash2 size={9} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredCharacters.length === 0 && (
                      <tr><td colSpan={4} className="py-4 text-center text-[10px] text-[#BCAAA4]">Chưa có nhân vật</td></tr>
                   )}

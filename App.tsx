@@ -17,7 +17,7 @@ import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
@@ -1005,6 +1005,75 @@ function AppContent() {
     pushActiveSessionToCloud({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
   };
 
+  // Hàm loại bỏ dòng trống và chuẩn hóa văn bản
+  const cleanEmptyLines = (text: string): string => {
+    if (!text) return '';
+    return text
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n');
+  };
+
+  // Xử lý tự động xóa dòng trống khi dán vào các ô Raw, DeepL, Edit
+  const handleCleanPaste = (
+    e: React.ClipboardEvent<HTMLTextAreaElement>,
+    field: 'inputText' | 'deeplText' | 'preEditedText'
+  ) => {
+    const pasteText = e.clipboardData.getData('text');
+    if (!pasteText) return;
+
+    // Lọc sạch các dòng trống khi dán
+    const cleanedText = cleanEmptyLines(pasteText);
+
+    e.preventDefault();
+    const target = e.currentTarget;
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+    const currentVal = target.value || '';
+    const nextVal = currentVal.substring(0, start) + cleanedText + currentVal.substring(end);
+
+    updateSession({ [field]: nextVal });
+
+    setTimeout(() => {
+      try {
+        target.selectionStart = target.selectionEnd = start + cleanedText.length;
+      } catch {
+        // ignore
+      }
+    }, 0);
+  };
+
+  // Nút thủ công: Xóa tất cả dòng trống ở cả 3 ô (Raw, DeepL, Edit)
+  const handleRemoveAllEmptyLines = () => {
+    const updates: Partial<TranslationSession> = {};
+    if (session.inputText) {
+      const cleaned = cleanEmptyLines(session.inputText);
+      if (cleaned !== session.inputText) updates.inputText = cleaned;
+    }
+    if (session.deeplText) {
+      const cleaned = cleanEmptyLines(session.deeplText);
+      if (cleaned !== session.deeplText) updates.deeplText = cleaned;
+    }
+    if (session.preEditedText) {
+      const cleaned = cleanEmptyLines(session.preEditedText);
+      if (cleaned !== session.preEditedText) updates.preEditedText = cleaned;
+    }
+    if (Object.keys(updates).length > 0) {
+      updateSession(updates);
+    }
+  };
+
+  // Xóa dòng trống cho từng ô riêng lẻ
+  const handleRemoveFieldEmptyLines = (field: 'inputText' | 'deeplText' | 'preEditedText') => {
+    const val = session[field];
+    if (!val) return;
+    const cleaned = cleanEmptyLines(val);
+    if (cleaned !== val) {
+      updateSession({ [field]: cleaned });
+    }
+  };
+
   const handleTranslate = async (forceFastAlign = false) => {
     if (!session.inputText.trim()) return;
     
@@ -1068,7 +1137,20 @@ function AppContent() {
     // --- BƯỚC 1: TÍNH TOÁN VIETPHRASE (LÀM TRƯỚC HOẶC SONG SONG VỚI GỌI API) ---
     // Mặc dù gọi là làm song song, nhưng do JS đơn luồng, ta sẽ tính toán Vietphrase
     // ngay lập tức (vì nó rất nhanh) để sẵn sàng merge khi AI trả về.
-    const inputLines = session.inputText.split('\n');
+    // Chuẩn hóa và làm sạch tất cả dòng trống trước khi dịch / phân tích
+    const cleanInput = cleanEmptyLines(session.inputText);
+    const cleanDeepl = cleanEmptyLines(session.deeplText || '');
+    const cleanPreEdit = cleanEmptyLines(session.preEditedText || '');
+
+    if (cleanInput !== session.inputText || cleanDeepl !== session.deeplText || cleanPreEdit !== (session.preEditedText || '')) {
+      updateSession({
+        inputText: cleanInput,
+        deeplText: cleanDeepl,
+        preEditedText: cleanPreEdit
+      });
+    }
+
+    const inputLines = cleanInput.split('\n').filter(Boolean);
     
     // Optimize: Convert customTerms & characters to Map once (customTerms take priority over characters)
     const customMap = new Map<string, string>();
@@ -1452,6 +1534,14 @@ function AppContent() {
                           </div>
                           <div className="flex gap-2">
                               <button 
+                                  onClick={handleRemoveAllEmptyLines} 
+                                  disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
+                                  title="Xóa tất cả các dòng trống trong ô Raw, DeepL và Bản edit"
+                              >
+                                  <AlignJustify size={10} /> Xóa dòng trống
+                              </button>
+                              <button 
                                   onClick={() => updateSession({ 
                                       inputText: EXAMPLE_TEXT, 
                                       deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
@@ -1473,21 +1563,47 @@ function AppContent() {
 
                       <div className={`grid ${mode === 'beta' ? 'grid-cols-3' : 'grid-cols-2'} flex-1 min-h-[140px] divide-x divide-[#EFEBE9]`}>
                           <div className="flex flex-col flex-1">
-                              <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">1. Văn bản gốc (Trung)</div>
+                              <div className="flex items-center justify-between px-3 pt-1.5 bg-[#FAFAFA]/40">
+                                  <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider">1. Văn bản gốc (Trung)</div>
+                                  {session.inputText && (
+                                      <button
+                                          type="button"
+                                          onClick={() => handleRemoveFieldEmptyLines('inputText')}
+                                          className="text-[9px] text-[#8D6E63] hover:text-[#3E2723] hover:underline cursor-pointer"
+                                          title="Xóa dòng trống trong ô này"
+                                      >
+                                          Lọc dòng trống
+                                      </button>
+                                  )}
+                              </div>
                               <textarea
                                   ref={textareaRef}
                                   value={session.inputText}
                                   onChange={(e) => updateSession({ inputText: e.target.value })}
+                                  onPaste={(e) => handleCleanPaste(e, 'inputText')}
                                   placeholder="Nhập văn bản nguồn (Trung)..."
                                   className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
                                   spellCheck="false"
                               />
                           </div>
                           <div className="flex flex-col flex-1">
-                              <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40">2. Bản dịch GG / DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
+                              <div className="flex items-center justify-between px-3 pt-1.5 bg-[#FAFAFA]/40">
+                                  <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider">2. Bản dịch GG / DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
+                                  {session.deeplText && (
+                                      <button
+                                          type="button"
+                                          onClick={() => handleRemoveFieldEmptyLines('deeplText')}
+                                          className="text-[9px] text-[#8D6E63] hover:text-[#3E2723] hover:underline cursor-pointer"
+                                          title="Xóa dòng trống trong ô này"
+                                      >
+                                          Lọc dòng trống
+                                      </button>
+                                  )}
+                              </div>
                               <textarea
                                   value={session.deeplText}
                                   onChange={(e) => updateSession({ deeplText: e.target.value })}
+                                  onPaste={(e) => handleCleanPaste(e, 'deeplText')}
                                   onKeyDown={(e) => {
                                       const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
                                       if (triggerKeys.includes(e.key)) {
@@ -1506,10 +1622,23 @@ function AppContent() {
                           </div>
                           {mode === 'beta' && (
                               <div className="flex flex-col flex-1">
-                                  <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider px-3 pt-1.5 bg-[#FAFAFA]/40 flex items-center gap-1">3. Bản edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
+                                  <div className="flex items-center justify-between px-3 pt-1.5 bg-[#FAFAFA]/40">
+                                      <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider flex items-center gap-1">3. Bản edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
+                                      {session.preEditedText && (
+                                          <button
+                                              type="button"
+                                              onClick={() => handleRemoveFieldEmptyLines('preEditedText')}
+                                              className="text-[9px] text-[#E64A19] hover:text-[#BF360C] hover:underline cursor-pointer"
+                                              title="Xóa dòng trống trong ô này"
+                                          >
+                                              Lọc dòng trống
+                                          </button>
+                                      )}
+                                  </div>
                                   <textarea
                                       value={session.preEditedText || ''}
                                       onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                                      onPaste={(e) => handleCleanPaste(e, 'preEditedText')}
                                       onKeyDown={(e) => {
                                           const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
                                           if (triggerKeys.includes(e.key)) {

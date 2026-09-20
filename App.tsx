@@ -1727,7 +1727,7 @@ function AppContent() {
             <WorldInfoPanel 
                 currentNovelId={session.currentNovelId || ''}
                 characters={session.characters} 
-                onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
+                onUpdateCharacters={handleUpdateCharacters} 
                 relationships={session.relationships} 
                 onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
                 notes={session.notes} 
@@ -1781,7 +1781,7 @@ function AppContent() {
               <WorldInfoPanel 
                   currentNovelId={session.currentNovelId || ''}
                   characters={session.characters} 
-                  onUpdateCharacters={(chars) => updateSession({ characters: chars })} 
+                  onUpdateCharacters={handleUpdateCharacters} 
                   relationships={session.relationships} 
                   onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
                   notes={session.notes} 

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Character, TextShortcut } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal } from 'lucide-react';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
 // Deleted smartClassify import
@@ -321,6 +321,29 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [editingDeeplIndex, setEditingDeeplIndex] = useState<number | null>(null);
   const [editingDeeplValue, setEditingDeeplValue] = useState('');
   const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
+  const [rowMenu, setRowMenu] = useState<{
+    index: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!rowMenu) return;
+    const handleClose = () => setRowMenu(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRowMenu(null);
+    };
+    window.addEventListener('click', handleClose);
+    window.addEventListener('contextmenu', handleClose);
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClose);
+      window.removeEventListener('contextmenu', handleClose);
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [rowMenu]);
 
   // Full row modal edit state
   const [modalEditRow, setModalEditRow] = useState<{
@@ -1281,6 +1304,17 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                          <div 
                           id={`segment-row-${idx}`}
                           key={idx} 
+                          onContextMenu={(e) => {
+                            if ((e.target as HTMLElement)?.tagName === 'TEXTAREA' || (e.target as HTMLElement)?.tagName === 'INPUT') {
+                              return;
+                            }
+                            e.preventDefault();
+                            setRowMenu({
+                              index: idx,
+                              x: e.clientX,
+                              y: e.clientY
+                            });
+                          }}
                           className={`flex flex-col lg:table-row ${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
                             findText && matchingSegmentIndices[currentMatchIndex] === idx 
                               ? 'bg-amber-100/70 border-2 border-amber-400 ring-2 ring-amber-400/50 lg:ring-0 lg:border-none' 
@@ -1331,21 +1365,17 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words group/raw`}>
+                                  <div 
+                                    onDoubleClick={() => startEditRaw(idx, seg.source || '')}
+                                    title="Nhấp đúp để sửa bản gốc (Raw)"
+                                    className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words cursor-text`}
+                                  >
                                      <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
                                          {idx + 1}.
                                      </span>
                                      <div className="flex-1 min-w-0">
                                        {renderSourceWithHighlight(cleanSource || '(trống)')}
                                      </div>
-                                     <button
-                                       type="button"
-                                       onClick={() => startEditRaw(idx, seg.source || '')}
-                                       className="opacity-0 group-hover/row:opacity-100 p-0.5 text-[#A1887F] hover:text-[#5D4037] rounded hover:bg-[#EFEBE9] transition-all ml-1 shrink-0"
-                                       title="Sửa bản gốc (Raw)"
-                                     >
-                                       <Pencil size={11} />
-                                     </button>
                                   </div>
                                 )}
 
@@ -1399,7 +1429,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center justify-between group/vp pl-[24px] mt-0.5">
+                                  <div 
+                                    onDoubleClick={() => startEditVp(idx, cleanQuick)}
+                                    title="Nhấp đúp để sửa Vietphrase"
+                                    className="flex items-center pl-[24px] mt-0.5 cursor-text"
+                                  >
                                     <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic break-words flex-1`}>
                                       {cleanQuick || (
                                         <span className="opacity-0 group-hover/row:opacity-60 text-[9px] not-italic text-[#A1887F]">
@@ -1407,20 +1441,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                         </span>
                                       )}
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => startEditVp(idx, cleanQuick)}
-                                      className="opacity-0 group-hover/row:opacity-100 p-0.5 text-[#A1887F] hover:text-[#5D4037] rounded hover:bg-[#EFEBE9] transition-all ml-1 shrink-0"
-                                      title="Sửa Vietphrase"
-                                    >
-                                      <Pencil size={10} />
-                                    </button>
                                   </div>
                                 )}
                               </div>
                            </div>
 
-                           <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-20 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
+                           <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-7 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
                               <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch w-full">
                                   {/* Mobile action buttons */}
                                   <div className="lg:hidden flex items-center gap-1 mr-1 shrink-0 mt-0.5">
@@ -1433,28 +1459,20 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                        </button>
                                        <button
                                           type="button"
-                                          onClick={() => setModalEditRow({
-                                            index: idx,
-                                            source: seg.source || '',
-                                            quick: cleanQuick,
-                                            deepl: seg.deepl || '',
-                                            natural: seg.natural || ''
-                                          })}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setRowMenu({
+                                              index: idx,
+                                              x: Math.max(10, rect.left),
+                                              y: rect.bottom + 4
+                                            });
+                                          }}
                                           className="p-1 text-[#8D6E63] hover:text-[#3E2723]"
-                                          title="Chỉnh sửa chi tiết hàng"
+                                          title="Tùy chọn hàng"
                                        >
-                                          <SlidersHorizontal size={13} />
+                                          <MoreVertical size={13} />
                                        </button>
-                                       {onDeleteSegment && (
-                                          <button
-                                             type="button"
-                                             onClick={() => setConfirmDeleteIndex(idx)}
-                                             className="p-1 text-red-500 hover:text-red-700"
-                                             title="Xóa hàng này"
-                                          >
-                                             <Trash2 size={13} />
-                                          </button>
-                                       )}
                                   </div>
                                   
                                   <div className="flex-1 min-w-0">
@@ -1525,7 +1543,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                          </div>
                                        </div>
                                      ) : (
-                                       <div className="flex items-center justify-between group/dl mt-0.5">
+                                       <div 
+                                         onDoubleClick={() => startEditDeepl(idx, cleanDeepl)}
+                                         title="Nhấp đúp để sửa bản dịch GG/DeepL"
+                                         className="flex items-center group/dl mt-0.5 cursor-text"
+                                       >
                                          <div className={`${isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 break-words flex-1`}>
                                            {cleanDeepl ? (
                                              <>
@@ -1538,53 +1560,36 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                              </span>
                                            )}
                                          </div>
-                                         <button
-                                           type="button"
-                                           onClick={() => startEditDeepl(idx, cleanDeepl)}
-                                           className="opacity-0 group-hover/row:opacity-100 p-0.5 text-[#A1887F] hover:text-[#5D4037] rounded hover:bg-[#EFEBE9] transition-all ml-1 shrink-0"
-                                           title="Sửa bản dịch GG/DeepL"
-                                         >
-                                           <Pencil size={10} />
-                                         </button>
                                        </div>
                                      )}
                                   </div>
                                   
                                   {/* Desktop action buttons */}
-                                  <div className="hidden lg:flex items-center gap-1 absolute top-0.5 right-1 z-10">
+                                  <div className="hidden lg:flex items-center gap-0.5 absolute top-0.5 right-1 z-10">
                                      <button
                                         type="button"
-                                        onClick={() => setModalEditRow({
-                                          index: idx,
-                                          source: seg.source || '',
-                                          quick: cleanQuick,
-                                          deepl: seg.deepl || '',
-                                          natural: seg.natural || ''
-                                        })}
-                                        className="p-1 rounded-full opacity-0 group-hover/row:opacity-100 bg-white/80 hover:bg-white text-[#8D6E63] hover:text-[#3E2723] border border-[#D7CCC8] transition-all shadow-xs"
-                                        title="Chỉnh sửa chi tiết hàng (Raw, Vietphrase, DeepL, Bản dịch)"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          setRowMenu({
+                                            index: idx,
+                                            x: Math.max(10, rect.right - 190),
+                                            y: rect.bottom + 4
+                                          });
+                                        }}
+                                        className="p-1 rounded-full opacity-0 group-hover/row:opacity-100 bg-white/90 hover:bg-white text-[#8D6E63] hover:text-[#3E2723] border border-[#D7CCC8] transition-all shadow-xs cursor-pointer"
+                                        title="Tùy chọn hàng (hoặc click chuột phải)"
                                      >
-                                        <SlidersHorizontal size={isFocusMode ? 13 : 11} />
+                                        <MoreVertical size={isFocusMode ? 13 : 11} />
                                      </button>
-
-                                     {onDeleteSegment && (
-                                        <button
-                                           type="button"
-                                           onClick={() => setConfirmDeleteIndex(idx)}
-                                           className="p-1 rounded-full opacity-0 group-hover/row:opacity-100 bg-white/80 hover:bg-red-50 text-[#A1887F] hover:text-red-600 border border-[#D7CCC8] hover:border-red-300 transition-all shadow-xs"
-                                           title="Xóa hàng này"
-                                        >
-                                           <Trash2 size={isFocusMode ? 13 : 11} />
-                                        </button>
-                                     )}
 
                                      <button
                                         type="button"
                                         onClick={() => onToggleComplete?.(idx)}
-                                        className={`p-1 rounded-full transition-all shadow-xs border ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/80 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                        className={`p-1 rounded-full transition-all shadow-xs border cursor-pointer ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/90 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
                                         title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
                                      >
-                                        <CheckCircle2 size={isFocusMode ? 14 : 12} />
+                                        <CheckCircle2 size={isFocusMode ? 14 : 12} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
                                      </button>
                                   </div>
                              </div>
@@ -2345,6 +2350,114 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               </div>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Context Menu / Options Menu cho từng hàng */}
+      {rowMenu && createPortal(
+        <div 
+          className="fixed z-9999 bg-white border border-[#D7CCC8] shadow-xl rounded-lg py-1 min-w-[210px] text-[12px] text-[#3E2723] animate-in fade-in zoom-in-95 duration-100 divide-y divide-[#EFEBE9]"
+          style={{
+            top: Math.min(Math.max(8, rowMenu.y), window.innerHeight - 250),
+            left: Math.min(Math.max(8, rowMenu.x), window.innerWidth - 225),
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[10px] font-bold text-[#8D6E63] uppercase tracking-wider bg-[#FAF7F2] flex items-center justify-between">
+            <span>Hàng #{rowMenu.index + 1}</span>
+            <span className="text-[9px] font-normal text-[#A1887F] lowercase">nhấp đúp để sửa nhanh</span>
+          </div>
+
+          <div className="py-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                const seg = data.segments[rowMenu.index];
+                startEditRaw(rowMenu.index, seg?.source || '');
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Pencil size={12} className="text-[#8D6E63]" />
+              <span>Sửa câu gốc (Raw)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const seg = data.segments[rowMenu.index];
+                const quick = seg?.quick || (seg?.source ? vietphraseEngine.translate(seg.source, customMap) : '');
+                startEditVp(rowMenu.index, quick || '');
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Pencil size={12} className="text-[#8D6E63]" />
+              <span>Sửa Vietphrase</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const seg = data.segments[rowMenu.index];
+                startEditDeepl(rowMenu.index, seg?.deepl || '');
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Pencil size={12} className="text-[#8D6E63]" />
+              <span>Sửa bản dịch GG / DeepL</span>
+            </button>
+          </div>
+
+          <div className="py-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                const seg = data.segments[rowMenu.index];
+                const quick = seg?.quick || (seg?.source ? vietphraseEngine.translate(seg.source || '', customMap) : '');
+                setModalEditRow({
+                  index: rowMenu.index,
+                  source: seg?.source || '',
+                  quick: quick || '',
+                  deepl: seg?.deepl || '',
+                  natural: seg?.natural || ''
+                });
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors font-medium text-[#5D4037]"
+            >
+              <SlidersHorizontal size={12} className="text-[#5D4037]" />
+              <span>Chỉnh sửa chi tiết hàng...</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onToggleComplete?.(rowMenu.index);
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <CheckCircle2 size={12} className={completedSegments?.includes(rowMenu.index) ? "text-[#5D4037]" : "text-[#A1887F]"} />
+              <span>{completedSegments?.includes(rowMenu.index) ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}</span>
+            </button>
+          </div>
+
+          {onDeleteSegment && (
+            <div className="py-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const idxToDelete = rowMenu.index;
+                  setRowMenu(null);
+                  setConfirmDeleteIndex(idxToDelete);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Trash2 size={12} />
+                <span>Xóa hàng này</span>
+              </button>
+            </div>
+          )}
         </div>,
         document.body
       )}

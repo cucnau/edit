@@ -1565,7 +1565,16 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                   </div>
                                   
                                   {/* Desktop action buttons */}
-                                  <div className="hidden lg:flex items-center gap-0.5 absolute top-0.5 right-1 z-10">
+                                  <div className="hidden lg:flex flex-col items-center gap-1 absolute top-1 right-1 z-10">
+                                     <button
+                                        type="button"
+                                        onClick={() => onToggleComplete?.(idx)}
+                                        className={`p-1 rounded-full transition-all shadow-xs border cursor-pointer ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/90 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                        title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
+                                     >
+                                        <CheckCircle2 size={isFocusMode ? 14 : 12} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
+                                     </button>
+
                                      <button
                                         type="button"
                                         onClick={(e) => {
@@ -1581,15 +1590,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                         title="Tùy chọn hàng (hoặc click chuột phải)"
                                      >
                                         <MoreVertical size={isFocusMode ? 13 : 11} />
-                                     </button>
-
-                                     <button
-                                        type="button"
-                                        onClick={() => onToggleComplete?.(idx)}
-                                        className={`p-1 rounded-full transition-all shadow-xs border cursor-pointer ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/90 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
-                                        title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
-                                     >
-                                        <CheckCircle2 size={isFocusMode ? 14 : 12} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
                                      </button>
                                   </div>
                              </div>

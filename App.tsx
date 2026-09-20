@@ -741,6 +741,77 @@ function AppContent() {
     }
   };
 
+  const handleUpdateSegmentData = (index: number, updatedFields: Partial<TranslationSegment>) => {
+    if (!session.result) return;
+    const currentSegments = session.result.segments;
+    if (!currentSegments[index]) return;
+
+    if (updatedFields.natural !== undefined && updatedFields.natural !== currentSegments[index].natural) {
+      const currentNaturals = currentSegments.map(s => s.natural);
+      setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+      setRedoStack([]);
+    }
+
+    const newSegments = [...currentSegments];
+    newSegments[index] = { ...newSegments[index], ...updatedFields };
+
+    const newResult: TranslationResponse = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural || '').join('\n'),
+      quickTrans: newSegments.map(s => s.quick || '').join('\n'),
+      deeplTranslation: newSegments.map(s => s.deepl || '').join('\n')
+    };
+
+    updateSession({ result: newResult });
+    debouncedPushSession({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, completedSegments: session.completedSegments, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleDeleteSegment = (index: number) => {
+    if (!session.result) return;
+    const currentSegments = session.result.segments;
+    if (index < 0 || index >= currentSegments.length) return;
+
+    // Lưu trạng thái hoàn tác
+    const currentNaturals = currentSegments.map(s => s.natural);
+    setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+    setRedoStack([]);
+
+    const newSegments = currentSegments.filter((_, i) => i !== index);
+
+    const currentCompleted = session.completedSegments || [];
+    const newCompleted = currentCompleted
+      .filter(i => i !== index)
+      .map(i => (i > index ? i - 1 : i));
+
+    const newResult: TranslationResponse = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural || '').join('\n'),
+      quickTrans: newSegments.map(s => s.quick || '').join('\n'),
+      deeplTranslation: newSegments.map(s => s.deepl || '').join('\n')
+    };
+
+    updateSession({ result: newResult, completedSegments: newCompleted });
+    pushActiveSessionToCloud({ result: newResult, completedSegments: newCompleted });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, completedSegments: newCompleted, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
   const handleUpdateAllSegments = (newNaturals: string[]) => {
     if (!session.result) return;
 
@@ -1494,6 +1565,8 @@ function AppContent() {
                                 completedSegments={session.completedSegments || []}
                                 onUpdateSegment={handleUpdateSegment} 
                                 onUpdateAllSegments={handleUpdateAllSegments}
+                                onUpdateSegmentData={handleUpdateSegmentData}
+                                onDeleteSegment={handleDeleteSegment}
                                 onToggleComplete={handleToggleComplete}
                                 onSaveChapter={handleSaveChapter}
                                 onUndo={handleUndo}

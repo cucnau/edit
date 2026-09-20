@@ -284,6 +284,258 @@ const EditableSegment = ({
     );
 };
 
+const EditableRawSegment = ({
+  source,
+  segmentIndex,
+  onUpdate,
+  isFocusMode,
+  renderHighlight,
+  hasHighlight,
+}: {
+  source: string;
+  segmentIndex?: number;
+  onUpdate: (val: string) => void;
+  isFocusMode?: boolean;
+  renderHighlight: () => React.ReactNode;
+  hasHighlight: boolean;
+}) => {
+  const [localVal, setLocalVal] = useState(source);
+  const [isFocused, setIsFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalVal(source);
+  }, [source]);
+
+  useEffect(() => {
+    const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
+      if (e.detail?.index === segmentIndex) {
+        setIsFocused(true);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+            adjustHeight();
+          }
+        }, 30);
+      }
+    };
+    window.addEventListener('focus_raw_segment' as any, handleCustomFocus);
+    return () => window.removeEventListener('focus_raw_segment' as any, handleCustomFocus);
+  }, [segmentIndex]);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+    const timer = setTimeout(adjustHeight, 10);
+    return () => clearTimeout(timer);
+  }, [localVal, isFocusMode, isFocused]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      onUpdate(val);
+    }, 500);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    onUpdate(e.target.value);
+  };
+
+  if (!isFocused && hasHighlight) {
+    return (
+      <div
+        data-raw-container={segmentIndex}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target && target.closest('[data-vocab-item]')) {
+            return;
+          }
+          setIsFocused(true);
+          setTimeout(() => {
+            if (textareaRef.current) {
+              textareaRef.current.focus();
+              adjustHeight();
+            }
+          }, 20);
+        }}
+        className={`w-full bg-transparent border-none p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
+          isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
+        } m-0 whitespace-normal break-words cursor-text min-h-[1.2em]`}
+        title="Nhấn chuột để sửa trực tiếp bản gốc (Raw)"
+      >
+        {renderHighlight()}
+      </div>
+    );
+  }
+
+  return (
+    <textarea
+      ref={textareaRef}
+      data-raw-index={segmentIndex}
+      value={localVal}
+      onChange={handleChange}
+      onFocus={() => {
+        setIsFocused(true);
+        adjustHeight();
+      }}
+      onBlur={handleBlur}
+      placeholder="(trống)"
+      rows={1}
+      spellCheck={false}
+      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
+        isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
+      } focus:ring-0 m-0 block whitespace-normal min-h-0`}
+      title="Nhấn chuột để sửa trực tiếp bản gốc (Raw)"
+    />
+  );
+};
+
+const EditableVpSegment = ({
+  quick,
+  segmentIndex,
+  onUpdate,
+  isFocusMode,
+}: {
+  quick: string;
+  segmentIndex?: number;
+  onUpdate: (val: string) => void;
+  isFocusMode?: boolean;
+}) => {
+  const [localVal, setLocalVal] = useState(quick);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalVal(quick);
+  }, [quick]);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+    const timer = setTimeout(adjustHeight, 10);
+    return () => clearTimeout(timer);
+  }, [localVal, isFocusMode]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      onUpdate(val);
+    }, 500);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    onUpdate(e.target.value);
+  };
+
+  return (
+    <textarea
+      ref={textareaRef}
+      data-vp-index={segmentIndex}
+      value={localVal}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      placeholder="(Chưa có Vietphrase)"
+      rows={1}
+      spellCheck={false}
+      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#8D6E63] italic opacity-75 hover:opacity-100 focus:opacity-100 leading-[1.1] ${
+        isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
+      } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic cursor-text`}
+      title="Nhấn chuột để sửa trực tiếp Vietphrase"
+    />
+  );
+};
+
+const EditableDeeplSegment = ({
+  deepl,
+  segmentIndex,
+  onUpdate,
+  isFocusMode,
+}: {
+  deepl: string;
+  segmentIndex?: number;
+  onUpdate: (val: string) => void;
+  isFocusMode?: boolean;
+}) => {
+  const [localVal, setLocalVal] = useState(deepl);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalVal(deepl);
+  }, [deepl]);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+    const timer = setTimeout(adjustHeight, 10);
+    return () => clearTimeout(timer);
+  }, [localVal, isFocusMode]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      onUpdate(val);
+    }, 500);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    onUpdate(e.target.value);
+  };
+
+  return (
+    <div className="flex items-start group/dl mt-0.5 w-full cursor-text" title="Nhấn chuột để sửa trực tiếp bản dịch GG/DeepL">
+      <span className={`font-bold mr-1 opacity-80 not-italic text-[#5D4037] shrink-0 select-none ${
+        isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
+      }`}>
+        GG/DL:
+      </span>
+      <textarea
+        ref={textareaRef}
+        data-deepl-index={segmentIndex}
+        value={localVal}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        placeholder="(Chưa có GG/DL)"
+        rows={1}
+        spellCheck={false}
+        className={`flex-1 min-w-0 bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#A1887F] italic opacity-60 hover:opacity-100 focus:opacity-100 leading-[1.1] ${
+          isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
+        } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic`}
+      />
+    </div>
+  );
+};
+
 
 
 export const TranslationOutput: React.FC<TranslationOutputProps> = ({ 
@@ -313,13 +565,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [archiveChapterName, setArchiveChapterName] = useState('');
   const [vpVersion, setVpVersion] = useState(0);
 
-  // Segment row editing states
-  const [editingRawIndex, setEditingRawIndex] = useState<number | null>(null);
-  const [editingRawValue, setEditingRawValue] = useState('');
-  const [editingVpIndex, setEditingVpIndex] = useState<number | null>(null);
-  const [editingVpValue, setEditingVpValue] = useState('');
-  const [editingDeeplIndex, setEditingDeeplIndex] = useState<number | null>(null);
-  const [editingDeeplValue, setEditingDeeplValue] = useState('');
   const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
   const [rowMenu, setRowMenu] = useState<{
     index: number;
@@ -353,36 +598,6 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     deepl: string;
     natural: string;
   } | null>(null);
-
-  const startEditRaw = (idx: number, currentVal: string) => {
-    setEditingRawIndex(idx);
-    setEditingRawValue(currentVal || '');
-  };
-
-  const handleSaveRaw = (idx: number) => {
-    onUpdateSegmentData?.(idx, { source: editingRawValue.trim() });
-    setEditingRawIndex(null);
-  };
-
-  const startEditVp = (idx: number, currentVal: string) => {
-    setEditingVpIndex(idx);
-    setEditingVpValue(currentVal || '');
-  };
-
-  const handleSaveVp = (idx: number) => {
-    onUpdateSegmentData?.(idx, { quick: editingVpValue.trim() });
-    setEditingVpIndex(null);
-  };
-
-  const startEditDeepl = (idx: number, currentVal: string) => {
-    setEditingDeeplIndex(idx);
-    setEditingDeeplValue(currentVal || '');
-  };
-
-  const handleSaveDeepl = (idx: number) => {
-    onUpdateSegmentData?.(idx, { deepl: editingDeeplValue.trim() });
-    setEditingDeeplIndex(null);
-  };
 
   const handleSaveModalRow = () => {
     if (!modalEditRow) return;
@@ -1088,11 +1303,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
         if (match) {
              if (match.type === 'char') {
-                 return <span key={i} onClick={(e) => handleVocabClick(e, match, 'char')} className="border-b border-dashed border-[#5D4037] bg-[#EFEBE9] cursor-pointer hover:bg-[#D7CCC8] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block">{part}</span>;
+                 return <span key={i} data-vocab-item="true" onClick={(e) => handleVocabClick(e, match, 'char')} className="border-b border-dashed border-[#5D4037] bg-[#EFEBE9] cursor-pointer hover:bg-[#D7CCC8] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block">{part}</span>;
              } else if (match.type === 'custom') {
-                 return <span key={i} onClick={(e) => handleVocabClick(e, match, 'custom')} className="border-b border-dashed border-[#5D4037] bg-[#EFEBE9] cursor-pointer hover:bg-[#D7CCC8] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block">{part}</span>;
+                 return <span key={i} data-vocab-item="true" onClick={(e) => handleVocabClick(e, match, 'custom')} className="border-b border-dashed border-[#5D4037] bg-[#EFEBE9] cursor-pointer hover:bg-[#D7CCC8] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block">{part}</span>;
              } else if (match.type === 'ai') {
-                 return <span key={i} onClick={(e) => handleVocabClick(e, match, 'ai')} className="border-b-2 border-dashed border-[#FBC02D] bg-[#FFF9C4] cursor-pointer hover:bg-[#FFF176] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block shadow-[inset_0_-2px_0_rgba(251,192,45,0.2)]">{part}</span>;
+                 return <span key={i} data-vocab-item="true" onClick={(e) => handleVocabClick(e, match, 'ai')} className="border-b-2 border-dashed border-[#FBC02D] bg-[#FFF9C4] cursor-pointer hover:bg-[#FFF176] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block shadow-[inset_0_-2px_0_rgba(251,192,45,0.2)]">{part}</span>;
              }
         }
 
@@ -1298,7 +1513,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         ? seg.quick 
                         : (vietphraseEngine.translate(cleanSource, customMap) || '')).trim();
 
-                      if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl && editingRawIndex !== idx) return null;
+                      if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl) return null;
 
                       return (
                          <div 
@@ -1326,123 +1541,31 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                            <div className={`py-1.5 lg:py-0.5 px-2 align-top lg:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} block lg:table-cell lg:w-[45%] lg:max-w-0`}>
                               <div className="flex flex-col py-0.5">
                                 {/* Raw text section */}
-                                {editingRawIndex === idx ? (
-                                  <div className="flex flex-col gap-1 w-full my-0.5">
-                                    <div className="flex items-center justify-between text-[11px] font-bold text-[#5D4037]">
-                                      <span>Sửa Raw #{idx + 1}:</span>
-                                      <span className="text-[10px] font-normal text-[#A1887F]">Ctrl+Enter để lưu</span>
-                                    </div>
-                                    <textarea
-                                      value={editingRawValue}
-                                      onChange={(e) => setEditingRawValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                          e.preventDefault();
-                                          handleSaveRaw(idx);
-                                        } else if (e.key === 'Escape') {
-                                          setEditingRawIndex(null);
-                                        }
-                                      }}
-                                      rows={Math.max(2, Math.min(6, editingRawValue.split('\n').length))}
-                                      className="w-full text-[14px] font-serif-sc p-1.5 border border-[#8D6E63] rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#5D4037] text-[#3E2723]"
-                                      autoFocus
-                                    />
-                                    <div className="flex items-center gap-1.5 justify-end">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSaveRaw(idx)}
-                                        className="px-2 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] text-white rounded text-[11px] font-medium flex items-center gap-1 shadow-xs"
-                                      >
-                                        <Check size={11} /> Lưu
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingRawIndex(null)}
-                                        className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[11px] flex items-center gap-1"
-                                      >
-                                        <X size={11} /> Hủy
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div 
-                                    onDoubleClick={() => startEditRaw(idx, seg.source || '')}
-                                    title="Nhấp đúp để sửa bản gốc (Raw)"
-                                    className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words cursor-text`}
-                                  >
-                                     <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
-                                         {idx + 1}.
-                                     </span>
-                                     <div className="flex-1 min-w-0">
-                                       {renderSourceWithHighlight(cleanSource || '(trống)')}
-                                     </div>
-                                  </div>
-                                )}
+                                <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
+                                   <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
+                                       {idx + 1}.
+                                   </span>
+                                   <div className="flex-1 min-w-0">
+                                     <EditableRawSegment
+                                       source={cleanSource}
+                                       segmentIndex={idx}
+                                       onUpdate={(val) => onUpdateSegmentData?.(idx, { source: val })}
+                                       isFocusMode={isFocusMode}
+                                       renderHighlight={() => renderSourceWithHighlight(cleanSource || '(trống)')}
+                                       hasHighlight={Boolean(pattern || (findText && buildSearchRegex(findText, matchCase, matchDiacritics)?.test(cleanSource)))}
+                                     />
+                                   </div>
+                                </div>
 
                                 {/* Vietphrase section */}
-                                {editingVpIndex === idx ? (
-                                  <div className="flex flex-col gap-1 w-full pl-[24px] my-1">
-                                    <div className="flex items-center justify-between text-[10.5px] font-semibold text-[#8D6E63]">
-                                      <span>Sửa Vietphrase:</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const autoVp = vietphraseEngine.translate(seg.source || '', customMap) || '';
-                                          setEditingVpValue(autoVp);
-                                        }}
-                                        className="text-[10px] text-[#8D6E63] hover:underline"
-                                        title="Dịch lại từ bản gốc"
-                                      >
-                                        🔄 Tự động dịch lại
-                                      </button>
-                                    </div>
-                                    <textarea
-                                      value={editingVpValue}
-                                      onChange={(e) => setEditingVpValue(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                          e.preventDefault();
-                                          handleSaveVp(idx);
-                                        } else if (e.key === 'Escape') {
-                                          setEditingVpIndex(null);
-                                        }
-                                      }}
-                                      rows={Math.max(1, Math.min(4, editingVpValue.split('\n').length))}
-                                      className="w-full text-[11.5px] p-1 border border-[#8D6E63]/60 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#8D6E63] text-[#5D4037]"
-                                      autoFocus
-                                    />
-                                    <div className="flex items-center gap-1.5 justify-end">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSaveVp(idx)}
-                                        className="px-2 py-0.5 bg-[#8D6E63] hover:bg-[#6D4C41] text-white rounded text-[10.5px] font-medium flex items-center gap-1"
-                                      >
-                                        <Check size={10} /> Lưu
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingVpIndex(null)}
-                                        className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[10.5px]"
-                                      >
-                                        Hủy
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div 
-                                    onDoubleClick={() => startEditVp(idx, cleanQuick)}
-                                    title="Nhấp đúp để sửa Vietphrase"
-                                    className="flex items-center pl-[24px] mt-0.5 cursor-text"
-                                  >
-                                    <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic break-words flex-1`}>
-                                      {cleanQuick || (
-                                        <span className="opacity-0 group-hover/row:opacity-60 text-[9px] not-italic text-[#A1887F]">
-                                          (Chưa có Vietphrase)
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
+                                <div className="flex items-center pl-[24px] mt-0.5 w-full">
+                                  <EditableVpSegment
+                                    quick={cleanQuick}
+                                    segmentIndex={idx}
+                                    onUpdate={(val) => onUpdateSegmentData?.(idx, { quick: val })}
+                                    isFocusMode={isFocusMode}
+                                  />
+                                </div>
                               </div>
                            </div>
 
@@ -1507,61 +1630,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                      />
 
                                      {/* Deepl Section */}
-                                     {editingDeeplIndex === idx ? (
-                                       <div className="flex flex-col gap-1 w-full my-1">
-                                         <div className="text-[10px] font-semibold text-[#8D6E63]">Sửa bản dịch GG/DeepL:</div>
-                                         <textarea
-                                           value={editingDeeplValue}
-                                           onChange={(e) => setEditingDeeplValue(e.target.value)}
-                                           onKeyDown={(e) => {
-                                             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                               e.preventDefault();
-                                               handleSaveDeepl(idx);
-                                             } else if (e.key === 'Escape') {
-                                               setEditingDeeplIndex(null);
-                                             }
-                                           }}
-                                           rows={Math.max(1, Math.min(3, editingDeeplValue.split('\n').length))}
-                                           className="w-full text-[11px] p-1 border border-[#8D6E63]/60 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#8D6E63] text-[#4E342E]"
-                                           autoFocus
-                                         />
-                                         <div className="flex items-center gap-1.5 justify-end">
-                                           <button
-                                             type="button"
-                                             onClick={() => handleSaveDeepl(idx)}
-                                             className="px-2 py-0.5 bg-[#8D6E63] hover:bg-[#6D4C41] text-white rounded text-[10px] font-medium flex items-center gap-1"
-                                           >
-                                             <Check size={10} /> Lưu GG/DL
-                                           </button>
-                                           <button
-                                             type="button"
-                                             onClick={() => setEditingDeeplIndex(null)}
-                                             className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[10px]"
-                                           >
-                                             Hủy
-                                           </button>
-                                         </div>
-                                       </div>
-                                     ) : (
-                                       <div 
-                                         onDoubleClick={() => startEditDeepl(idx, cleanDeepl)}
-                                         title="Nhấp đúp để sửa bản dịch GG/DeepL"
-                                         className="flex items-center group/dl mt-0.5 cursor-text"
-                                       >
-                                         <div className={`${isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 break-words flex-1`}>
-                                           {cleanDeepl ? (
-                                             <>
-                                               <span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>
-                                               {cleanDeepl}
-                                             </>
-                                           ) : (
-                                             <span className="opacity-0 group-hover/row:opacity-60 text-[8px] not-italic text-[#A1887F]">
-                                               (Chưa có GG/DL)
-                                             </span>
-                                           )}
-                                         </div>
-                                       </div>
-                                     )}
+                                     <EditableDeeplSegment
+                                       deepl={cleanDeepl}
+                                       segmentIndex={idx}
+                                       onUpdate={(val) => onUpdateSegmentData?.(idx, { deepl: val })}
+                                       isFocusMode={isFocusMode}
+                                     />
                                   </div>
                                   
                                   {/* Desktop action buttons */}
@@ -2366,16 +2440,16 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         >
           <div className="px-3 py-1.5 text-[10px] font-bold text-[#8D6E63] uppercase tracking-wider bg-[#FAF7F2] flex items-center justify-between">
             <span>Hàng #{rowMenu.index + 1}</span>
-            <span className="text-[9px] font-normal text-[#A1887F] lowercase">nhấp đúp để sửa nhanh</span>
+            <span className="text-[9px] font-normal text-[#A1887F] lowercase">nhấp chuột để sửa trực tiếp</span>
           </div>
 
           <div className="py-0.5">
             <button
               type="button"
               onClick={() => {
-                const seg = data.segments[rowMenu.index];
-                startEditRaw(rowMenu.index, seg?.source || '');
+                const targetIdx = rowMenu.index;
                 setRowMenu(null);
+                window.dispatchEvent(new CustomEvent('focus_raw_segment', { detail: { index: targetIdx } }));
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
             >
@@ -2385,10 +2459,15 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
             <button
               type="button"
               onClick={() => {
-                const seg = data.segments[rowMenu.index];
-                const quick = seg?.quick || (seg?.source ? vietphraseEngine.translate(seg.source, customMap) : '');
-                startEditVp(rowMenu.index, quick || '');
+                const targetIdx = rowMenu.index;
                 setRowMenu(null);
+                setTimeout(() => {
+                  const el = document.querySelector<HTMLTextAreaElement>(`textarea[data-vp-index="${targetIdx}"]`);
+                  if (el) {
+                    el.focus();
+                    el.setSelectionRange(el.value.length, el.value.length);
+                  }
+                }, 30);
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
             >
@@ -2398,9 +2477,15 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
             <button
               type="button"
               onClick={() => {
-                const seg = data.segments[rowMenu.index];
-                startEditDeepl(rowMenu.index, seg?.deepl || '');
+                const targetIdx = rowMenu.index;
                 setRowMenu(null);
+                setTimeout(() => {
+                  const el = document.querySelector<HTMLTextAreaElement>(`textarea[data-deepl-index="${targetIdx}"]`);
+                  if (el) {
+                    el.focus();
+                    el.setSelectionRange(el.value.length, el.value.length);
+                  }
+                }, 30);
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
             >

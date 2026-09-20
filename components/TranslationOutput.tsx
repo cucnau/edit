@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { TranslationResponse, VocabItem, CustomTerm, Character, TextShortcut } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus } from 'lucide-react';
+import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Character, TextShortcut } from '../types';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
 // Deleted smartClassify import
@@ -14,6 +14,8 @@ interface TranslationOutputProps {
   completedSegments?: number[];
   onUpdateSegment?: (index: number, newNatural: string) => void;
   onUpdateAllSegments?: (newNaturals: string[]) => void;
+  onUpdateSegmentData?: (index: number, updated: Partial<TranslationSegment>) => void;
+  onDeleteSegment?: (index: number) => void;
   onToggleComplete?: (index: number) => void;
   onSaveChapter?: (name: string) => void;
   onUndo?: () => void;
@@ -291,6 +293,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     completedSegments = [],
     onUpdateSegment,
     onUpdateAllSegments,
+    onUpdateSegmentData,
+    onDeleteSegment,
     onToggleComplete,
     onSaveChapter,
     onUndo,
@@ -308,6 +312,65 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const [showSaveArchiveModal, setShowSaveArchiveModal] = useState(false);
   const [archiveChapterName, setArchiveChapterName] = useState('');
   const [vpVersion, setVpVersion] = useState(0);
+
+  // Segment row editing states
+  const [editingRawIndex, setEditingRawIndex] = useState<number | null>(null);
+  const [editingRawValue, setEditingRawValue] = useState('');
+  const [editingVpIndex, setEditingVpIndex] = useState<number | null>(null);
+  const [editingVpValue, setEditingVpValue] = useState('');
+  const [editingDeeplIndex, setEditingDeeplIndex] = useState<number | null>(null);
+  const [editingDeeplValue, setEditingDeeplValue] = useState('');
+  const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
+
+  // Full row modal edit state
+  const [modalEditRow, setModalEditRow] = useState<{
+    index: number;
+    source: string;
+    quick: string;
+    deepl: string;
+    natural: string;
+  } | null>(null);
+
+  const startEditRaw = (idx: number, currentVal: string) => {
+    setEditingRawIndex(idx);
+    setEditingRawValue(currentVal || '');
+  };
+
+  const handleSaveRaw = (idx: number) => {
+    onUpdateSegmentData?.(idx, { source: editingRawValue.trim() });
+    setEditingRawIndex(null);
+  };
+
+  const startEditVp = (idx: number, currentVal: string) => {
+    setEditingVpIndex(idx);
+    setEditingVpValue(currentVal || '');
+  };
+
+  const handleSaveVp = (idx: number) => {
+    onUpdateSegmentData?.(idx, { quick: editingVpValue.trim() });
+    setEditingVpIndex(null);
+  };
+
+  const startEditDeepl = (idx: number, currentVal: string) => {
+    setEditingDeeplIndex(idx);
+    setEditingDeeplValue(currentVal || '');
+  };
+
+  const handleSaveDeepl = (idx: number) => {
+    onUpdateSegmentData?.(idx, { deepl: editingDeeplValue.trim() });
+    setEditingDeeplIndex(null);
+  };
+
+  const handleSaveModalRow = () => {
+    if (!modalEditRow) return;
+    onUpdateSegmentData?.(modalEditRow.index, {
+      source: modalEditRow.source.trim(),
+      quick: modalEditRow.quick.trim(),
+      deepl: modalEditRow.deepl.trim(),
+      natural: modalEditRow.natural.trim()
+    });
+    setModalEditRow(null);
+  };
   const [activeVocab, setActiveVocab] = useState<{ 
     item: VocabItem; 
     position: { x: number; y: number }; 
@@ -693,7 +756,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       const cleanSource = (seg.source || '').trim();
       const cleanNatural = (seg.natural || '').trim();
       const cleanDeepl = (seg.deepl || '').trim();
-      const cleanQuick = (vietphraseEngine.translate(cleanSource, customMap) || '').trim();
+      const cleanQuick = (seg.quick !== undefined && seg.quick !== null && seg.quick !== '' ? seg.quick : (vietphraseEngine.translate(cleanSource, customMap) || '')).trim();
 
       if (!cleanSource && !cleanNatural) return;
 
@@ -1208,9 +1271,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
                       const cleanDeepl = (seg.deepl || '').trim();
-                      const cleanQuick = (vietphraseEngine.translate(cleanSource, customMap) || '').trim();
+                      const cleanQuick = (seg.quick !== undefined && seg.quick !== null && seg.quick !== '' 
+                        ? seg.quick 
+                        : (vietphraseEngine.translate(cleanSource, customMap) || '')).trim();
 
-                      if (!cleanSource && !cleanNatural) return null;
+                      if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl && editingRawIndex !== idx) return null;
 
                       return (
                          <div 
@@ -1226,77 +1291,333 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         >
                            <div className={`py-1.5 lg:py-0.5 px-2 align-top lg:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} block lg:table-cell lg:w-[45%] lg:max-w-0`}>
                               <div className="flex flex-col py-0.5">
-                                <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
-                                       {idx + 1}.
-                                   </span>
-                                   <div className="flex-1 min-w-0">
-                                     {renderSourceWithHighlight(cleanSource)}
-                                   </div>
-                                </div>
-                                {cleanQuick && (
-                                  <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic pl-[24px] mt-0.5 break-words`}>
-                                    {cleanQuick}
+                                {/* Raw text section */}
+                                {editingRawIndex === idx ? (
+                                  <div className="flex flex-col gap-1 w-full my-0.5">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-[#5D4037]">
+                                      <span>Sửa Raw #{idx + 1}:</span>
+                                      <span className="text-[10px] font-normal text-[#A1887F]">Ctrl+Enter để lưu</span>
+                                    </div>
+                                    <textarea
+                                      value={editingRawValue}
+                                      onChange={(e) => setEditingRawValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                          e.preventDefault();
+                                          handleSaveRaw(idx);
+                                        } else if (e.key === 'Escape') {
+                                          setEditingRawIndex(null);
+                                        }
+                                      }}
+                                      rows={Math.max(2, Math.min(6, editingRawValue.split('\n').length))}
+                                      className="w-full text-[14px] font-serif-sc p-1.5 border border-[#8D6E63] rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#5D4037] text-[#3E2723]"
+                                      autoFocus
+                                    />
+                                    <div className="flex items-center gap-1.5 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveRaw(idx)}
+                                        className="px-2 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] text-white rounded text-[11px] font-medium flex items-center gap-1 shadow-xs"
+                                      >
+                                        <Check size={11} /> Lưu
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingRawIndex(null)}
+                                        className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[11px] flex items-center gap-1"
+                                      >
+                                        <X size={11} /> Hủy
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words group/raw`}>
+                                     <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
+                                         {idx + 1}.
+                                     </span>
+                                     <div className="flex-1 min-w-0">
+                                       {renderSourceWithHighlight(cleanSource || '(trống)')}
+                                     </div>
+                                     <button
+                                       type="button"
+                                       onClick={() => startEditRaw(idx, seg.source || '')}
+                                       className="opacity-0 group-hover/row:opacity-100 p-0.5 text-[#A1887F] hover:text-[#5D4037] rounded hover:bg-[#EFEBE9] transition-all ml-1 shrink-0"
+                                       title="Sửa bản gốc (Raw)"
+                                     >
+                                       <Pencil size={11} />
+                                     </button>
+                                  </div>
+                                )}
+
+                                {/* Vietphrase section */}
+                                {editingVpIndex === idx ? (
+                                  <div className="flex flex-col gap-1 w-full pl-[24px] my-1">
+                                    <div className="flex items-center justify-between text-[10.5px] font-semibold text-[#8D6E63]">
+                                      <span>Sửa Vietphrase:</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const autoVp = vietphraseEngine.translate(seg.source || '', customMap) || '';
+                                          setEditingVpValue(autoVp);
+                                        }}
+                                        className="text-[10px] text-[#8D6E63] hover:underline"
+                                        title="Dịch lại từ bản gốc"
+                                      >
+                                        🔄 Tự động dịch lại
+                                      </button>
+                                    </div>
+                                    <textarea
+                                      value={editingVpValue}
+                                      onChange={(e) => setEditingVpValue(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                          e.preventDefault();
+                                          handleSaveVp(idx);
+                                        } else if (e.key === 'Escape') {
+                                          setEditingVpIndex(null);
+                                        }
+                                      }}
+                                      rows={Math.max(1, Math.min(4, editingVpValue.split('\n').length))}
+                                      className="w-full text-[11.5px] p-1 border border-[#8D6E63]/60 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#8D6E63] text-[#5D4037]"
+                                      autoFocus
+                                    />
+                                    <div className="flex items-center gap-1.5 justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveVp(idx)}
+                                        className="px-2 py-0.5 bg-[#8D6E63] hover:bg-[#6D4C41] text-white rounded text-[10.5px] font-medium flex items-center gap-1"
+                                      >
+                                        <Check size={10} /> Lưu
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingVpIndex(null)}
+                                        className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[10.5px]"
+                                      >
+                                        Hủy
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between group/vp pl-[24px] mt-0.5">
+                                    <div className={`${isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'} text-[#8D6E63] leading-[1.1] opacity-70 italic break-words flex-1`}>
+                                      {cleanQuick || (
+                                        <span className="opacity-0 group-hover/row:opacity-60 text-[9px] not-italic text-[#A1887F]">
+                                          (Chưa có Vietphrase)
+                                        </span>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditVp(idx, cleanQuick)}
+                                      className="opacity-0 group-hover/row:opacity-100 p-0.5 text-[#A1887F] hover:text-[#5D4037] rounded hover:bg-[#EFEBE9] transition-all ml-1 shrink-0"
+                                      title="Sửa Vietphrase"
+                                    >
+                                      <Pencil size={10} />
+                                    </button>
                                   </div>
                                 )}
                               </div>
                            </div>
-                           <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-6 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
-                              <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch w-full">
-                                  {/* Icon check tròn hiển thị bên trái trên mobile, thẳng hàng với số thứ tự */}
-                                  <button
-                                      onClick={() => onToggleComplete?.(idx)}
-                                      className={`lg:hidden w-5 min-w-[20px] h-5 flex items-center justify-start rounded-full transition-all shrink-0 mt-0.5 mr-1 ${isDone ? 'text-[#5D4037]' : 'text-[#A1887F]/60 hover:text-[#5D4037]'}`}
-                                      title={isDone ? "Đã hoàn thành" : "Chưa hoàn thành"}
-                                   >
-                                      <CheckCircle2 size={14} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
-                                   </button>
-                                   
-                                   <div className="flex-1 min-w-0">
-                                      <EditableSegment 
-                                        text={cleanNatural} 
-                                        onUpdate={(val) => onUpdateSegment?.(idx, val)} 
-                                        isFocusMode={isFocusMode} 
-                                        findText={findText}
-                                        matchCase={matchCase}
-                                        matchDiacritics={matchDiacritics}
-                                        novelId={currentNovelId}
-                                        segmentIndex={idx}
-                                        onEnterNext={() => {
-                                          if (!isDone) {
-                                            onToggleComplete?.(idx);
-                                          }
-                                          setTimeout(() => {
-                                            const allTextareas = Array.from(document.querySelectorAll('textarea[data-segment-index]')) as HTMLTextAreaElement[];
-                                            const currentPos = allTextareas.findIndex(el => el.getAttribute('data-segment-index') === String(idx));
-                                            const nextEl = currentPos >= 0 && currentPos < allTextareas.length - 1 ? allTextareas[currentPos + 1] : null;
 
-                                            if (nextEl) {
-                                              nextEl.focus({ preventScroll: true });
-                                              nextEl.setSelectionRange(nextEl.value.length, nextEl.value.length);
-                                              const nextRow = (nextEl.closest('[id^="segment-row-"]') || nextEl) as HTMLElement;
-                                              if (nextRow) {
-                                                nextRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                              }
-                                            }
-                                          }, 30);
-                                        }}
-                                      />
-                                      {cleanDeepl && (
-                                        <div className={`${isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 mt-0.5 break-words`}><span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>{cleanDeepl}</div>
-                                      )}
-                                   </div>
-                                   
-                                   {/* Nút check tròn hiển thị tuyệt đối trên laptop */}
+                           <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-20 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
+                              <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch w-full">
+                                  {/* Mobile action buttons */}
+                                  <div className="lg:hidden flex items-center gap-1 mr-1 shrink-0 mt-0.5">
+                                      <button
+                                          onClick={() => onToggleComplete?.(idx)}
+                                          className={`w-5 min-w-[20px] h-5 flex items-center justify-center rounded-full transition-all shrink-0 ${isDone ? 'text-[#5D4037]' : 'text-[#A1887F]/60 hover:text-[#5D4037]'}`}
+                                          title={isDone ? "Đã hoàn thành" : "Chưa hoàn thành"}
+                                       >
+                                          <CheckCircle2 size={14} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
+                                       </button>
+                                       <button
+                                          type="button"
+                                          onClick={() => setModalEditRow({
+                                            index: idx,
+                                            source: seg.source || '',
+                                            quick: cleanQuick,
+                                            deepl: seg.deepl || '',
+                                            natural: seg.natural || ''
+                                          })}
+                                          className="p-1 text-[#8D6E63] hover:text-[#3E2723]"
+                                          title="Chỉnh sửa chi tiết hàng"
+                                       >
+                                          <SlidersHorizontal size={13} />
+                                       </button>
+                                       {onDeleteSegment && (
+                                          <button
+                                             type="button"
+                                             onClick={() => setConfirmDeleteIndex(idx)}
+                                             className="p-1 text-red-500 hover:text-red-700"
+                                             title="Xóa hàng này"
+                                          >
+                                             <Trash2 size={13} />
+                                          </button>
+                                       )}
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0">
+                                     <EditableSegment 
+                                       text={cleanNatural} 
+                                       onUpdate={(val) => onUpdateSegment?.(idx, val)} 
+                                       isFocusMode={isFocusMode} 
+                                       findText={findText}
+                                       matchCase={matchCase}
+                                       matchDiacritics={matchDiacritics}
+                                       novelId={currentNovelId}
+                                       segmentIndex={idx}
+                                       onEnterNext={() => {
+                                         if (!isDone) {
+                                           onToggleComplete?.(idx);
+                                         }
+                                         setTimeout(() => {
+                                           const allTextareas = Array.from(document.querySelectorAll('textarea[data-segment-index]')) as HTMLTextAreaElement[];
+                                           const currentPos = allTextareas.findIndex(el => el.getAttribute('data-segment-index') === String(idx));
+                                           const nextEl = currentPos >= 0 && currentPos < allTextareas.length - 1 ? allTextareas[currentPos + 1] : null;
+
+                                           if (nextEl) {
+                                             nextEl.focus({ preventScroll: true });
+                                             nextEl.setSelectionRange(nextEl.value.length, nextEl.value.length);
+                                             const nextRow = (nextEl.closest('[id^="segment-row-"]') || nextEl) as HTMLElement;
+                                             if (nextRow) {
+                                               nextRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                             }
+                                           }
+                                         }, 30);
+                                       }}
+                                     />
+
+                                     {/* Deepl Section */}
+                                     {editingDeeplIndex === idx ? (
+                                       <div className="flex flex-col gap-1 w-full my-1">
+                                         <div className="text-[10px] font-semibold text-[#8D6E63]">Sửa bản dịch GG/DeepL:</div>
+                                         <textarea
+                                           value={editingDeeplValue}
+                                           onChange={(e) => setEditingDeeplValue(e.target.value)}
+                                           onKeyDown={(e) => {
+                                             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                               e.preventDefault();
+                                               handleSaveDeepl(idx);
+                                             } else if (e.key === 'Escape') {
+                                               setEditingDeeplIndex(null);
+                                             }
+                                           }}
+                                           rows={Math.max(1, Math.min(3, editingDeeplValue.split('\n').length))}
+                                           className="w-full text-[11px] p-1 border border-[#8D6E63]/60 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#8D6E63] text-[#4E342E]"
+                                           autoFocus
+                                         />
+                                         <div className="flex items-center gap-1.5 justify-end">
+                                           <button
+                                             type="button"
+                                             onClick={() => handleSaveDeepl(idx)}
+                                             className="px-2 py-0.5 bg-[#8D6E63] hover:bg-[#6D4C41] text-white rounded text-[10px] font-medium flex items-center gap-1"
+                                           >
+                                             <Check size={10} /> Lưu GG/DL
+                                           </button>
+                                           <button
+                                             type="button"
+                                             onClick={() => setEditingDeeplIndex(null)}
+                                             className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded text-[10px]"
+                                           >
+                                             Hủy
+                                           </button>
+                                         </div>
+                                       </div>
+                                     ) : (
+                                       <div className="flex items-center justify-between group/dl mt-0.5">
+                                         <div className={`${isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'} text-[#A1887F] leading-[1.1] italic opacity-60 break-words flex-1`}>
+                                           {cleanDeepl ? (
+                                             <>
+                                               <span className="font-bold mr-1 opacity-80 not-italic text-[#5D4037]">GG/DL:</span>
+                                               {cleanDeepl}
+                                             </>
+                                           ) : (
+                                             <span className="opacity-0 group-hover/row:opacity-60 text-[8px] not-italic text-[#A1887F]">
+                                               (Chưa có GG/DL)
+                                             </span>
+                                           )}
+                                         </div>
+                                         <button
+                                           type="button"
+                                           onClick={() => startEditDeepl(idx, cleanDeepl)}
+                                           className="opacity-0 group-hover/row:opacity-100 p-0.5 text-[#A1887F] hover:text-[#5D4037] rounded hover:bg-[#EFEBE9] transition-all ml-1 shrink-0"
+                                           title="Sửa bản dịch GG/DeepL"
+                                         >
+                                           <Pencil size={10} />
+                                         </button>
+                                       </div>
+                                     )}
+                                  </div>
+                                  
+                                  {/* Desktop action buttons */}
+                                  <div className="hidden lg:flex items-center gap-1 absolute top-0.5 right-1 z-10">
+                                     <button
+                                        type="button"
+                                        onClick={() => setModalEditRow({
+                                          index: idx,
+                                          source: seg.source || '',
+                                          quick: cleanQuick,
+                                          deepl: seg.deepl || '',
+                                          natural: seg.natural || ''
+                                        })}
+                                        className="p-1 rounded-full opacity-0 group-hover/row:opacity-100 bg-white/80 hover:bg-white text-[#8D6E63] hover:text-[#3E2723] border border-[#D7CCC8] transition-all shadow-xs"
+                                        title="Chỉnh sửa chi tiết hàng (Raw, Vietphrase, DeepL, Bản dịch)"
+                                     >
+                                        <SlidersHorizontal size={isFocusMode ? 13 : 11} />
+                                     </button>
+
+                                     {onDeleteSegment && (
+                                        <button
+                                           type="button"
+                                           onClick={() => setConfirmDeleteIndex(idx)}
+                                           className="p-1 rounded-full opacity-0 group-hover/row:opacity-100 bg-white/80 hover:bg-red-50 text-[#A1887F] hover:text-red-600 border border-[#D7CCC8] hover:border-red-300 transition-all shadow-xs"
+                                           title="Xóa hàng này"
+                                        >
+                                           <Trash2 size={isFocusMode ? 13 : 11} />
+                                        </button>
+                                     )}
+
+                                     <button
+                                        type="button"
+                                        onClick={() => onToggleComplete?.(idx)}
+                                        className={`p-1 rounded-full transition-all shadow-xs border ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/80 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                        title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
+                                     >
+                                        <CheckCircle2 size={isFocusMode ? 14 : 12} />
+                                     </button>
+                                  </div>
+                             </div>
+
+                             {/* Inline delete confirmation banner */}
+                             {confirmDeleteIndex === idx && (
+                               <div className="w-full bg-red-50 border border-red-200 text-red-900 px-2.5 py-1.5 rounded-md flex items-center justify-between text-xs my-1 shadow-xs animate-in fade-in">
+                                 <div className="flex items-center gap-1.5">
+                                   <Trash2 size={13} className="text-red-600 shrink-0" />
+                                   <span>Xác nhận xóa <strong>hàng #{idx + 1}</strong>?</span>
+                                 </div>
+                                 <div className="flex items-center gap-1.5">
                                    <button
-                                      onClick={() => onToggleComplete?.(idx)}
-                                      className={`hidden lg:inline-flex absolute top-0 right-0 p-1 rounded-full transition-all shadow-sm border z-10 ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/70 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
-                                      title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
+                                     type="button"
+                                     onClick={() => {
+                                       onDeleteSegment?.(idx);
+                                       setConfirmDeleteIndex(null);
+                                     }}
+                                     className="px-2.5 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded font-bold text-[11px] transition-colors shadow-xs"
                                    >
-                                      <CheckCircle2 size={isFocusMode ? 14 : 12} />
+                                     Xóa
                                    </button>
-                              </div>
-                           </div>
+                                   <button
+                                     type="button"
+                                     onClick={() => setConfirmDeleteIndex(null)}
+                                     className="px-2 py-0.5 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded text-[11px] transition-colors"
+                                   >
+                                     Hủy
+                                   </button>
+                                 </div>
+                               </div>
+                             )}
+                          </div>
                         </div>
                       );
                    })}
@@ -1894,6 +2215,135 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 )}
               </div>
             )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal Chỉnh sửa chi tiết hàng (Raw, Vietphrase, DeepL, Bản edit) */}
+      {modalEditRow && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl border border-[#D7CCC8] overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95">
+            <div className="px-4 py-3 bg-[#EFEBE9] border-b border-[#D7CCC8] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal size={16} className="text-[#5D4037]" />
+                <h3 className="font-bold text-sm text-[#3E2723]">
+                  Chỉnh sửa hàng #{modalEditRow.index + 1}
+                </h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setModalEditRow(null)}
+                className="text-[#8D6E63] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#D7CCC8]/40 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+              {/* Raw */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-[#5D4037] flex items-center gap-1.5">
+                    <span>Bản gốc (Raw tiếng Trung)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const autoVp = vietphraseEngine.translate(modalEditRow.source || '', customMap) || '';
+                      setModalEditRow(prev => prev ? { ...prev, quick: autoVp } : null);
+                    }}
+                    className="text-[11px] text-[#8D6E63] hover:text-[#5D4037] hover:underline flex items-center gap-1"
+                    title="Tự động dịch lại Vietphrase dựa trên bản Raw này"
+                  >
+                    <span>🔄 Dịch Vietphrase từ Raw này</span>
+                  </button>
+                </div>
+                <textarea
+                  value={modalEditRow.source}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, source: e.target.value } : null)}
+                  rows={3}
+                  placeholder="Nhập bản gốc tiếng Trung..."
+                  className="w-full text-[14px] font-serif-sc p-2 border border-[#D7CCC8] rounded bg-[#FFFDF7] text-[#3E2723] outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                />
+              </div>
+
+              {/* Vietphrase */}
+              <div>
+                <label className="block text-xs font-bold text-[#8D6E63] mb-1">
+                  Vietphrase (Dịch nghĩa theo cụm từ)
+                </label>
+                <textarea
+                  value={modalEditRow.quick}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, quick: e.target.value } : null)}
+                  rows={2}
+                  placeholder="Nhập Vietphrase..."
+                  className="w-full text-xs p-2 border border-[#D7CCC8] rounded bg-white text-[#5D4037] outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                />
+              </div>
+
+              {/* Deepl / Google */}
+              <div>
+                <label className="block text-xs font-bold text-[#8D6E63] mb-1">
+                  Bản dịch máy (Google / DeepL)
+                </label>
+                <textarea
+                  value={modalEditRow.deepl}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, deepl: e.target.value } : null)}
+                  rows={2}
+                  placeholder="Nhập bản dịch tham khảo DeepL / Google..."
+                  className="w-full text-xs p-2 border border-[#D7CCC8] rounded bg-white text-[#4E342E] outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                />
+              </div>
+
+              {/* Natural translation */}
+              <div>
+                <label className="block text-xs font-bold text-[#3E2723] mb-1">
+                  Bản edit (Bản dịch tiếng Việt chuẩn)
+                </label>
+                <textarea
+                  value={modalEditRow.natural}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, natural: e.target.value } : null)}
+                  rows={3}
+                  placeholder="Nhập bản dịch tiếng Việt hoàn chỉnh..."
+                  className="w-full text-xs p-2 border border-[#8D6E63] rounded bg-white text-[#3E2723] font-medium outline-none focus:border-[#5D4037] focus:ring-1 focus:ring-[#5D4037]"
+                />
+              </div>
+            </div>
+
+            <div className="px-4 py-3 bg-[#FAFAFA] border-t border-[#EFEBE9] flex items-center justify-between">
+              {onDeleteSegment ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Bạn có chắc muốn xóa hàng #${modalEditRow.index + 1} này không?`)) {
+                      onDeleteSegment(modalEditRow.index);
+                      setModalEditRow(null);
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium flex items-center gap-1.5 transition-colors"
+                >
+                  <Trash2 size={13} /> Xóa hàng này
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalEditRow(null)}
+                  className="px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveModalRow}
+                  className="px-4 py-1.5 text-xs font-bold bg-[#5D4037] hover:bg-[#3E2723] text-white rounded shadow-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <Check size={14} /> Lưu thay đổi
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

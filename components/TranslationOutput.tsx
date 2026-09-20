@@ -513,26 +513,20 @@ const EditableDeeplSegment = ({
   };
 
   return (
-    <div className="flex items-start group/dl mt-0.5 w-full cursor-text" title="Nhấn chuột để sửa trực tiếp bản dịch GG/DeepL">
-      <span className={`font-bold mr-1 opacity-80 not-italic text-[#5D4037] shrink-0 select-none ${
+    <textarea
+      ref={textareaRef}
+      data-deepl-index={segmentIndex}
+      value={localVal}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      placeholder="(Chưa có GG/DL)"
+      rows={1}
+      spellCheck={false}
+      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#A1887F] italic opacity-60 hover:opacity-100 focus:opacity-100 leading-[1.1] ${
         isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
-      }`}>
-        GG/DL:
-      </span>
-      <textarea
-        ref={textareaRef}
-        data-deepl-index={segmentIndex}
-        value={localVal}
-        onChange={handleChange}
-        onBlur={handleBlur}
-        placeholder="(Chưa có GG/DL)"
-        rows={1}
-        spellCheck={false}
-        className={`flex-1 min-w-0 bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#A1887F] italic opacity-60 hover:opacity-100 focus:opacity-100 leading-[1.1] ${
-          isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
-        } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic`}
-      />
-    </div>
+      } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic mt-0.5 cursor-text`}
+      title="Nhấn chuột để sửa trực tiếp bản dịch GG/DeepL"
+    />
   );
 };
 

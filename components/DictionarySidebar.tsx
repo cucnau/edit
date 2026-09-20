@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CustomTerm, VietphraseFile } from '../types';
-import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Search, X, RefreshCw, FileText, CheckCircle, FileUp, AlertCircle, FileSpreadsheet, Pencil, Check } from 'lucide-react';
 import { syncFirestoreData, deleteFirestoreDoc, overwriteFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -101,6 +101,12 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   const [vpCount, setVpCount] = useState(0);
   const [vpFiles, setVpFiles] = useState<VietphraseFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Inline Table Edit States
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTerm, setEditTerm] = useState('');
+  const [editMeaning, setEditMeaning] = useState('');
+  const [editCategory, setEditCategory] = useState('');
   
   // Sync States
   const [isSyncing, setIsSyncing] = useState(false);
@@ -228,6 +234,46 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
   const handleUpdateCategory = (id: string, category: string) => {
     onUpdateTerms(currentNovelTerms.map(t => t.id === id ? { ...t, category } : t));
+  };
+
+  const handleStartEdit = (item: CustomTerm) => {
+    setEditingId(item.id);
+    setEditTerm(item.term);
+    setEditMeaning(item.meaning);
+    setEditCategory(item.category || '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditTerm('');
+    setEditMeaning('');
+    setEditCategory('');
+  };
+
+  const handleSaveEdit = (id: string) => {
+    const termVal = editTerm.trim();
+    const meaningVal = editMeaning.trim();
+    if (!termVal || !meaningVal) return;
+
+    const updated = currentNovelTerms.map(t => {
+      if (t.id === id) {
+        return {
+          ...t,
+          term: termVal,
+          meaning: meaningVal,
+          category: (editCategory.trim() && editCategory.trim() !== "Chưa phân loại") ? editCategory.trim() : undefined
+        };
+      }
+      return t;
+    });
+
+    onUpdateTerms(updated);
+    if (isSignedIn && currentNovelId) {
+      syncFirestoreData<CustomTerm>('vocab', currentNovelId, 'POST', updated).catch(console.error);
+    }
+    setSyncMessage({ type: 'success', text: `Đã lưu từ "${termVal}"!` });
+    setTimeout(() => setSyncMessage(null), 2500);
+    setEditingId(null);
   };
 
   const handleDelete = (id: string) => {
@@ -728,52 +774,136 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 </td>
               </tr>
             ) : (
-              filteredTerms.map((item) => (
-                <tr key={item.id} className="group hover:bg-[#FFF8E1] transition-colors">
-                  <td className="py-0.5 px-1 text-[11px] font-serif-sc font-medium text-[#3E2723] align-top relative border-r border-[#EFEBE9] leading-tight">
-                     {item.term}
-                  </td>
-                  <td className="py-0.5 px-1 text-[11px] text-[#4E342E] align-top relative leading-tight pb-2 pr-6">
-                     <span className="font-medium text-[#795548] block">{item.meaning}</span>
-                     
-                     {/* Category Dropdown (Google Sheets Style) */}
-                     <div className="mt-0.5">
-                       <select
-                        
-                         value={item.category || ''}
-                         onChange={(e) => {
-                           if (e.target.value === '__new__') {
-                             const custom = prompt("Nhập phân loại mới:");
-                             if (custom?.trim()) {
-                               handleUpdateCategory(item.id, custom.trim());
-                             }
-                           } else {
-                             handleUpdateCategory(item.id, e.target.value);
-                           }
-                         }}
-                         className="text-[9px] px-1 bg-[#F5E6D3] text-[#5D4037] border border-[#D7CCC8] rounded cursor-pointer max-w-[120px] truncate focus:outline-none focus:ring-1 focus:ring-[#8D6E63] py-0"
-                       >
-                         <option value="">Chưa phân loại</option>
-                         {allCategories.map(cat => (
-                           <option key={cat} value={cat}>{cat}</option>
-              ))}
-                         <option value="__new__" className="text-blue-600 font-bold">+ Thêm mới...</option>
-                       </select>
-                     </div>
+              filteredTerms.map((item) => {
+                const isEditing = editingId === item.id;
+                if (isEditing) {
+                  return (
+                    <tr key={item.id} className="bg-[#FFF9C4]/80 border-y-2 border-[#8D6E63] transition-colors">
+                      <td className="py-1 px-1 text-[11px] align-top border-r border-[#D7CCC8]">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={editTerm}
+                          onChange={(e) => setEditTerm(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit(item.id);
+                            if (e.key === 'Escape') handleCancelEdit();
+                          }}
+                          placeholder="Từ Trung..."
+                          className="w-full text-[11px] font-serif-sc font-bold px-1 py-0.5 border border-[#8D6E63] rounded bg-white text-[#3E2723] outline-none shadow-xs"
+                        />
+                      </td>
+                      <td className="py-1 px-1 text-[11px] align-top relative pb-1.5 pr-1">
+                        <input
+                          type="text"
+                          value={editMeaning}
+                          onChange={(e) => setEditMeaning(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit(item.id);
+                            if (e.key === 'Escape') handleCancelEdit();
+                          }}
+                          placeholder="Nghĩa Việt..."
+                          className="w-full text-[11px] font-medium px-1 py-0.5 border border-[#8D6E63] rounded bg-white text-[#4E342E] outline-none shadow-xs mb-1"
+                        />
+                        <div className="flex items-center justify-between gap-1 mt-0.5">
+                          <select
+                            value={editCategory}
+                            onChange={(e) => {
+                              if (e.target.value === '__new__') {
+                                const custom = prompt("Nhập phân loại mới:");
+                                if (custom?.trim()) setEditCategory(custom.trim());
+                              } else {
+                                setEditCategory(e.target.value);
+                              }
+                            }}
+                            className="text-[9px] px-1 bg-white text-[#5D4037] border border-[#D7CCC8] rounded cursor-pointer max-w-[105px] truncate focus:outline-none focus:ring-1 focus:ring-[#8D6E63] py-0.5"
+                          >
+                            <option value="">Chưa phân loại</option>
+                            {allCategories.map(cat => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                            <option value="__new__" className="text-blue-600 font-bold">+ Thêm mới...</option>
+                          </select>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleSaveEdit(item.id)}
+                              className="px-1.5 py-0.5 bg-[#5D4037] text-white rounded text-[9px] font-bold flex items-center gap-0.5 hover:bg-[#3E2723] shadow-xs cursor-pointer"
+                              title="Lưu thay đổi (Enter)"
+                            >
+                              <Check size={10} /> Lưu
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              className="px-1.5 py-0.5 bg-[#EFEBE9] text-[#5D4037] rounded text-[9px] font-bold flex items-center gap-0.5 hover:bg-[#D7CCC8] cursor-pointer"
+                              title="Hủy (Esc)"
+                            >
+                              <X size={10} /> Hủy
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
 
-                     {/* Delete Button */}
-                     
-                       <button
-                          onClick={() => handleDelete(item.id)}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 bg-white shadow-sm border border-[#D7CCC8] rounded text-[#BCAAA4] hover:text-[#D32F2F] opacity-0 group-hover:opacity-100 transition-all z-10"
-                          title="Xóa"
-                        >
-                          <Trash2 size={10} />
-                        </button>
-                     
-                  </td>
-                </tr>
-              ))
+                return (
+                  <tr 
+                    key={item.id} 
+                    onDoubleClick={() => handleStartEdit(item)}
+                    className="group hover:bg-[#FFF8E1] transition-colors cursor-pointer"
+                    title="Nhấp đúp hoặc bấm nút cây bút để sửa"
+                  >
+                    <td className="py-0.5 px-1 text-[11px] font-serif-sc font-medium text-[#3E2723] align-top relative border-r border-[#EFEBE9] leading-tight">
+                       {item.term}
+                    </td>
+                    <td className="py-0.5 px-1 text-[11px] text-[#4E342E] align-top relative leading-tight pb-2 pr-12">
+                       <span className="font-medium text-[#795548] block">{item.meaning}</span>
+                       
+                       {/* Category Dropdown (Google Sheets Style) */}
+                       <div className="mt-0.5">
+                         <select
+                           value={item.category || ''}
+                           onChange={(e) => {
+                             if (e.target.value === '__new__') {
+                               const custom = prompt("Nhập phân loại mới:");
+                               if (custom?.trim()) {
+                                 handleUpdateCategory(item.id, custom.trim());
+                               }
+                             } else {
+                               handleUpdateCategory(item.id, e.target.value);
+                             }
+                           }}
+                           className="text-[9px] px-1 bg-[#F5E6D3] text-[#5D4037] border border-[#D7CCC8] rounded cursor-pointer max-w-[120px] truncate focus:outline-none focus:ring-1 focus:ring-[#8D6E63] py-0"
+                         >
+                           <option value="">Chưa phân loại</option>
+                           {allCategories.map(cat => (
+                             <option key={cat} value={cat}>{cat}</option>
+                           ))}
+                           <option value="__new__" className="text-blue-600 font-bold">+ Thêm mới...</option>
+                         </select>
+                       </div>
+
+                       {/* Action Buttons: Sửa & Xóa */}
+                       <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all z-10">
+                         <button
+                            onClick={(e) => { e.stopPropagation(); handleStartEdit(item); }}
+                            className="p-1 bg-white shadow-xs border border-[#D7CCC8] rounded text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#EFEBE9] transition-all cursor-pointer"
+                            title="Sửa từ này"
+                         >
+                            <Pencil size={10} />
+                         </button>
+                         <button
+                            onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}
+                            className="p-1 bg-white shadow-xs border border-[#D7CCC8] rounded text-[#BCAAA4] hover:text-[#D32F2F] hover:bg-[#FFEBEE] transition-all cursor-pointer"
+                            title="Xóa"
+                         >
+                            <Trash2 size={10} />
+                         </button>
+                       </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

@@ -256,6 +256,8 @@ const EditableSegment = ({
         return (
             <div 
                 onClick={() => {
+                    const sel = window.getSelection();
+                    if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
                     setIsFocused(true);
                     setTimeout(() => textareaRef.current?.focus(), 20);
                 }}
@@ -290,19 +292,19 @@ const EditableRawSegment = ({
   onUpdate,
   isFocusMode,
   renderHighlight,
-  hasHighlight,
 }: {
   source: string;
   segmentIndex?: number;
   onUpdate: (val: string) => void;
   isFocusMode?: boolean;
   renderHighlight: () => React.ReactNode;
-  hasHighlight: boolean;
+  hasHighlight?: boolean;
 }) => {
   const [localVal, setLocalVal] = useState(source);
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setLocalVal(source);
@@ -333,9 +335,11 @@ const EditableRawSegment = ({
   };
 
   useEffect(() => {
-    adjustHeight();
-    const timer = setTimeout(adjustHeight, 10);
-    return () => clearTimeout(timer);
+    if (isFocused) {
+      adjustHeight();
+      const timer = setTimeout(adjustHeight, 10);
+      return () => clearTimeout(timer);
+    }
   }, [localVal, isFocusMode, isFocused]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -353,15 +357,35 @@ const EditableRawSegment = ({
     onUpdate(e.target.value);
   };
 
-  if (!isFocused && hasHighlight) {
+  if (!isFocused) {
     return (
       <div
         data-raw-container={segmentIndex}
+        onMouseDown={(e) => {
+          mouseDownPos.current = { x: e.clientX, y: e.clientY };
+        }}
         onClick={(e) => {
+          // 1. Nếu click vào từ vựng highlight -> mở thẻ từ vựng
           const target = e.target as HTMLElement;
           if (target && target.closest('[data-vocab-item]')) {
             return;
           }
+
+          // 2. Nếu đang tô xanh (quét chọn text) -> TUYỆT ĐỐI KHÔNG kích hoạt sửa
+          const selection = window.getSelection();
+          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+            return;
+          }
+
+          // 3. Nếu chuột kéo rê để quét chọn -> không sửa
+          if (mouseDownPos.current) {
+            const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
+            if (dist > 4) {
+              return;
+            }
+          }
+
+          // 4. Chỉ khi click chuột đơn thuần mới kích hoạt sửa
           setIsFocused(true);
           setTimeout(() => {
             if (textareaRef.current) {
@@ -373,7 +397,7 @@ const EditableRawSegment = ({
         className={`w-full bg-transparent border-none p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
           isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
         } m-0 whitespace-normal break-words cursor-text min-h-[1.2em]`}
-        title="Nhấn chuột để sửa trực tiếp bản gốc (Raw)"
+        title="Nhấn chuột để sửa câu gốc (Raw) - Quét bôi đen để tra từ"
       >
         {renderHighlight()}
       </div>
@@ -386,18 +410,14 @@ const EditableRawSegment = ({
       data-raw-index={segmentIndex}
       value={localVal}
       onChange={handleChange}
-      onFocus={() => {
-        setIsFocused(true);
-        adjustHeight();
-      }}
       onBlur={handleBlur}
       placeholder="(trống)"
       rows={1}
       spellCheck={false}
+      autoFocus
       className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
         isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
       } focus:ring-0 m-0 block whitespace-normal min-h-0`}
-      title="Nhấn chuột để sửa trực tiếp bản gốc (Raw)"
     />
   );
 };
@@ -414,12 +434,31 @@ const EditableVpSegment = ({
   isFocusMode?: boolean;
 }) => {
   const [localVal, setLocalVal] = useState(quick);
+  const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setLocalVal(quick);
   }, [quick]);
+
+  useEffect(() => {
+    const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
+      if (e.detail?.index === segmentIndex) {
+        setIsFocused(true);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+            adjustHeight();
+          }
+        }, 30);
+      }
+    };
+    window.addEventListener('focus_vp_segment' as any, handleCustomFocus);
+    return () => window.removeEventListener('focus_vp_segment' as any, handleCustomFocus);
+  }, [segmentIndex]);
 
   const adjustHeight = () => {
     if (textareaRef.current) {
@@ -429,10 +468,12 @@ const EditableVpSegment = ({
   };
 
   useEffect(() => {
-    adjustHeight();
-    const timer = setTimeout(adjustHeight, 10);
-    return () => clearTimeout(timer);
-  }, [localVal, isFocusMode]);
+    if (isFocused) {
+      adjustHeight();
+      const timer = setTimeout(adjustHeight, 10);
+      return () => clearTimeout(timer);
+    }
+  }, [localVal, isFocusMode, isFocused]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -444,9 +485,47 @@ const EditableVpSegment = ({
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     onUpdate(e.target.value);
   };
+
+  if (!isFocused) {
+    return (
+      <div
+        data-vp-container={segmentIndex}
+        onMouseDown={(e) => {
+          mouseDownPos.current = { x: e.clientX, y: e.clientY };
+        }}
+        onClick={(e) => {
+          // Nếu đang tô xanh -> KHÔNG kích hoạt sửa
+          const selection = window.getSelection();
+          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+            return;
+          }
+          if (mouseDownPos.current) {
+            const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
+            if (dist > 4) {
+              return;
+            }
+          }
+          setIsFocused(true);
+          setTimeout(() => {
+            if (textareaRef.current) {
+              textareaRef.current.focus();
+              adjustHeight();
+            }
+          }, 20);
+        }}
+        className={`w-full bg-transparent border-none p-0 text-[#8D6E63] italic opacity-75 hover:opacity-100 leading-[1.1] ${
+          isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
+        } m-0 whitespace-normal break-words cursor-text min-h-[1.1em]`}
+        title="Nhấn chuột để sửa Vietphrase - Quét bôi đen để tra từ"
+      >
+        {localVal || <span className="opacity-40 not-italic text-[9px]">(Chưa có Vietphrase)</span>}
+      </div>
+    );
+  }
 
   return (
     <textarea
@@ -458,10 +537,10 @@ const EditableVpSegment = ({
       placeholder="(Chưa có Vietphrase)"
       rows={1}
       spellCheck={false}
-      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#8D6E63] italic opacity-75 hover:opacity-100 focus:opacity-100 leading-[1.1] ${
+      autoFocus
+      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#8D6E63] italic opacity-100 leading-[1.1] ${
         isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
       } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic cursor-text`}
-      title="Nhấn chuột để sửa trực tiếp Vietphrase"
     />
   );
 };
@@ -478,12 +557,31 @@ const EditableDeeplSegment = ({
   isFocusMode?: boolean;
 }) => {
   const [localVal, setLocalVal] = useState(deepl);
+  const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setLocalVal(deepl);
   }, [deepl]);
+
+  useEffect(() => {
+    const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
+      if (e.detail?.index === segmentIndex) {
+        setIsFocused(true);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+            adjustHeight();
+          }
+        }, 30);
+      }
+    };
+    window.addEventListener('focus_deepl_segment' as any, handleCustomFocus);
+    return () => window.removeEventListener('focus_deepl_segment' as any, handleCustomFocus);
+  }, [segmentIndex]);
 
   const adjustHeight = () => {
     if (textareaRef.current) {
@@ -493,10 +591,12 @@ const EditableDeeplSegment = ({
   };
 
   useEffect(() => {
-    adjustHeight();
-    const timer = setTimeout(adjustHeight, 10);
-    return () => clearTimeout(timer);
-  }, [localVal, isFocusMode]);
+    if (isFocused) {
+      adjustHeight();
+      const timer = setTimeout(adjustHeight, 10);
+      return () => clearTimeout(timer);
+    }
+  }, [localVal, isFocusMode, isFocused]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -508,9 +608,47 @@ const EditableDeeplSegment = ({
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     onUpdate(e.target.value);
   };
+
+  if (!isFocused) {
+    return (
+      <div
+        data-deepl-container={segmentIndex}
+        onMouseDown={(e) => {
+          mouseDownPos.current = { x: e.clientX, y: e.clientY };
+        }}
+        onClick={(e) => {
+          // Nếu đang tô xanh -> KHÔNG kích hoạt sửa
+          const selection = window.getSelection();
+          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+            return;
+          }
+          if (mouseDownPos.current) {
+            const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
+            if (dist > 4) {
+              return;
+            }
+          }
+          setIsFocused(true);
+          setTimeout(() => {
+            if (textareaRef.current) {
+              textareaRef.current.focus();
+              adjustHeight();
+            }
+          }, 20);
+        }}
+        className={`w-full bg-transparent border-none p-0 text-[#A1887F] italic opacity-60 hover:opacity-100 leading-[1.1] ${
+          isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
+        } m-0 whitespace-normal break-words cursor-text min-h-[1.1em] mt-0.5`}
+        title="Nhấn chuột để sửa bản dịch GG/DeepL - Quét bôi đen để tra từ"
+      >
+        {localVal || <span className="opacity-40 not-italic text-[8.5px]">(Chưa có GG/DL)</span>}
+      </div>
+    );
+  }
 
   return (
     <textarea
@@ -522,10 +660,10 @@ const EditableDeeplSegment = ({
       placeholder="(Chưa có GG/DL)"
       rows={1}
       spellCheck={false}
-      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#A1887F] italic opacity-60 hover:opacity-100 focus:opacity-100 leading-[1.1] ${
+      autoFocus
+      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#A1887F] italic opacity-100 leading-[1.1] ${
         isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
       } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic mt-0.5 cursor-text`}
-      title="Nhấn chuột để sửa trực tiếp bản dịch GG/DeepL"
     />
   );
 };
@@ -2455,13 +2593,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               onClick={() => {
                 const targetIdx = rowMenu.index;
                 setRowMenu(null);
-                setTimeout(() => {
-                  const el = document.querySelector<HTMLTextAreaElement>(`textarea[data-vp-index="${targetIdx}"]`);
-                  if (el) {
-                    el.focus();
-                    el.setSelectionRange(el.value.length, el.value.length);
-                  }
-                }, 30);
+                window.dispatchEvent(new CustomEvent('focus_vp_segment', { detail: { index: targetIdx } }));
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
             >
@@ -2473,13 +2605,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               onClick={() => {
                 const targetIdx = rowMenu.index;
                 setRowMenu(null);
-                setTimeout(() => {
-                  const el = document.querySelector<HTMLTextAreaElement>(`textarea[data-deepl-index="${targetIdx}"]`);
-                  if (el) {
-                    el.focus();
-                    el.setSelectionRange(el.value.length, el.value.length);
-                  }
-                }, 30);
+                window.dispatchEvent(new CustomEvent('focus_deepl_segment', { detail: { index: targetIdx } }));
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
             >

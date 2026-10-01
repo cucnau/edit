@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter } from './types';
+import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter, CustomTerm, Character, TranslationSegment } from './types';
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
@@ -669,7 +669,31 @@ function AppContent() {
       novelTerms.forEach(t => termsMap.set(t.id, { ...t, novelId: t.novelId || currentId }));
 
       const merged = Array.from(termsMap.values());
-      updateSession({ customTerms: merged });
+
+      let updatedResult = session.result;
+      if (session.result?.segments && session.result.segments.length > 0) {
+        const currentChars = (session.characters || []).filter(c => !currentId || c.novelId === currentId);
+        const thisNovelTerms = merged.filter(t => !currentId || t.novelId === currentId);
+        const customMap = new Map<string, string>();
+        currentChars.forEach(c => {
+          if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+        });
+        thisNovelTerms.forEach(t => {
+          if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+        });
+
+        const updatedSegments = session.result.segments.map(seg => ({
+          ...seg,
+          quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
+        }));
+        updatedResult = {
+          ...session.result,
+          segments: updatedSegments,
+          quickTrans: updatedSegments.map(s => s.quick).join('\n')
+        };
+      }
+
+      updateSession({ customTerms: merged, result: updatedResult });
       db.bulkSaveCustomTerms(merged).catch(err => {
         console.error("App: db.bulkSaveCustomTerms failed", err);
       });
@@ -696,7 +720,31 @@ function AppContent() {
       novelChars.forEach(c => charsMap.set(c.id, { ...c, novelId: c.novelId || currentId }));
 
       const merged = Array.from(charsMap.values());
-      updateSession({ characters: merged });
+
+      let updatedResult = session.result;
+      if (session.result?.segments && session.result.segments.length > 0) {
+        const thisNovelChars = merged.filter(c => !currentId || c.novelId === currentId);
+        const thisNovelTerms = (session.customTerms || []).filter(t => !currentId || t.novelId === currentId);
+        const customMap = new Map<string, string>();
+        thisNovelChars.forEach(c => {
+          if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+        });
+        thisNovelTerms.forEach(t => {
+          if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+        });
+
+        const updatedSegments = session.result.segments.map(seg => ({
+          ...seg,
+          quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
+        }));
+        updatedResult = {
+          ...session.result,
+          segments: updatedSegments,
+          quickTrans: updatedSegments.map(s => s.quick).join('\n')
+        };
+      }
+
+      updateSession({ characters: merged, result: updatedResult });
       if (currentId && auth.currentUser) {
         syncFirestoreData('char', currentId, 'POST', novelChars).catch(err => {
           console.error("App: syncFirestoreData char failed", err);
@@ -953,10 +1001,11 @@ function AppContent() {
         for (const line of lines.slice(0, 5)) {
           if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
             const customMap = new Map<string, string>();
-            (session.characters || []).forEach(c => {
+            const currentId = session.currentNovelId;
+            (session.characters || []).filter(c => !currentId || c.novelId === currentId).forEach(c => {
                 if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
             });
-            (session.customTerms || []).forEach(t => {
+            (session.customTerms || []).filter(t => !currentId || t.novelId === currentId).forEach(t => {
                 if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
             });
             autoName = vietphraseEngine.translate(line, customMap);
@@ -1087,10 +1136,11 @@ function AppContent() {
         for (const line of lines.slice(0, 5)) {
           if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
             const customMap = new Map<string, string>();
-            (session.characters || []).forEach(c => {
+            const currentId = session.currentNovelId;
+            (session.characters || []).filter(c => !currentId || c.novelId === currentId).forEach(c => {
                 if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
             });
-            (session.customTerms || []).forEach(t => {
+            (session.customTerms || []).filter(t => !currentId || t.novelId === currentId).forEach(t => {
                 if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
             });
             autoName = vietphraseEngine.translate(line, customMap);
@@ -1152,12 +1202,17 @@ function AppContent() {
 
     const inputLines = cleanInput.split('\n').filter(Boolean);
     
-    // Optimize: Convert customTerms & characters to Map once (customTerms take priority over characters)
+    // Optimize: Convert customTerms & characters to Map once for current novel only
+    const currentId = session.currentNovelId;
+    const currentCharacters = (session.characters || []).filter(c => !currentId || c.novelId === currentId);
+    const currentTerms = (session.customTerms || []).filter(t => !currentId || t.novelId === currentId);
+    const currentRelationships = (session.relationships || []).filter(r => !currentId || r.novelId === currentId);
+
     const customMap = new Map<string, string>();
-    (session.characters || []).forEach(c => {
+    currentCharacters.forEach(c => {
         if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
     });
-    (session.customTerms || []).forEach(t => {
+    currentTerms.forEach(t => {
         if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
     });
 
@@ -1186,9 +1241,9 @@ function AppContent() {
           // --- BƯỚC 2: GỌI AI ---
           data = await translateText(
             session.inputText, 
-            session.customTerms,
-            session.characters,
-            session.relationships
+            currentTerms,
+            currentCharacters,
+            currentRelationships
           );
       }
       
@@ -1800,7 +1855,7 @@ function AppContent() {
         isOpen={showChapters} 
         onClose={() => setShowChapters(false)} 
         chapters={currentNovelChapters} 
-        customTerms={session.customTerms} 
+        customTerms={(session.customTerms || []).filter(t => !session.currentNovelId || t.novelId === session.currentNovelId)} 
         onSelectChapter={handleRestoreChapter} 
         onDeleteChapter={handleDeleteChapter} 
         onRenameChapter={handleRenameChapter} 

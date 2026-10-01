@@ -304,7 +304,6 @@ const EditableRawSegment = ({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
-  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setLocalVal(source);
@@ -361,43 +360,10 @@ const EditableRawSegment = ({
     return (
       <div
         data-raw-container={segmentIndex}
-        onMouseDown={(e) => {
-          mouseDownPos.current = { x: e.clientX, y: e.clientY };
-        }}
-        onClick={(e) => {
-          // 1. Nếu click vào từ vựng highlight -> mở thẻ từ vựng
-          const target = e.target as HTMLElement;
-          if (target && target.closest('[data-vocab-item]')) {
-            return;
-          }
-
-          // 2. Nếu đang tô xanh (quét chọn text) -> TUYỆT ĐỐI KHÔNG kích hoạt sửa
-          const selection = window.getSelection();
-          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
-            return;
-          }
-
-          // 3. Nếu chuột kéo rê để quét chọn -> không sửa
-          if (mouseDownPos.current) {
-            const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
-            if (dist > 4) {
-              return;
-            }
-          }
-
-          // 4. Chỉ khi click chuột đơn thuần mới kích hoạt sửa
-          setIsFocused(true);
-          setTimeout(() => {
-            if (textareaRef.current) {
-              textareaRef.current.focus();
-              adjustHeight();
-            }
-          }, 20);
-        }}
         className={`w-full bg-transparent border-none p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
           isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
-        } m-0 whitespace-normal break-words cursor-text min-h-[1.2em]`}
-        title="Nhấn chuột để sửa câu gốc (Raw) - Quét bôi đen để tra từ"
+        } m-0 whitespace-normal break-words select-text min-h-[1.2em]`}
+        title="Quét chọn bôi đen để tra từ (Dùng menu 3 chấm hoặc chuột phải để sửa câu gốc)"
       >
         {renderHighlight()}
       </div>
@@ -410,14 +376,23 @@ const EditableRawSegment = ({
       data-raw-index={segmentIndex}
       value={localVal}
       onChange={handleChange}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsFocused(false);
+        }
+      }}
       onBlur={handleBlur}
       placeholder="(trống)"
       rows={1}
       spellCheck={false}
       autoFocus
-      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
+      className={`w-full bg-transparent border border-[#8D6E63]/40 rounded-xs outline-none resize-none overflow-hidden p-0.5 text-[#3E2723] font-serif-sc leading-[1.2] ${
         isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
-      } focus:ring-0 m-0 block whitespace-normal min-h-0`}
+      } focus:ring-1 focus:ring-[#8D6E63] m-0 block whitespace-normal min-h-0 bg-white/70`}
     />
   );
 };
@@ -437,7 +412,6 @@ const EditableVpSegment = ({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
-  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setLocalVal(quick);
@@ -494,33 +468,10 @@ const EditableVpSegment = ({
     return (
       <div
         data-vp-container={segmentIndex}
-        onMouseDown={(e) => {
-          mouseDownPos.current = { x: e.clientX, y: e.clientY };
-        }}
-        onClick={(e) => {
-          // Nếu đang tô xanh -> KHÔNG kích hoạt sửa
-          const selection = window.getSelection();
-          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
-            return;
-          }
-          if (mouseDownPos.current) {
-            const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
-            if (dist > 4) {
-              return;
-            }
-          }
-          setIsFocused(true);
-          setTimeout(() => {
-            if (textareaRef.current) {
-              textareaRef.current.focus();
-              adjustHeight();
-            }
-          }, 20);
-        }}
         className={`w-full bg-transparent border-none p-0 text-[#8D6E63] italic opacity-75 hover:opacity-100 leading-[1.1] ${
           isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
-        } m-0 whitespace-normal break-words cursor-text min-h-[1.1em]`}
-        title="Nhấn chuột để sửa Vietphrase - Quét bôi đen để tra từ"
+        } m-0 whitespace-normal break-words select-text min-h-[1.1em]`}
+        title="Vietphrase đối chiếu (Dùng menu 3 chấm hoặc chuột phải để sửa)"
       >
         {localVal || <span className="opacity-40 not-italic text-[9px]">(Chưa có Vietphrase)</span>}
       </div>
@@ -533,14 +484,23 @@ const EditableVpSegment = ({
       data-vp-index={segmentIndex}
       value={localVal}
       onChange={handleChange}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsFocused(false);
+        }
+      }}
       onBlur={handleBlur}
       placeholder="(Chưa có Vietphrase)"
       rows={1}
       spellCheck={false}
       autoFocus
-      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#8D6E63] italic opacity-100 leading-[1.1] ${
+      className={`w-full bg-transparent border border-[#8D6E63]/40 rounded-xs outline-none resize-none overflow-hidden p-0.5 text-[#8D6E63] italic opacity-100 leading-[1.1] ${
         isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
-      } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic cursor-text`}
+      } focus:ring-1 focus:ring-[#8D6E63] m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic bg-white/70`}
     />
   );
 };
@@ -560,7 +520,6 @@ const EditableDeeplSegment = ({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
-  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setLocalVal(deepl);
@@ -617,33 +576,10 @@ const EditableDeeplSegment = ({
     return (
       <div
         data-deepl-container={segmentIndex}
-        onMouseDown={(e) => {
-          mouseDownPos.current = { x: e.clientX, y: e.clientY };
-        }}
-        onClick={(e) => {
-          // Nếu đang tô xanh -> KHÔNG kích hoạt sửa
-          const selection = window.getSelection();
-          if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
-            return;
-          }
-          if (mouseDownPos.current) {
-            const dist = Math.hypot(e.clientX - mouseDownPos.current.x, e.clientY - mouseDownPos.current.y);
-            if (dist > 4) {
-              return;
-            }
-          }
-          setIsFocused(true);
-          setTimeout(() => {
-            if (textareaRef.current) {
-              textareaRef.current.focus();
-              adjustHeight();
-            }
-          }, 20);
-        }}
         className={`w-full bg-transparent border-none p-0 text-[#A1887F] italic opacity-60 hover:opacity-100 leading-[1.1] ${
           isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
-        } m-0 whitespace-normal break-words cursor-text min-h-[1.1em] mt-0.5`}
-        title="Nhấn chuột để sửa bản dịch GG/DeepL - Quét bôi đen để tra từ"
+        } m-0 whitespace-normal break-words select-text min-h-[1.1em] mt-0.5`}
+        title="Bản dịch tham khảo GG/DeepL (Dùng menu 3 chấm hoặc chuột phải để sửa)"
       >
         {localVal || <span className="opacity-40 not-italic text-[8.5px]">(Chưa có GG/DL)</span>}
       </div>
@@ -656,14 +592,23 @@ const EditableDeeplSegment = ({
       data-deepl-index={segmentIndex}
       value={localVal}
       onChange={handleChange}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsFocused(false);
+        }
+      }}
       onBlur={handleBlur}
       placeholder="(Chưa có GG/DL)"
       rows={1}
       spellCheck={false}
       autoFocus
-      className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#A1887F] italic opacity-100 leading-[1.1] ${
+      className={`w-full bg-transparent border border-[#8D6E63]/40 rounded-xs outline-none resize-none overflow-hidden p-0.5 text-[#A1887F] italic opacity-100 leading-[1.1] ${
         isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
-      } focus:ring-0 m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic mt-0.5 cursor-text`}
+      } focus:ring-1 focus:ring-[#8D6E63] m-0 block whitespace-normal min-h-0 placeholder:opacity-50 placeholder:not-italic mt-0.5 bg-white/70`}
     />
   );
 };
@@ -1126,7 +1071,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       const cleanSource = (seg.source || '').trim();
       const cleanNatural = (seg.natural || '').trim();
       const cleanDeepl = (seg.deepl || '').trim();
-      const cleanQuick = (seg.quick !== undefined && seg.quick !== null && seg.quick !== '' ? seg.quick : (vietphraseEngine.translate(cleanSource, customMap) || '')).trim();
+      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).trim();
 
       if (!cleanSource && !cleanNatural) return;
 
@@ -1641,9 +1586,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
                       const cleanDeepl = (seg.deepl || '').trim();
-                      const cleanQuick = (seg.quick !== undefined && seg.quick !== null && seg.quick !== '' 
-                        ? seg.quick 
-                        : (vietphraseEngine.translate(cleanSource, customMap) || '')).trim();
+                      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).trim();
 
                       if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl) return null;
 
@@ -2572,7 +2515,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         >
           <div className="px-3 py-1.5 text-[10px] font-bold text-[#8D6E63] uppercase tracking-wider bg-[#FAF7F2] flex items-center justify-between">
             <span>Hàng #{rowMenu.index + 1}</span>
-            <span className="text-[9px] font-normal text-[#A1887F] lowercase">nhấp chuột để sửa trực tiếp</span>
+            <span className="text-[9px] font-normal text-[#A1887F] lowercase">tùy chọn chỉnh sửa</span>
           </div>
 
           <div className="py-0.5">
@@ -2619,7 +2562,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               type="button"
               onClick={() => {
                 const seg = data.segments[rowMenu.index];
-                const quick = seg?.quick || (seg?.source ? vietphraseEngine.translate(seg.source || '', customMap) : '');
+                const quick = (seg?.source ? (vietphraseEngine.translate(seg.source || '', customMap) || seg?.quick || '') : (seg?.quick || ''));
                 setModalEditRow({
                   index: rowMenu.index,
                   source: seg?.source || '',

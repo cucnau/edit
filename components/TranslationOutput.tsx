@@ -1645,7 +1645,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
           )}
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent pb-4">
+      <div className="flex-1 overflow-y-auto bg-white pb-4">
         {hasSegments ? (
              <div className="w-full text-left m-0 p-0 border-none block lg:table lg:table-fixed border-collapse">
                 <div className="divide-y divide-[#EFEBE9] block lg:table-row-group">

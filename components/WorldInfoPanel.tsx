@@ -382,7 +382,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden bg-[#F5E6D3] flex flex-col">
+      <div className="flex-1 overflow-hidden bg-white flex flex-col">
         
         {/* --- CHARACTER TAB --- */}
         {activeTab === 'char' && (
@@ -417,7 +417,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                </button>
             </div>
             
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto bg-white">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-[#D7CCC8] sticky top-0 z-10 text-[9px] font-bold text-[#3E2723] uppercase">
                   <tr>
@@ -571,11 +571,11 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                   </button>
                </div>
 
-               <button onClick={handleAddRel} className="bg-[#5D4037] text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 hover:bg-[#795548] shadow-sm h-6" title="Thêm quan hệ mới">
-                  <Plus size={10} />
+               <button onClick={handleAddRel} className="bg-[#5D4037] text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 hover:bg-[#795548] shadow-sm h-6">
+                  <Plus size={10} /> Thêm QH
                </button>
             </div>
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto bg-white">
                <table className="w-full text-left border-collapse">
                 <thead className="bg-[#D7CCC8] sticky top-0 z-10 text-[9px] font-bold text-[#3E2723] uppercase">
                   <tr>

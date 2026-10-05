@@ -82,15 +82,15 @@
         [data-deepl-container] * {
             font-style: normal !important;
         }
-        /* Custom Scrollbar Chuẩn đẹp như Ảnh 2: Track hoàn toàn trong suốt, Thumb nâu cà phê bo tròn viên thuốc nổi tự nhiên */
-        * {
+        /* Custom Scrollbar Chuẩn 100% Ảnh 2: Track hoàn toàn trong suốt, Thumb nâu đậm bo tròn viên thuốc mềm mại */
+        *, html, body, div, table, tbody, main, textarea, section, aside {
             scrollbar-width: thin;
-            scrollbar-color: #8D6E63 transparent;
+            scrollbar-color: #8D6E63 transparent !important;
         }
         *::-webkit-scrollbar,
         ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
+            width: 6px !important;
+            height: 6px !important;
         }
         *::-webkit-scrollbar-button,
         ::-webkit-scrollbar-button {
@@ -103,15 +103,17 @@
         *::-webkit-scrollbar-track-piece,
         ::-webkit-scrollbar-track-piece {
             background: transparent !important;
+            border: none !important;
         }
         *::-webkit-scrollbar-thumb,
         ::-webkit-scrollbar-thumb {
-            background-color: #8D6E63;
-            border-radius: 9999px;
+            background-color: #8D6E63 !important;
+            border-radius: 9999px !important;
+            border: none !important;
         }
         *::-webkit-scrollbar-thumb:hover,
         ::-webkit-scrollbar-thumb:hover {
-            background-color: #5D4037;
+            background-color: #5D4037 !important;
         }
         *::-webkit-scrollbar-corner,
         ::-webkit-scrollbar-corner {

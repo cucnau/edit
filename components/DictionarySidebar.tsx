@@ -416,57 +416,36 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   return (
     <div className="flex flex-col h-full bg-[#EFE5D9] border-r border-[#D7CCC8] w-80 shrink-0">
       {/* Header */}
-      <div className="p-2.5 border-b border-[#D7CCC8] bg-[#D7CCC8]/30 flex items-center justify-between">
-         <div className="flex items-center gap-1.5 text-[#3E2723] font-bold">
-            <BookUser size={15} className="text-[#5D4037]" />
-            <span className="text-xs">Kho Từ Vựng</span>
+      <div className="p-3 border-b border-[#D7CCC8] bg-[#D7CCC8]/30 flex items-center justify-between">
+         <div className="flex items-center gap-2 text-[#3E2723] font-bold">
+            <BookUser size={16} className="text-[#5D4037]" />
+            <span className="text-sm">Kho Từ Vựng</span>
          </div>
-         <div className="flex items-center gap-0.5">
+         <div className="flex items-center gap-1">
             {/* Quick Button for VP status */}
             <button
                 onClick={() => setShowSettings(true)}
                 className={`p-1 rounded-full transition-colors flex items-center gap-1 ${vpCount > 0 ? 'text-[#3E2723] bg-[#EFE5D9] border border-[#D7CCC8]' : 'text-red-500 hover:bg-red-50 animate-pulse'}`}
-                title={vpCount > 0 ? `Đã nạp ${vpCount} từ Vietphrase` : "Chưa có Vietphrase! Bấm để nạp"}
+                title={vpCount > 0 ? `Đã nạp ${vpCount} từ` : "Chưa có Vietphrase! Bấm để nạp"}
             >
-                {vpCount > 0 ? <CheckCircle size={13} className="text-green-600" /> : <FileText size={13} />}
-                {vpCount > 0 && <span className="text-[8.5px] font-mono">{Math.floor(vpCount/1000)}k</span>}
+                {vpCount > 0 ? <CheckCircle size={14} className="text-green-600" /> : <FileText size={14} />}
+                {vpCount > 0 && <span className="text-[9px] font-mono">{Math.floor(vpCount/1000)}k</span>}
             </button>
-
-            {/* Cloud Sync: Pull & Push as clean icons */}
-            <button 
-                onClick={() => handlePullFromCloud(false)} 
-                disabled={isSyncing || !isSignedIn} 
-                className="p-1 text-blue-700 hover:bg-blue-50 rounded-full transition-colors disabled:opacity-40" 
-                title="Tải từ Cloud (Đồng bộ về máy)"
-            >
-                {isSyncing ? <Loader2 className="animate-spin" size={13} /> : <Download size={13} />}
-            </button>
-
-            <button 
-                onClick={() => handlePushToCloud(false)} 
-                disabled={isSyncing || !isSignedIn} 
-                className="p-1 text-green-700 hover:bg-green-50 rounded-full transition-colors disabled:opacity-40" 
-                title="Lưu lên Cloud (Đẩy dữ liệu)"
-            >
-                {isSyncing ? <Loader2 className="animate-spin" size={13} /> : <Upload size={13} />}
-            </button>
-
             {onExportExcel && (
               <button
                   onClick={onExportExcel}
                   className="p-1 rounded-full text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#D7CCC8] transition-colors"
                   title="Xuất Excel (Tất cả từ vựng, nhân vật, quan hệ)"
               >
-                  <FileSpreadsheet size={13} />
-              </button>
-            )}
+                  <FileSpreadsheet size={14} />
+              </button>)}
             
             <button
                 onClick={() => setShowSettings(!showSettings)}
                 className={`p-1 rounded-full transition-colors ${showSettings ? 'bg-[#3E2723] text-[#F5E6D3]' : 'text-[#8D6E63] hover:text-[#3E2723] hover:bg-[#D7CCC8]'}`}
-                title="Cài đặt & Nạp từ điển"
+                title="Cài đặt"
             >
-                <Settings size={13} />
+                <Settings size={14} />
             </button>
          </div>
       </div>
@@ -798,7 +777,23 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                 </div>
              </div>
           </div>
+      
+
+)} 
+      {/* Sync Buttons */}
+      {!showSettings && (
+          <div className="px-2 py-1.5 border-b border-[#D7CCC8] flex flex-col gap-1.5 bg-[#EFE5D9]">
+             <div className="flex gap-2 justify-center">
+                <button onClick={() => handlePullFromCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-blue-200 text-blue-700 py-1 rounded hover:bg-blue-50 shadow-sm disabled:opacity-50">
+                   {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Download size={12} />} Tải về
+                </button>
+                <button onClick={() => handlePushToCloud(false)} disabled={isSyncing || !isSignedIn} className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold uppercase bg-white border border-green-200 text-green-700 py-1 rounded hover:bg-green-50 shadow-sm disabled:opacity-50">
+                   {isSyncing ? <Loader2 className="animate-spin" size={12} /> : <Upload size={12} />} Đẩy lên
+                </button>
+             </div>
+          </div>
       )}
+      
       
       {syncMessage && (
          <div className={`px-2 py-0.5 text-[10px] text-center font-bold ${syncMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} transition-all`}>
@@ -829,7 +824,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
       </div>
 
       {/* Table Content */}
-      <div className="flex-1 overflow-y-auto bg-[#F5E6D3]">
+      <div className="flex-1 overflow-y-auto bg-white">
         <table className="w-full text-left border-collapse">
           <thead className="bg-[#EFEBE9] sticky top-0 z-10 shadow-sm">
             <tr>

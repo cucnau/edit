@@ -42,8 +42,8 @@ export const getQuickTransFileType = (fileName: string): { fileType: VietphraseF
   if (lower.includes('honguoi') || lower.includes('surname')) {
     return { fileType: 'honguoi', priority: 20, label: 'Họ Người', color: 'bg-rose-100 text-rose-800 border-rose-300' };
   }
-  if (lower.includes('lacviet') || lower.includes('tudon') || lower.includes('tudien')) {
-    return { fileType: 'lacviet', priority: 10, label: 'Lạc Việt (Từ đơn)', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  if (lower.includes('lacviet') || lower.includes('hanviet') || lower.includes('thieuchuu') || lower.includes('tudon') || lower.includes('tudien')) {
+    return { fileType: 'lacviet', priority: 10, label: 'Lạc Việt / Hán Việt', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
   }
   return { fileType: 'other', priority: 35, label: 'Khác', color: 'bg-stone-100 text-stone-800 border-stone-300' };
 };
@@ -186,6 +186,9 @@ const BUILTIN_HANVIET_FALLBACK: Record<string, string> = {
   '我': 'ngã - tôi, ta, bản thân mình',
   '们': 'môn - chúng, bọn, các (hậu tố số nhiều)',
   '之': 'chi - của, này, đi đến, nó (trợ từ)',
+  '的': 'đích - của, đích (trợ từ)',
+  '着': 'trước - đang, tiếp diễn (trợ từ)',
+  '了': 'liễu - rồi, xong (trợ từ)',
   '乎': 'hô - ư, ru, chăng (trợ từ nghi vấn)',
   '者': 'giả - người, kẻ, cái, việc',
   '也': 'dã - cũng, lại, vậy (trợ từ khẳng định)'
@@ -387,7 +390,7 @@ class VietphraseEngine {
       });
 
     for (const file of sortedFiles) {
-      const isLacViet = file.fileType === 'lacviet' || file.name.toLowerCase().includes('lacviet');
+      const isLacViet = file.fileType === 'lacviet' || file.name.toLowerCase().includes('lacviet') || file.name.toLowerCase().includes('hanviet') || file.name.toLowerCase().includes('thieuchuu');
       const lines = file.content.split(/\r?\n/);
       for (const line of lines) {
         const trimmed = line.trim();

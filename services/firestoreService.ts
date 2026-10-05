@@ -1,0 +1,562 @@
+import { db, auth } from './firebase';
+import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { CustomTerm, Character, Relationship, Novel, Chapter, TextShortcut, TranslationResponse } from '../types';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+const sanitizeData = (obj: any): any => {
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj !== 'object') return obj;
+  if (obj instanceof Timestamp) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeData).filter(v => v !== undefined);
+  }
+  const result: Record<string, any> = {};
+  for (const key of Object.keys(obj)) {
+    const val = obj[key];
+    if (val !== undefined && val !== null) {
+      const sanitizedVal = sanitizeData(val);
+      if (sanitizedVal !== undefined && sanitizedVal !== null) {
+        result[key] = sanitizedVal;
+      }
+    }
+  }
+  return result;
+};
+
+const dbCache = new Map<string, Map<string, any>>(); // Global cache to prevent repeated getDocs on POST
+
+export const getNovels = async (): Promise<Novel[]> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Bạn cần đăng nhập!');
+  const path = 'novels';
+  try {
+    const q = query(collection(db, path), where('userId', '==', user.uid));
+    const snap = await getDocs(q);
+    const novels: Novel[] = [];
+    snap.forEach(d => {
+      novels.push({ id: d.id, name: d.data().name });
+    });
+    return novels;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+};
+
+export const createNovel = async (id: string, name: string): Promise<Novel> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Bạn cần đăng nhập!');
+  const path = `novels/${id}`;
+  try {
+    const novelRef = doc(collection(db, 'novels'), id);
+    await setDoc(novelRef, { userId: user.uid, name, createdAt: Timestamp.now() });
+    return { id, name };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const deleteNovel = async (id: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Bạn cần đăng nhập!');
+  const path = `novels/${id}`;
+  try {
+    await deleteDoc(doc(db, 'novels', id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
+export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut', id: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !id) return;
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
+  try {
+    await deleteDoc(doc(db, collectionName, id));
+  } catch (error) {
+    console.warn(`Lỗi xóa ${collectionName}/${id}:`, error);
+  }
+};
+
+export const overwriteFirestoreData = async <T extends { id: string, novelId?: string }>(
+  type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut',
+  novelId: string,
+  newItems: T[]
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return;
+
+  const isChunkedType = type !== 'chapter';
+  if (isChunkedType) {
+    // Tận dụng lại logic phân mảnh bundle của syncFirestoreData
+    await syncFirestoreData(type, novelId, 'POST', newItems);
+    return;
+  }
+
+  const collectionName = 'chapters';
+  const collRef = collection(db, collectionName);
+
+  // 1. Fetch all existing documents belonging to this user and novelId
+  const q = query(collRef, where('userId', '==', user.uid), where('novelId', '==', novelId));
+  const snapshot = await getDocs(q);
+
+  const operations: { type: 'set' | 'delete', ref: any, data?: any }[] = [];
+
+  // Delete all existing items
+  snapshot.forEach(docSnap => {
+    operations.push({ type: 'delete', ref: docSnap.ref });
+  });
+
+  // Prepare new items to insert
+  newItems.forEach(item => {
+    const rawData = {
+      ...item,
+      novelId,
+      userId: user.uid,
+      createdAt: Timestamp.now()
+    };
+    const dataToSave = sanitizeData(rawData);
+    Object.keys(dataToSave).forEach(k => {
+      if (dataToSave[k] === undefined) delete dataToSave[k];
+    });
+    operations.push({
+      type: 'set',
+      ref: doc(collRef, item.id),
+      data: dataToSave
+    });
+  });
+
+  // Execute in small batches to stay well within Firestore 10MB payload & 500 write limit
+  const CHUNK_SIZE = 80;
+  for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+    const chunk = operations.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach(op => {
+      if (op.type === 'delete') {
+        batch.delete(op.ref);
+      } else {
+        batch.set(op.ref, op.data, { merge: true });
+      }
+    });
+    await batch.commit();
+  }
+
+  // Clear cache
+  dbCache.delete(`${collectionName}_${novelId}`);
+};
+
+// Tối ưu hóa Firestore: Gom toàn bộ từ vựng / nhân vật / mối quan hệ / phím tắt vào một document duy nhất theo novelId
+export const syncFirestoreData = async <T extends { id: string, novelId?: string }>(
+  type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut',
+  novelId: string,
+  action: 'GET' | 'POST',
+  payload?: T[]
+): Promise<T[]> => {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('Bạn cần đăng nhập để đồng bộ dữ liệu!');
+  }
+  if (!novelId) {
+    throw new Error('Chưa chọn truyện!');
+  }
+
+  // Đối với vocab, char, rel, shortcut: Gom thành 1 document duy nhất `store_${type}_${novelId}`
+  // Giúp giảm từ hàng nghìn lần read/write xuống đúng 1 lần đọc và 1 lần ghi!
+  const isChunkedType = type !== 'chapter';
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
+
+  if (isChunkedType) {
+    const docId = `bundle_${user.uid}_${novelId}`;
+    const chunkDocRef = doc(db, `${collectionName}_bundles`, docId);
+
+    if (action === 'GET') {
+      try {
+        const docSnap = await getDocs(query(collection(db, `${collectionName}_bundles`), where('userId', '==', user.uid), where('novelId', '==', novelId)));
+        if (!docSnap.empty) {
+          let allItems: any[] = [];
+          docSnap.docs.forEach(d => {
+            const data = d.data();
+            if (data.items) {
+              allItems = allItems.concat(data.items);
+            }
+          });
+          return allItems as T[];
+        }
+
+        // Fallback kiểm tra dữ liệu cũ nếu chưa gom bundle
+        const collRef = collection(db, collectionName);
+        const q = query(collRef, where('userId', '==', user.uid));
+        const legacySnap = await getDocs(q);
+        const legacyItems: any[] = [];
+        legacySnap.forEach(d => {
+          const itemData = d.data();
+          if (!itemData.novelId || itemData.novelId === novelId) {
+            const { userId, createdAt, ...rest } = itemData;
+            legacyItems.push({ id: d.id, ...rest, novelId: itemData.novelId || novelId });
+          }
+        });
+        return legacyItems as T[];
+      } catch (err) {
+        console.warn(`Lỗi lấy dữ liệu ${collectionName}:`, err);
+        return [];
+      }
+    } else if (action === 'POST' && payload) {
+      const targetPayload = payload.filter(item => !item.novelId || item.novelId === novelId);
+      
+      try {
+        const BUNDLE_SIZE = 1500; // Giới hạn số lượng item mỗi bundle để tránh lỗi 400 Payload Too Large
+        
+        // 1. Xóa tất cả các bundle cũ
+        const oldBundlesSnap = await getDocs(query(collection(db, `${collectionName}_bundles`), where('userId', '==', user.uid), where('novelId', '==', novelId)));
+        const batch = writeBatch(db);
+        
+        oldBundlesSnap.forEach(d => {
+          batch.delete(d.ref);
+        });
+        
+        // 2. Chia nhỏ targetPayload thành nhiều chunks
+        for (let i = 0; i < targetPayload.length; i += BUNDLE_SIZE) {
+          const chunk = targetPayload.slice(i, i + BUNDLE_SIZE);
+          const chunkId = `bundle_${user.uid}_${novelId}_${i / BUNDLE_SIZE}`;
+          const dataToSave = sanitizeData({
+            userId: user.uid,
+            novelId,
+            items: chunk,
+            updatedAt: Date.now(),
+            chunkIndex: i / BUNDLE_SIZE
+          });
+          batch.set(doc(db, `${collectionName}_bundles`, chunkId), dataToSave);
+        }
+        
+        await batch.commit();
+      } catch (err) {
+        console.error(`Lỗi khi lưu bundle ${collectionName}:`, err);
+      }
+      return payload;
+    }
+  }
+
+  return [];
+};
+
+export const getAllUserCustomTermsFromCloud = async (): Promise<CustomTerm[]> => {
+  const user = auth.currentUser;
+  if (!user) return [];
+  try {
+    const termsMap = new Map<string, CustomTerm>();
+    
+    // 1. Quét tất cả bundles customTerms_bundles của user này trên Firestore
+    const bundlesSnap = await getDocs(query(collection(db, 'customTerms_bundles'), where('userId', '==', user.uid)));
+    bundlesSnap.forEach(d => {
+      const data = d.data();
+      if (data.items && Array.isArray(data.items)) {
+        data.items.forEach((item: any) => {
+          if (item && item.id && item.term) {
+            termsMap.set(item.id, item as CustomTerm);
+          }
+        });
+      }
+    });
+
+    // 2. Quét cả dữ liệu dạng document đơn lẻ (legacy) nếu có
+    const legacySnap = await getDocs(query(collection(db, 'customTerms'), where('userId', '==', user.uid)));
+    legacySnap.forEach(d => {
+      const itemData = d.data();
+      if (itemData && itemData.term) {
+        const { userId, createdAt, ...rest } = itemData;
+        const term: CustomTerm = { id: d.id, ...rest } as CustomTerm;
+        if (!termsMap.has(term.id)) {
+          termsMap.set(term.id, term);
+        }
+      }
+    });
+
+    return Array.from(termsMap.values());
+  } catch (err) {
+    console.warn("Lỗi khôi phục toàn bộ từ vựng từ Cloud:", err);
+    return [];
+  }
+};
+
+export const getChaptersFromCloud = async (novelId: string, retryCount = 1): Promise<Chapter[]> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return [];
+  const path = 'chapters';
+  try {
+    const q = query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const snap = await getDocs(q);
+    const chapters: Chapter[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const { userId, ...rest } = data;
+      chapters.push({ id: d.id, ...rest } as Chapter);
+    });
+    chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return chapters;
+  } catch (error) {
+    if (retryCount > 0) {
+      await new Promise(res => setTimeout(res, 1200));
+      return getChaptersFromCloud(novelId, retryCount - 1);
+    }
+    console.warn("Không thể tải chương từ đám mây (đang dùng cache cục bộ):", error);
+    return [];
+  }
+};
+
+export const saveChapterToCloud = async (chapter: Chapter): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return; // Silent return if not logged in
+  if (!chapter.novelId) return;
+  const path = `chapters/${chapter.id}`;
+  try {
+    const rawData = {
+      ...chapter,
+      userId: user.uid,
+      createdAt: Timestamp.now()
+    };
+    const dataToSave = sanitizeData(rawData);
+    Object.keys(dataToSave).forEach(k => {
+      if (dataToSave[k] === undefined) delete dataToSave[k];
+    });
+    await setDoc(doc(db, 'chapters', chapter.id), dataToSave, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const bulkSaveChaptersToCloud = async (chapters: Chapter[]): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || chapters.length === 0) return;
+  
+  // Batch writes in small chunks of 10 chapters because chapter texts are large
+  const chunkSize = 10;
+  for (let i = 0; i < chapters.length; i += chunkSize) {
+    const chunk = chapters.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    chunk.forEach(ch => {
+      if (!ch.id) return;
+      const rawData = {
+        ...ch,
+        userId: user.uid,
+        createdAt: Timestamp.now()
+      };
+      const dataToSave = sanitizeData(rawData);
+      Object.keys(dataToSave).forEach(k => {
+        if (dataToSave[k] === undefined) delete dataToSave[k];
+      });
+      batch.set(doc(db, 'chapters', ch.id), dataToSave, { merge: true });
+    });
+    await batch.commit();
+  }
+};
+
+export const deleteChapterFromCloud = async (chapterId: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+  const path = `chapters/${chapterId}`;
+  try {
+    await deleteDoc(doc(db, 'chapters', chapterId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
+export const clearNovelChaptersFromCloud = async (novelId: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return;
+  const path = 'chapters';
+  try {
+    const q = query(collection(db, 'chapters'), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.forEach(d => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
+export const getShortcutsFromCloud = async (novelId: string): Promise<TextShortcut[]> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return [];
+  const path = 'shortcuts';
+  try {
+    const q = query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const snap = await getDocs(q);
+    const shortcuts: TextShortcut[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const { userId, createdAt, ...rest } = data;
+      shortcuts.push({ id: d.id, ...rest, novelId: data.novelId || novelId } as TextShortcut);
+    });
+    return shortcuts;
+  } catch (error) {
+    console.warn("Không thể tải phím tắt từ đám mây (đang dùng cache cục bộ):", error);
+    return [];
+  }
+};
+
+export const saveShortcutsToCloud = async (novelId: string, shortcuts: TextShortcut[]): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return;
+  await overwriteFirestoreData('shortcut', novelId, shortcuts);
+};
+
+export interface ActiveSessionCloudData {
+  userId: string;
+  novelId: string;
+  updatedAt: number;
+  deviceId: string;
+  currentChapterId?: string;
+  currentHistoryId?: string;
+  inputText: string;
+  deeplText: string;
+  preEditedText: string;
+  status: string;
+  completedSegments: number[];
+  result: TranslationResponse | null;
+}
+
+export const getActiveSessionDocId = (userId: string) => {
+  return `session_${userId}`;
+};
+
+export const saveActiveSessionToCloud = async (
+  sessionData: {
+    novelId?: string;
+    deviceId: string;
+    currentChapterId?: string;
+    currentHistoryId?: string;
+    inputText: string;
+    deeplText: string;
+    preEditedText: string;
+    status: string;
+    completedSegments: number[];
+    result: TranslationResponse | null;
+  }
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const docId = getActiveSessionDocId(user.uid);
+  const docRef = doc(db, 'activeSessions', docId);
+
+  const rawData: ActiveSessionCloudData = {
+    userId: user.uid,
+    novelId: sessionData.novelId || '',
+    updatedAt: Date.now(),
+    deviceId: sessionData.deviceId,
+    currentChapterId: sessionData.currentChapterId || '',
+    currentHistoryId: sessionData.currentHistoryId || '',
+    inputText: sessionData.inputText || '',
+    deeplText: sessionData.deeplText || '',
+    preEditedText: sessionData.preEditedText || '',
+    status: sessionData.status || 'idle',
+    completedSegments: sessionData.completedSegments || [],
+    result: sessionData.result || null
+  };
+
+  const dataToSave = sanitizeData(rawData);
+  Object.keys(dataToSave).forEach(k => {
+    if (dataToSave[k] === undefined) delete dataToSave[k];
+  });
+
+  try {
+    await setDoc(docRef, dataToSave, { merge: true });
+  } catch (error) {
+    console.warn("Lỗi lưu active session lên đám mây:", error);
+  }
+};
+
+export const listenToActiveSession = (
+  currentDeviceId: string,
+  onUpdate: (data: ActiveSessionCloudData) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  const docId = getActiveSessionDocId(user.uid);
+  const docRef = doc(db, 'activeSessions', docId);
+
+  return onSnapshot(docRef, (docSnap) => {
+    if (!docSnap.exists()) return;
+    const data = docSnap.data() as ActiveSessionCloudData;
+    // Bỏ qua các cập nhật được phát ra từ chính tab/thiết bị này
+    if (data.deviceId === currentDeviceId) return;
+    onUpdate(data);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe active session realtime:", error);
+  });
+};
+
+export const listenToChaptersRealtime = (
+  novelId: string | undefined,
+  onUpdate: (chapters: Chapter[]) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return null;
+
+  const q = query(collection(db, 'chapters'), where('userId', '==', user.uid), where('novelId', '==', novelId));
+  
+  return onSnapshot(q, (snapshot) => {
+    const chapters: Chapter[] = [];
+    snapshot.forEach(d => {
+      const data = d.data();
+      const { userId, ...rest } = data;
+      chapters.push({ id: d.id, ...rest } as Chapter);
+    });
+    chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    onUpdate(chapters);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe kho chương realtime:", error);
+  });
+};
+
+

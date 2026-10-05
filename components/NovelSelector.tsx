@@ -1,0 +1,125 @@
+import React, { useState, useEffect } from 'react';
+import { getNovels, createNovel } from '../services/firestoreService';
+import { Novel } from '../types';
+import { Book, Plus, Loader2, AlertTriangle } from 'lucide-react';
+import { auth } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+
+interface NovelSelectorProps {
+  currentNovelId: string;
+  onSelectNovel: (id: string) => void;
+}
+
+export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, onSelectNovel }) => {
+  const [novels, setNovels] = useState<Novel[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setIsSignedIn(!!user);
+      if (user) {
+        fetchNovels();
+      } else {
+        setNovels([]);
+        setError(null);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const fetchNovels = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getNovels();
+      setNovels(data);
+      if (data.length > 0 && !currentNovelId) {
+        onSelectNovel(data[0].id);
+      }
+    } catch (e: any) {
+      console.error(e);
+      let errMsg = 'Lỗi tải truyện';
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.error) {
+          errMsg = parsed.error;
+        }
+      } catch (_) {
+        errMsg = e.message || 'Lỗi tải truyện';
+      }
+      setError(errMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    const name = prompt('Nhập tên truyện mới:');
+    if (!name || !name.trim()) return;
+    const id = Date.now().toString();
+    try {
+      setLoading(true);
+      setError(null);
+      const newNovel = await createNovel(id, name.trim());
+      setNovels(prev => [...prev, newNovel]);
+      onSelectNovel(newNovel.id);
+    } catch (e: any) {
+      console.error(e);
+      let errMsg = 'Lỗi tạo truyện';
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.error) {
+          errMsg = parsed.error;
+        }
+      } catch (_) {
+        errMsg = e.message || 'Lỗi tạo truyện';
+      }
+      alert(`Không thể tạo truyện: ${errMsg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isSignedIn) return null;
+
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-1 bg-[#5D4037]/80 hover:bg-[#5D4037] rounded-full border border-[#FFECB3]/30 px-2 py-1 transition-colors h-8 shrink-0">
+        <Book size={12} className="text-[#FFECB3] shrink-0" />
+        {loading ? (
+          <Loader2 size={12} className="animate-spin text-[#D7CCC8]" />
+        ) : (
+          <select 
+            value={currentNovelId || ''} 
+            onChange={(e) => onSelectNovel(e.target.value)}
+            className="bg-transparent text-[#FFECB3] font-medium text-[10px] sm:text-[11px] outline-none max-w-[85px] sm:max-w-[130px] md:max-w-[170px] truncate cursor-pointer"
+            title="Chọn bộ truyện để edit & đồng bộ"
+          >
+            <option value="" disabled className="text-black bg-white">-- Chọn truyện --</option>
+            {novels.map(n => (
+              <option key={n.id} value={n.id} className="text-black bg-white">{n.name}</option>
+            ))}
+          </select>
+        )}
+        <button 
+          onClick={handleCreate} 
+          className="text-[#D7CCC8] hover:text-[#FFECB3] p-0.5 rounded transition-colors" 
+          title="Tạo truyện mới"
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+      {error && (
+        <span 
+          className="text-[9px] text-red-500 font-bold bg-red-100 border border-red-200 px-1.5 py-0.5 rounded cursor-pointer flex items-center gap-1" 
+          title={`${error} - Bấm để tải lại`}
+          onClick={fetchNovels}
+        >
+          <AlertTriangle size={10} /> Lỗi
+        </span>
+      )}
+    </div>
+  );
+};

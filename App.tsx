@@ -1,0 +1,1936 @@
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter, CustomTerm, Character, TranslationSegment } from './types';
+import { translateText } from './services/geminiService';
+import { alignTextWithAI } from './services/geminiService';
+import { exportToExcel } from './services/excelService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime, getAllUserCustomTermsFromCloud } from './services/firestoreService';
+import { auth } from './services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { vietphraseEngine } from './services/vietphraseService';
+import { db } from './services/db'; // Import db service
+import { TranslationOutput } from './components/TranslationOutput';
+import { DictionarySidebar } from './components/DictionarySidebar';
+import { WorldInfoPanel } from './components/WorldInfoPanel';
+import { HistoryModal } from './components/HistoryModal'; 
+import { ChapterArchiveModal } from './components/ChapterArchiveModal';
+import { ShortcutModal } from './components/ShortcutModal';
+import { AuthPanel } from './components/AuthPanel';
+import { NovelSelector } from './components/NovelSelector';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type } from 'lucide-react';
+import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
+
+const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
+
+// --- ERROR BOUNDARY COMPONENT ---
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
+  state: any;
+  props: any;
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+       return (
+         <div className="h-screen flex flex-col items-center justify-center bg-[#F5E6D3] text-[#3E2723] p-8 text-center font-sans">
+            <div className="bg-red-100 p-4 rounded-full mb-4">
+                <AlertTriangle size={48} className="text-red-600" />
+            </div>
+            <h1 className="text-2xl font-bold mb-2">Rất tiếc, đã xảy ra lỗi!</h1>
+            <p className="mb-6 opacity-80 max-w-md">Ứng dụng gặp sự cố bất ngờ. Vui lòng tải lại trang hoặc kiểm tra lại kết nối.</p>
+            
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-red-200 text-left overflow-auto max-w-lg w-full max-h-60 mb-6 relative">
+                <div className="absolute top-2 right-2 text-[10px] text-red-400 font-bold uppercase tracking-wider">Chi tiết lỗi</div>
+                <code className="text-xs text-red-800 font-mono whitespace-pre-wrap block pt-4">{this.state.error?.toString()}</code>
+            </div>
+
+            <button 
+                onClick={() => window.location.reload()} 
+                className="bg-[#3E2723] text-white px-6 py-2.5 rounded-lg hover:bg-[#4E342E] font-bold shadow-lg transition-all active:scale-95"
+            >
+               Tải lại ứng dụng
+            </button>
+         </div>
+       )
+    }
+    return this.props.children;
+  }
+}
+
+// Hàm căn lề bản dịch (nhất là GG Translate thường xuyên gộp đoạn)
+const alignTranslation = (rawLines: string[], translation: string): string[] => {
+    if (!translation.trim()) return new Array(rawLines.length).fill("");
+    
+    const tLines = translation.split('\n').map(l => l.trim()).filter(l => l);
+    const rLinesWithIndices = rawLines.map((l, i) => ({ text: l.trim(), index: i }));
+    const validRLines = rLinesWithIndices.filter(l => l.text);
+    
+    const result = new Array(rawLines.length).fill("");
+    if (validRLines.length === 0 || tLines.length === 0) return result;
+    
+    // TRƯỜNG HỢP 1: Bản dịch dán vào đã có cấu trúc phân dòng tốt (số dòng dịch dán vào nhiều hoặc gần bằng số dòng raw)
+    // Ta ưu tiên map 1-1 theo dòng gốc để giữ nguyên vẹn cấu trúc xuống dòng cực chuẩn của người dùng dán vào
+    if (tLines.length === validRLines.length || Math.abs(tLines.length - validRLines.length) <= 1 && tLines.length >= validRLines.length * 0.9) {
+        let tIdx = 0;
+        validRLines.forEach((rLine, i) => {
+            if (tIdx < tLines.length) {
+                // Nếu đây là dòng cuối cùng, gom hết các dòng dịch dán vào còn thừa (nếu có)
+                if (i === validRLines.length - 1) {
+                    result[rLine.index] = tLines.slice(tIdx).join(" ");
+                } else {
+                    result[rLine.index] = tLines[tIdx++];
+                }
+            }
+        });
+        return result;
+    }
+    
+    // TRƯỜNG HỢP 2: Bản dịch thực sự bị dính cục (ví dụ chỉ có 1 hoặc 2 dòng dính liền, trong khi raw có nhiều dòng)
+    // Lúc này mới áp dụng thuật toán tách câu thông minh dựa trên tỷ lệ độ dài ký tự của dòng gốc
+    const translationText = tLines.join(" ");
+    // Tách thành các câu bằng regex mạnh mẽ hỗ trợ cả dấu câu dịch tiếng Trung lẫn tiếng Việt
+    const sentences = translationText.match(/[^.!?。！？]+(?:[.!?。！？]+(?:['"”\] \t])*?|(?=\s*$))/g) || [translationText];
+    const cleanSentences = sentences.map(s => s.trim()).filter(s => s);
+    
+    if (cleanSentences.length === 0) return result;
+    
+    // Tính toán trọng số dựa trên độ dài ký tự thô của dòng gốc (bỏ dấu cách và dấu câu Trung)
+    const rawCleanLengths = validRLines.map(r => {
+        const cleanText = r.text.replace(/[\s\p{P}]/gu, '');
+        return cleanText.length || 1;
+    });
+    
+    const totalRawLength = rawCleanLengths.reduce((sum, l) => sum + l, 0) || 1;
+    const targetProportions = rawCleanLengths.map(l => l / totalRawLength);
+    
+    // Tổng chiều dài ký tự tiếng Việt đã dịch
+    const totalTransLength = cleanSentences.reduce((sum, s) => sum + s.length, 0) || 1;
+    
+    let sentenceIdx = 0;
+    
+    validRLines.forEach((rLine, i) => {
+        // Dòng cuối cùng nhận toàn bộ những câu còn lại
+        if (i === validRLines.length - 1) {
+            const assigned = cleanSentences.slice(sentenceIdx);
+            result[rLine.index] = assigned.join(" ");
+            return;
+        }
+        
+        const lineTarget = totalTransLength * targetProportions[i];
+        const lineSentences: string[] = [];
+        let currentLineLength = 0;
+        
+        while (sentenceIdx < cleanSentences.length) {
+            const sentence = cleanSentences[sentenceIdx];
+            
+            // Bắt buộc lấy ít nhất 1 câu đầu tiên cho dòng này để tránh bị trống dòng vô lý
+            if (lineSentences.length === 0) {
+                lineSentences.push(sentence);
+                currentLineLength += sentence.length;
+                sentenceIdx++;
+                continue;
+            }
+            
+            // RÀO CHẮN BẢO VỆ: Đảm bảo chừa đủ số câu tối thiểu cho các dòng còn lại tiếp theo
+            const remainingSentencesAfterThis = cleanSentences.length - sentenceIdx - 1;
+            const remainingLinesAfterThis = validRLines.length - 1 - i;
+            if (remainingSentencesAfterThis < remainingLinesAfterThis) {
+                break;
+            }
+            
+            // Tính khoảng cách tới độ dài mục tiêu để quyết định xem có nên lấy câu này không
+            const distWithout = Math.abs(lineTarget - currentLineLength);
+            const distWith = Math.abs(lineTarget - (currentLineLength + sentence.length));
+            
+            if (distWith > distWithout) {
+                // cân bằng tối ưu hơn nếu dừng trước khi lấy câu này
+                break;
+            }
+            
+            lineSentences.push(sentence);
+            currentLineLength += sentence.length;
+            sentenceIdx++;
+        }
+        
+        result[rLine.index] = lineSentences.join(" ");
+    });
+    
+    return result;
+};
+
+const sanitizeResult = (result: TranslationResponse | null): TranslationResponse | null => {
+    if (!result) return null;
+    try {
+        return {
+            ...result,
+            segments: (result.segments || []).map(s => ({
+                source: (s.source || "").trim(),
+                natural: (s.natural || "").trim().replace(/\n+$/, ""),
+                quick: (s.quick || "").trim().replace(/\n+$/, ""),
+                deepl: (s.deepl || "").trim().replace(/\n+$/, "")
+            })),
+            naturalTranslation: (result.naturalTranslation || "").trim().replace(/\n+$/, ""),
+            quickTrans: (result.quickTrans || "").trim().replace(/\n+$/, ""),
+            deeplTranslation: (result.deeplTranslation || "").trim().replace(/\n+$/, ""),
+            vocabulary: result.vocabulary || []
+        };
+    } catch (e) {
+        console.warn("Sanitize failed, keeping original", e);
+        return result;
+    }
+};
+
+const createNewSession = (): TranslationSession => ({
+  id: 'session_main',
+  name: `Edit`,
+  inputText: '',
+  deeplText: '',
+  preEditedText: '',
+  status: AppStatus.IDLE,
+  result: null,
+  error: null,
+  modelId: 'auto',
+  currentHistoryId: undefined,
+  customTerms: [],
+  sheetUrl: '',
+  characters: [],    
+  relationships: [], 
+  notes: '',
+  completedSegments: []
+});
+
+function AppContent() {
+  // --- STATE ---
+  const [mode, setMode] = useState<'edit' | 'beta'>(() => {
+    try {
+      const savedMode = localStorage.getItem('app_mode');
+      return (savedMode === 'beta' || savedMode === 'edit') ? savedMode : 'edit';
+    } catch (e) {
+      return 'edit';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_mode', mode);
+    } catch (e) {}
+  }, [mode]);
+
+  const [session, setSession] = useState<TranslationSession>(() => {
+    try {
+      const savedSingle = localStorage.getItem('chiVietSingleSession');
+      if (savedSingle) {
+          const parsed = JSON.parse(savedSingle);
+          // Force customTerms empty to load from DB instead (avoid localStorage quota)
+          return { ...createNewSession(), ...parsed, customTerms: [], result: sanitizeResult(parsed.result) };
+      }
+      return createNewSession();
+    } catch (e) {
+      console.error("Failed to load session", e);
+      return createNewSession();
+    }
+  });
+
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('chiVietHistory');
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [showHistory, setShowHistory] = useState(false);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [showChapters, setShowChapters] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showMobileDict, setShowMobileDict] = useState(false);
+  const [showMobileWorld, setShowMobileWorld] = useState(false);
+  const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts(session.currentNovelId));
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(() => isShortcutsEnabled());
+  const [vpLoaded, setVpLoaded] = useState(false);
+  const [currentFont, setCurrentFont] = useState<string>(() => {
+    return localStorage.getItem('app_font') || 'default';
+  });
+
+  useEffect(() => {
+    document.body.setAttribute('data-app-font', currentFont);
+    localStorage.setItem('app_font', currentFont);
+  }, [currentFont]);
+
+  useEffect(() => {
+    setShortcuts(getStoredShortcuts(session.currentNovelId));
+    if (session.currentNovelId) {
+      syncShortcutsFromCloud(session.currentNovelId).then(cloudList => {
+        if (cloudList) setShortcuts(cloudList);
+      }).catch(console.warn);
+    }
+  }, [session.currentNovelId]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setShortcuts(getStoredShortcuts(session.currentNovelId));
+      setShortcutsEnabled(isShortcutsEnabled());
+    };
+    window.addEventListener('shortcuts_updated', handleUpdate);
+    window.addEventListener('shortcuts_toggle', handleUpdate);
+    return () => {
+      window.removeEventListener('shortcuts_updated', handleUpdate);
+      window.removeEventListener('shortcuts_toggle', handleUpdate);
+    };
+  }, [session.currentNovelId]);
+  
+  // Undo/Redo/Focus states
+  const [undoStack, setUndoStack] = useState<string[][]>([]);
+  const [redoStack, setRedoStack] = useState<string[][]>([]);
+  const [isFocusMode, setIsFocusMode] = useState(false);
+
+  // --- REAL-TIME DEVICE IDENTIFIER & SYNC STATE ---
+  const deviceId = useMemo(() => {
+    try {
+      let id = sessionStorage.getItem('app_device_id');
+      if (!id) {
+        id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+        sessionStorage.setItem('app_device_id', id);
+      }
+      return id;
+    } catch (e) {
+      return 'dev_' + Math.random().toString(36).substring(2, 9);
+    }
+  }, []);
+
+  const [realtimeNotify, setRealtimeNotify] = useState<string | null>(null);
+  const lastLocalUpdateTimestampRef = useRef<number>(0);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const debounceTimerRef = useRef<any>(null);
+  const pendingUpdatesRef = useRef<Partial<TranslationSession>>({});
+
+  // Hàm đẩy trạng thái phiên làm việc hiện tại lên Cloud cho các thiết bị khác nhận realtime
+  const pushActiveSessionToCloud = (customUpdates?: Partial<TranslationSession>) => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const current = { ...sessionRef.current, ...customUpdates };
+    lastLocalUpdateTimestampRef.current = Date.now();
+    saveActiveSessionToCloud({
+      novelId: current.currentNovelId,
+      deviceId,
+      currentChapterId: current.currentChapterId,
+      currentHistoryId: current.currentHistoryId,
+      inputText: current.inputText,
+      deeplText: current.deeplText,
+      preEditedText: current.preEditedText,
+      status: current.status,
+      completedSegments: current.completedSegments || [],
+      result: current.result
+    });
+  };
+
+  const debouncedPushSession = (customUpdates?: Partial<TranslationSession>) => {
+    if (customUpdates) {
+      pendingUpdatesRef.current = { ...pendingUpdatesRef.current, ...customUpdates };
+    }
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      pushActiveSessionToCloud(pendingUpdatesRef.current);
+      pendingUpdatesRef.current = {};
+    }, 1500);
+  };
+
+  // LẮNG NGHE ĐỒNG BỘ PHIÊN LÀM VIỆC THỜI GIAN THỰC (LAPTOP <-> ĐIỆN THOẠI)
+  useEffect(() => {
+    let unsubscribeSession: (() => void) | null = null;
+    let unsubscribeChapters: (() => void) | null = null;
+
+    const setupRealtimeListeners = () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // 1. Lắng nghe active session realtime theo tài khoản người dùng
+      unsubscribeSession = listenToActiveSession(deviceId, (cloudData) => {
+        if (!cloudData) return;
+        // Kiểm tra xem dữ liệu từ thiết bị khác có mới hơn không
+        if (cloudData.updatedAt && cloudData.updatedAt > (lastLocalUpdateTimestampRef.current - 500)) {
+          lastLocalUpdateTimestampRef.current = cloudData.updatedAt;
+          
+          setSession(prev => {
+            const prevCompleted = prev.completedSegments || [];
+            const cloudCompleted = cloudData.completedSegments || [];
+            const completedEqual = prevCompleted.length === cloudCompleted.length && prevCompleted.every((v, i) => v === cloudCompleted[i]);
+            
+            const prevSegments = prev.result?.segments?.map(s => s.natural).join('\n') || '';
+            const cloudSegments = cloudData.result?.segments?.map(s => s.natural).join('\n') || '';
+            const segmentsEqual = prevSegments === cloudSegments;
+
+            const novelEqual = (prev.currentNovelId || '') === (cloudData.novelId || '');
+            const inputEqual = prev.inputText === cloudData.inputText;
+            const deeplEqual = prev.deeplText === cloudData.deeplText;
+            const preEditedEqual = prev.preEditedText === cloudData.preEditedText;
+            const statusEqual = prev.status === cloudData.status;
+            const chapterEqual = prev.currentChapterId === cloudData.currentChapterId;
+
+            if (novelEqual && completedEqual && segmentsEqual && inputEqual && deeplEqual && preEditedEqual && statusEqual && chapterEqual) {
+              return prev;
+            }
+
+            const newResult = sanitizeResult(cloudData.result);
+            return {
+              ...prev,
+              currentNovelId: cloudData.novelId !== undefined ? cloudData.novelId : prev.currentNovelId,
+              inputText: cloudData.inputText !== undefined ? cloudData.inputText : prev.inputText,
+              deeplText: cloudData.deeplText !== undefined ? cloudData.deeplText : prev.deeplText,
+              preEditedText: cloudData.preEditedText !== undefined ? cloudData.preEditedText : prev.preEditedText,
+              status: (cloudData.status as AppStatus) || prev.status,
+              result: newResult !== null ? newResult : prev.result,
+              completedSegments: cloudCompleted,
+              currentChapterId: cloudData.currentChapterId || prev.currentChapterId,
+              currentHistoryId: cloudData.currentHistoryId || prev.currentHistoryId
+            };
+          });
+
+          setRealtimeNotify("Đã đồng bộ từ thiết bị khác");
+          setTimeout(() => setRealtimeNotify(null), 2500);
+        }
+      });
+
+      // 2. Lắng nghe kho chương realtime
+      unsubscribeChapters = listenToChaptersRealtime(session.currentNovelId, (cloudChapters) => {
+        setChapters(prev => {
+          const other = prev.filter(c => c.novelId && c.novelId !== session.currentNovelId);
+          return [...cloudChapters, ...other];
+        });
+
+        // Nếu đang mở một chapter, cập nhật tiến độ nếu chapter đó vừa được sửa trên máy khác
+        const curChapId = sessionRef.current.currentChapterId;
+        if (curChapId) {
+          const matched = cloudChapters.find(c => c.id === curChapId);
+          if (matched && matched.timestamp && matched.timestamp > (lastLocalUpdateTimestampRef.current - 500)) {
+            setSession(prev => ({
+              ...prev,
+              completedSegments: matched.completedSegments || [],
+              result: sanitizeResult(matched.result) || prev.result
+            }));
+          }
+        }
+      });
+    };
+
+    setupRealtimeListeners();
+    const authUnsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setupRealtimeListeners();
+      } else {
+        if (unsubscribeSession) unsubscribeSession();
+        if (unsubscribeChapters) unsubscribeChapters();
+      }
+    });
+
+    return () => {
+      authUnsub();
+      if (unsubscribeSession) unsubscribeSession();
+      if (unsubscribeChapters) unsubscribeChapters();
+    };
+  }, [session.currentNovelId, deviceId]);
+
+  // --- REFS ---
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // --- COMPUTED ---
+  const segmentCount = session.inputText.trim() ? session.inputText.split(/\n/).length : 0;
+
+  const currentNovelChapters = useMemo(() => {
+    return chapters.filter(c => c.novelId === session.currentNovelId);
+  }, [chapters, session.currentNovelId]);
+
+  // --- EFFECTS ---
+  // Khởi tạo Vietphrase Engine & Tự động phục hồi toàn diện Từ vựng từ IndexedDB và Cloud Firestore
+  useEffect(() => {
+    (async () => {
+      await vietphraseEngine.init();
+      console.log("Vietphrase Engine Initialized");
+      setVpLoaded(true);
+    })();
+       
+    // 1. Tải toàn bộ từ vựng đã lưu trong IndexedDB cục bộ
+    db.getAllCustomTerms().then(terms => {
+      if (terms && terms.length > 0) {
+        setSession(prev => {
+          const map = new Map<string, CustomTerm>();
+          (prev.customTerms || []).forEach(t => map.set(t.id, t));
+          terms.forEach(t => map.set(t.id, t));
+          return { ...prev, customTerms: Array.from(map.values()) };
+        });
+      }
+    });
+
+    db.getAllChapters().then(savedChapters => {
+      if (savedChapters) {
+        setChapters(savedChapters);
+      }
+    });
+
+    // 2. Tự động quét và phục hồi toàn bộ từ vựng người dùng đã lưu trên Cloud
+    const restoreCloudTerms = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const cloudTerms = await getAllUserCustomTermsFromCloud();
+        if (cloudTerms && cloudTerms.length > 0) {
+          setSession(prev => {
+            const map = new Map<string, CustomTerm>();
+            (prev.customTerms || []).forEach(t => map.set(t.id, t));
+            cloudTerms.forEach(t => {
+              if (!map.has(t.id)) {
+                map.set(t.id, t);
+              }
+            });
+            const merged = Array.from(map.values());
+            // Lưu lại vào IndexedDB để lần sau mở ra không bao giờ bị mất
+            db.bulkSaveCustomTerms(merged).catch(console.error);
+            return { ...prev, customTerms: merged };
+          });
+        }
+      } catch (e) {
+        console.warn("Lỗi tự động phục hồi từ vựng từ Cloud:", e);
+      }
+    };
+
+    restoreCloudTerms();
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) restoreCloudTerms();
+    });
+
+    return () => {
+      unsubscribeAuth();
+    };
+  }, []);
+
+  // Tự động tải và đồng bộ Kho chương từ Cloud Firestore
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCloudChapters = async () => {
+      const user = auth.currentUser;
+      if (!user || !session.currentNovelId) return;
+      try {
+        const cloudChapters = await getChaptersFromCloud(session.currentNovelId);
+        if (!isMounted) return;
+
+        // Lấy tất cả chương hiện tại thuộc truyện
+        const allCurrentChapters = await db.getAllChapters();
+        const localChaptersForNovel = (allCurrentChapters || []).filter(c => !c.novelId || c.novelId === session.currentNovelId);
+        
+        // Nếu có chương cục bộ chưa có trên đám mây, đẩy toàn bộ lên đám mây
+        const cloudIds = new Set((cloudChapters || []).map(c => c.id));
+        const unsynced = localChaptersForNovel.filter(c => !cloudIds.has(c.id));
+        if (unsynced.length > 0) {
+          const toUpload = unsynced.map(c => ({ ...c, novelId: session.currentNovelId! }));
+          await bulkSaveChaptersToCloud(toUpload);
+          // Cập nhật lại db cục bộ
+          toUpload.forEach(c => db.saveChapter(c));
+        }
+
+        // Hợp nhất dữ liệu
+        const mergedMap = new Map<string, Chapter>();
+        localChaptersForNovel.forEach(c => mergedMap.set(c.id, { ...c, novelId: session.currentNovelId! }));
+        (cloudChapters || []).forEach(c => mergedMap.set(c.id, c));
+        const mergedList = Array.from(mergedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        setChapters(prev => {
+          const otherNovelsChapters = prev.filter(c => c.novelId && c.novelId !== session.currentNovelId);
+          return [...mergedList, ...otherNovelsChapters];
+        });
+      } catch (err) {
+        console.error("Lỗi tải/đồng bộ chương từ đám mây:", err);
+      }
+    };
+
+    fetchCloudChapters();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) fetchCloudChapters();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [session.currentNovelId]);
+
+  // Fix lỗi QuotaExceededError khi lưu Session
+  useEffect(() => {
+    try {
+        // Exclude customTerms from localStorage to save space
+        const sessionToSave = { ...session, customTerms: [] };
+        localStorage.setItem('chiVietSingleSession', JSON.stringify(sessionToSave));
+    } catch (e) {
+        if (session.result) {
+            try {
+                // Thử lưu bản rút gọn (bỏ bớt segments nặng)
+                const leanResult = { ...session.result, segments: [] };
+                const leanSession = { ...session, customTerms: [], result: leanResult };
+                localStorage.setItem('chiVietSingleSession', JSON.stringify(leanSession));
+            } catch (innerE) {
+                try {
+                    // Thử lưu không có result để cứu inputText
+                    const ultraLeanSession = { ...session, customTerms: [], result: null };
+                    localStorage.setItem('chiVietSingleSession', JSON.stringify(ultraLeanSession));
+                } catch (lastE) {
+                    console.warn("Storage Quota Exceeded for Session");
+                }
+            }
+        }
+    }
+  }, [session]);
+
+  // Fix lỗi QuotaExceededError khi lưu History
+  useEffect(() => {
+    try {
+        localStorage.setItem('chiVietHistory', JSON.stringify(history));
+    } catch (e) {
+        // Nếu bộ nhớ đầy, nén bớt history bằng cách lược bỏ segments của các bản ghi cũ
+        try {
+            const leanHistory = history.slice(0, 15).map((item, idx) => {
+                if (idx >= 2 && item.result) {
+                    return {
+                        ...item,
+                        result: {
+                            ...item.result,
+                            segments: []
+                        }
+                    };
+                }
+                return item;
+            });
+            localStorage.setItem('chiVietHistory', JSON.stringify(leanHistory));
+        } catch (innerE) {
+            try {
+                // Nếu vẫn đầy, chỉ giữ 5 bản ghi và bỏ hết segments
+                const superLeanHistory = history.slice(0, 5).map(item => ({
+                    ...item,
+                    result: item.result ? {
+                        ...item.result,
+                        segments: []
+                    } : null
+                }));
+                localStorage.setItem('chiVietHistory', JSON.stringify(superLeanHistory));
+            } catch (lastE) {
+                console.warn("Storage Quota Exceeded for History");
+            }
+        }
+    }
+  }, [history]);
+
+  // Reset undo/redo stacks when loading a new chapter or starting a new translation
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [session.currentHistoryId, session.inputText]);
+
+  // Keyboard shortcuts for Undo (Ctrl+Z) and Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleRedo();
+          } else {
+            e.preventDefault();
+            handleUndo();
+          }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoStack, redoStack, session.result]);
+
+  // --- ACTIONS ---
+
+  const updateSession = (updates: Partial<TranslationSession>, syncToCloud = true) => {
+    setSession(prev => ({ ...prev, ...updates }));
+    if (syncToCloud) {
+      debouncedPushSession(updates);
+    }
+  };
+
+  // Quản lý cập nhật từ vựng an toàn tuyệt đối - đảm bảo 100% ghi đè chuẩn xác lên Vietphrase
+  const handleUpdateTerms = (novelTerms: CustomTerm[]) => {
+    try {
+      const currentId = session.currentNovelId || '';
+      // Giữ lại tất cả các từ của truyện khác
+      const otherTerms = (session.customTerms || []).filter(t => t.novelId ? t.novelId !== currentId : false);
+      const globalTerms = (session.customTerms || []).filter(t => !t.novelId);
+
+      // Cho truyện hiện tại: dùng Map theo key term.trim() để từ mới luôn ghi đè triệt để lên từ cũ
+      const novelTermsMap = new Map<string, CustomTerm>();
+      globalTerms.forEach(t => {
+        if (t.term?.trim()) novelTermsMap.set(t.term.trim(), t);
+      });
+      novelTerms.forEach(t => {
+        if (t.term?.trim()) {
+          const cleanKey = t.term.trim();
+          novelTermsMap.set(cleanKey, { ...t, term: cleanKey, meaning: (t.meaning || '').trim(), novelId: t.novelId || currentId });
+        }
+      });
+
+      const merged = [...otherTerms, ...Array.from(novelTermsMap.values())];
+
+      // Tạo CustomMap chuẩn xác cho Vietphrase: nhân vật nạp trước, từ vựng nạp sau đè lên
+      const currentChars = (session.characters || []).filter(c => !currentId || c.novelId === currentId);
+      const thisNovelTerms = merged.filter(t => !currentId || t.novelId === currentId);
+      const customMap = new Map<string, string>();
+      currentChars.forEach(c => {
+        if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+      });
+      thisNovelTerms.forEach(t => {
+        if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+      });
+
+      // Cập nhật ngay vào engine
+      vietphraseEngine.setCustomMap(customMap);
+      vietphraseEngine.notify();
+
+      let updatedResult = session.result;
+      if (session.result?.segments && session.result.segments.length > 0) {
+        const updatedSegments = session.result.segments.map(seg => ({
+          ...seg,
+          quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
+        }));
+        updatedResult = {
+          ...session.result,
+          segments: updatedSegments,
+          quickTrans: updatedSegments.map(s => s.quick).join('\n')
+        };
+      }
+
+      updateSession({ customTerms: merged, result: updatedResult });
+      db.bulkSaveCustomTerms(merged).catch(err => {
+        console.error("App: db.bulkSaveCustomTerms failed", err);
+      });
+      if (currentId && auth.currentUser) {
+        syncFirestoreData('vocab', currentId, 'POST', Array.from(novelTermsMap.values())).catch(err => {
+          console.error("App: syncFirestoreData vocab failed", err);
+        });
+      }
+    } catch (err) {
+      console.error("App: handleUpdateTerms caught error:", err);
+    }
+  };
+
+  // Quản lý cập nhật nhân vật an toàn - đảm bảo 100% ghi đè chuẩn xác lên Vietphrase
+  const handleUpdateCharacters = (novelChars: Character[]) => {
+    try {
+      const currentId = session.currentNovelId || '';
+      const otherChars = (session.characters || []).filter(c => c.novelId ? c.novelId !== currentId : false);
+      const globalChars = (session.characters || []).filter(c => !c.novelId);
+
+      // Cho truyện hiện tại: dùng Map theo key chineseName.trim() để nhân vật mới luôn ghi đè triệt để
+      const novelCharsMap = new Map<string, Character>();
+      globalChars.forEach(c => {
+        if (c.chineseName?.trim()) novelCharsMap.set(c.chineseName.trim(), c);
+      });
+      novelChars.forEach(c => {
+        if (c.chineseName?.trim()) {
+          const cleanKey = c.chineseName.trim();
+          novelCharsMap.set(cleanKey, { ...c, chineseName: cleanKey, vietName: (c.vietName || '').trim(), novelId: c.novelId || currentId });
+        }
+      });
+
+      const merged = [...otherChars, ...Array.from(novelCharsMap.values())];
+
+      // Tạo CustomMap chuẩn xác cho Vietphrase
+      const thisNovelChars = merged.filter(c => !currentId || c.novelId === currentId);
+      const thisNovelTerms = (session.customTerms || []).filter(t => !currentId || t.novelId === currentId);
+      const customMap = new Map<string, string>();
+      thisNovelChars.forEach(c => {
+        if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+      });
+      thisNovelTerms.forEach(t => {
+        if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+      });
+
+      // Cập nhật ngay vào engine
+      vietphraseEngine.setCustomMap(customMap);
+      vietphraseEngine.notify();
+
+      let updatedResult = session.result;
+      if (session.result?.segments && session.result.segments.length > 0) {
+        const updatedSegments = session.result.segments.map(seg => ({
+          ...seg,
+          quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
+        }));
+        updatedResult = {
+          ...session.result,
+          segments: updatedSegments,
+          quickTrans: updatedSegments.map(s => s.quick).join('\n')
+        };
+      }
+
+      updateSession({ characters: merged, result: updatedResult });
+      if (currentId && auth.currentUser) {
+        syncFirestoreData('char', currentId, 'POST', Array.from(novelCharsMap.values())).catch(err => {
+          console.error("App: syncFirestoreData char failed", err);
+        });
+      }
+    } catch (err) {
+      console.error("App: handleUpdateCharacters caught error:", err);
+    }
+  };
+
+  const handleUpdateSegment = (index: number, newNatural: string) => {
+    if (!session.result) return;
+
+    const cleanNewNatural = newNatural.replace(/\n+$/, "");
+    const currentSegments = session.result.segments;
+    if (currentSegments[index] && currentSegments[index].natural === cleanNewNatural) {
+      return; // No actual change, skip to avoid redundant undo states and clearing redo
+    }
+
+    // Save undo state
+    const currentNaturals = currentSegments.map(s => s.natural);
+    setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+    setRedoStack([]);
+
+    const newSegments = [...currentSegments];
+    newSegments[index] = { ...newSegments[index], natural: cleanNewNatural };
+    const newResult = {
+        ...session.result,
+        segments: newSegments,
+        naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+    debouncedPushSession({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, completedSegments: session.completedSegments, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleUpdateSegmentData = (index: number, updatedFields: Partial<TranslationSegment>) => {
+    if (!session.result) return;
+    const currentSegments = session.result.segments;
+    if (!currentSegments[index]) return;
+
+    if (updatedFields.natural !== undefined && updatedFields.natural !== currentSegments[index].natural) {
+      const currentNaturals = currentSegments.map(s => s.natural);
+      setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+      setRedoStack([]);
+    }
+
+    const newSegments = [...currentSegments];
+    newSegments[index] = { ...newSegments[index], ...updatedFields };
+
+    const newResult: TranslationResponse = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural || '').join('\n'),
+      quickTrans: newSegments.map(s => s.quick || '').join('\n'),
+      deeplTranslation: newSegments.map(s => s.deepl || '').join('\n')
+    };
+
+    updateSession({ result: newResult });
+    debouncedPushSession({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, completedSegments: session.completedSegments, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleDeleteSegment = (index: number) => {
+    if (!session.result) return;
+    const currentSegments = session.result.segments;
+    if (index < 0 || index >= currentSegments.length) return;
+
+    // Lưu trạng thái hoàn tác
+    const currentNaturals = currentSegments.map(s => s.natural);
+    setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+    setRedoStack([]);
+
+    const newSegments = currentSegments.filter((_, i) => i !== index);
+
+    const currentCompleted = session.completedSegments || [];
+    const newCompleted = currentCompleted
+      .filter(i => i !== index)
+      .map(i => (i > index ? i - 1 : i));
+
+    const newResult: TranslationResponse = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural || '').join('\n'),
+      quickTrans: newSegments.map(s => s.quick || '').join('\n'),
+      deeplTranslation: newSegments.map(s => s.deepl || '').join('\n')
+    };
+
+    updateSession({ result: newResult, completedSegments: newCompleted });
+    pushActiveSessionToCloud({ result: newResult, completedSegments: newCompleted });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, completedSegments: newCompleted, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleUpdateAllSegments = (newNaturals: string[]) => {
+    if (!session.result) return;
+
+    const currentSegments = session.result.segments;
+    let hasChanged = false;
+    const cleanedNewNaturals = newNaturals.map(n => (n || '').replace(/\n+$/, ""));
+    
+    for (let i = 0; i < currentSegments.length; i++) {
+      if (currentSegments[i].natural !== (cleanedNewNaturals[i] || '')) {
+        hasChanged = true;
+        break;
+      }
+    }
+    
+    if (!hasChanged) return; // No actual change
+
+    // Save undo state
+    const currentNaturals = currentSegments.map(s => s.natural);
+    setUndoStack(prev => [...prev, currentNaturals].slice(-100));
+    setRedoStack([]);
+
+    const newSegments = currentSegments.map((seg, idx) => ({
+      ...seg,
+      natural: cleanedNewNaturals[idx] || ''
+    }));
+
+    const newResult = {
+        ...session.result,
+        segments: newSegments,
+        naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+    pushActiveSessionToCloud({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, completedSegments: session.completedSegments, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0 || !session.result) return;
+    
+    const previousNaturals = undoStack[undoStack.length - 1];
+    const currentNaturals = session.result.segments.map(s => s.natural);
+    
+    setUndoStack(prev => prev.slice(0, prev.length - 1));
+    setRedoStack(prev => [...prev, currentNaturals]);
+    
+    const newSegments = session.result.segments.map((seg, idx) => ({
+      ...seg,
+      natural: previousNaturals[idx] || ""
+    }));
+    
+    const newResult = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+    pushActiveSessionToCloud({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0 || !session.result) return;
+    
+    const nextNaturals = redoStack[redoStack.length - 1];
+    const currentNaturals = session.result.segments.map(s => s.natural);
+    
+    setRedoStack(prev => prev.slice(0, prev.length - 1));
+    setUndoStack(prev => [...prev, currentNaturals]);
+    
+    const newSegments = session.result.segments.map((seg, idx) => ({
+      ...seg,
+      natural: nextNaturals[idx] || ""
+    }));
+    
+    const newResult = {
+      ...session.result,
+      segments: newSegments,
+      naturalTranslation: newSegments.map(s => s.natural).join('\n')
+    };
+    
+    updateSession({ result: newResult });
+    pushActiveSessionToCloud({ result: newResult });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, result: newResult, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleToggleComplete = (index: number) => {
+    const currentCompleted = session.completedSegments || [];
+    const isCompleted = currentCompleted.includes(index);
+    const newCompleted = isCompleted 
+        ? currentCompleted.filter(i => i !== index)
+        : [...currentCompleted, index];
+    
+    updateSession({ completedSegments: newCompleted });
+    // Đẩy đồng bộ thời gian thực tức thì sang Điện thoại / Laptop
+    pushActiveSessionToCloud({ completedSegments: newCompleted });
+
+    if (session.currentHistoryId) {
+      setHistory(prev => prev.map(item => 
+        item.id === session.currentHistoryId 
+          ? { ...item, completedSegments: newCompleted, timestamp: Date.now() } 
+          : item
+      ));
+    }
+  };
+
+  const handleClearSession = async () => {
+    if (!session.inputText.trim()) return;
+
+    // --- TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU TRƯỚC KHI XÓA ---
+    if (session.result && session.inputText.trim()) {
+      const alreadySaved = chapters.some(c => c.inputText.trim() === session.inputText.trim());
+      if (!alreadySaved) {
+        let autoName = "";
+        const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
+        
+        for (const line of lines.slice(0, 5)) {
+          if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
+            const customMap = new Map<string, string>();
+            const currentId = session.currentNovelId;
+            (session.characters || []).filter(c => !currentId || c.novelId === currentId).forEach(c => {
+                if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+            });
+            (session.customTerms || []).filter(t => !currentId || t.novelId === currentId).forEach(t => {
+                if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+            });
+            autoName = vietphraseEngine.translate(line, customMap);
+            break;
+          }
+        }
+        
+        if (!autoName && session.result.segments && session.result.segments.length > 0) {
+          const firstEditLine = session.result.segments[0].natural.trim();
+          if (firstEditLine) {
+            autoName = firstEditLine.slice(0, 50);
+          }
+        }
+        
+        if (!autoName) {
+          autoName = `Chương tự động (${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
+        } else {
+          autoName = `[Tự động - Xóa] ${autoName}`;
+        }
+        
+        const autoChapter: Chapter = {
+          id: `auto_${Date.now()}`,
+          novelId: session.currentNovelId,
+          name: autoName,
+          timestamp: Date.now(),
+          inputText: session.inputText,
+          deeplText: session.deeplText,
+          preEditedText: session.preEditedText,
+          result: session.result,
+          completedSegments: session.completedSegments
+        };
+        
+        try {
+          await db.saveChapter(autoChapter);
+          await saveChapterToCloud(autoChapter);
+          setChapters(prev => [autoChapter, ...prev]);
+          console.log("Auto-saved draft on clear:", autoName);
+        } catch (e) {
+          console.error("Auto save on clear failed", e);
+        }
+      }
+    }
+
+    // Tiến hành xóa session
+    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
+    pushActiveSessionToCloud({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
+  };
+
+  // Hàm loại bỏ dòng trống và chuẩn hóa văn bản
+  const cleanEmptyLines = (text: string): string => {
+    if (!text) return '';
+    return text
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n');
+  };
+
+  // Xử lý tự động xóa dòng trống khi dán vào các ô Raw, DeepL, Edit
+  const handleCleanPaste = (
+    e: React.ClipboardEvent<HTMLTextAreaElement>,
+    field: 'inputText' | 'deeplText' | 'preEditedText'
+  ) => {
+    const pasteText = e.clipboardData.getData('text');
+    if (!pasteText) return;
+
+    // Lọc sạch các dòng trống khi dán
+    const cleanedText = cleanEmptyLines(pasteText);
+
+    e.preventDefault();
+    const target = e.currentTarget;
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+    const currentVal = target.value || '';
+    const nextVal = currentVal.substring(0, start) + cleanedText + currentVal.substring(end);
+
+    updateSession({ [field]: nextVal });
+
+    setTimeout(() => {
+      try {
+        target.selectionStart = target.selectionEnd = start + cleanedText.length;
+      } catch {
+        // ignore
+      }
+    }, 0);
+  };
+
+  // Nút thủ công: Xóa tất cả dòng trống ở cả 3 ô (Raw, DeepL, Edit)
+  const handleRemoveAllEmptyLines = () => {
+    const updates: Partial<TranslationSession> = {};
+    if (session.inputText) {
+      const cleaned = cleanEmptyLines(session.inputText);
+      if (cleaned !== session.inputText) updates.inputText = cleaned;
+    }
+    if (session.deeplText) {
+      const cleaned = cleanEmptyLines(session.deeplText);
+      if (cleaned !== session.deeplText) updates.deeplText = cleaned;
+    }
+    if (session.preEditedText) {
+      const cleaned = cleanEmptyLines(session.preEditedText);
+      if (cleaned !== session.preEditedText) updates.preEditedText = cleaned;
+    }
+    if (Object.keys(updates).length > 0) {
+      updateSession(updates);
+    }
+  };
+
+  // Xóa dòng trống cho từng ô riêng lẻ
+  const handleRemoveFieldEmptyLines = (field: 'inputText' | 'deeplText' | 'preEditedText') => {
+    const val = session[field];
+    if (!val) return;
+    const cleaned = cleanEmptyLines(val);
+    if (cleaned !== val) {
+      updateSession({ [field]: cleaned });
+    }
+  };
+
+  const handleTranslate = async (forceFastAlign = false) => {
+    if (!session.inputText.trim()) return;
+    
+    // --- BƯỚC TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU ---
+    if (session.result && session.inputText.trim()) {
+      const alreadySaved = chapters.some(c => c.inputText.trim() === session.inputText.trim());
+      if (!alreadySaved) {
+        let autoName = "";
+        const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
+        
+        for (const line of lines.slice(0, 5)) {
+          if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
+            const customMap = new Map<string, string>();
+            const currentId = session.currentNovelId;
+            (session.characters || []).filter(c => !currentId || c.novelId === currentId).forEach(c => {
+                if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+            });
+            (session.customTerms || []).filter(t => !currentId || t.novelId === currentId).forEach(t => {
+                if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+            });
+            autoName = vietphraseEngine.translate(line, customMap);
+            break;
+          }
+        }
+        
+        if (!autoName && session.result.segments && session.result.segments.length > 0) {
+          const firstEditLine = session.result.segments[0].natural.trim();
+          if (firstEditLine) {
+            autoName = firstEditLine.slice(0, 50);
+          }
+        }
+        
+        if (!autoName) {
+          autoName = `Chương tự động (${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
+        } else {
+          autoName = `[Tự động] ${autoName}`;
+        }
+        
+        const autoChapter: Chapter = {
+          id: `auto_${Date.now()}`,
+          novelId: session.currentNovelId,
+          name: autoName,
+          timestamp: Date.now(),
+          inputText: session.inputText,
+          deeplText: session.deeplText,
+          preEditedText: session.preEditedText,
+          result: session.result,
+          completedSegments: session.completedSegments
+        };
+        
+        try {
+          await db.saveChapter(autoChapter);
+          await saveChapterToCloud(autoChapter);
+          setChapters(prev => [autoChapter, ...prev]);
+          console.log("Auto-saved previous chapter draft before new translation:", autoName);
+        } catch (e) {
+          console.error("Auto save failed", e);
+        }
+      }
+    }
+    
+    // --- BƯỚC 1: TÍNH TOÁN VIETPHRASE (LÀM TRƯỚC HOẶC SONG SONG VỚI GỌI API) ---
+    // Mặc dù gọi là làm song song, nhưng do JS đơn luồng, ta sẽ tính toán Vietphrase
+    // ngay lập tức (vì nó rất nhanh) để sẵn sàng merge khi AI trả về.
+    // Chuẩn hóa và làm sạch tất cả dòng trống trước khi dịch / phân tích
+    const cleanInput = cleanEmptyLines(session.inputText);
+    const cleanDeepl = cleanEmptyLines(session.deeplText || '');
+    const cleanPreEdit = cleanEmptyLines(session.preEditedText || '');
+
+    if (cleanInput !== session.inputText || cleanDeepl !== session.deeplText || cleanPreEdit !== (session.preEditedText || '')) {
+      updateSession({
+        inputText: cleanInput,
+        deeplText: cleanDeepl,
+        preEditedText: cleanPreEdit
+      });
+    }
+
+    const inputLines = cleanInput.split('\n').filter(Boolean);
+    
+    // Optimize: Convert customTerms & characters to Map once for current novel only
+    const currentId = session.currentNovelId;
+    const currentCharacters = (session.characters || []).filter(c => !currentId || c.novelId === currentId);
+    const currentTerms = (session.customTerms || []).filter(t => !currentId || t.novelId === currentId);
+    const currentRelationships = (session.relationships || []).filter(r => !currentId || r.novelId === currentId);
+
+    const customMap = new Map<string, string>();
+    currentCharacters.forEach(c => {
+        if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+    });
+    currentTerms.forEach(t => {
+        if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+    });
+
+    const vpSegments = inputLines.map(line => ({
+        source: line,
+        quick: vietphraseEngine.translate(line, customMap), // Dịch Vietphrase
+    }));
+    
+    // Tạo trạng thái giả lập (Draft) để người dùng thấy ngay kết quả sơ bộ nếu muốn
+    // Tuy nhiên, ở đây ta sẽ giữ trạng thái LOADING cho đến khi có AI để trải nghiệm mượt mà hơn,
+    // hoặc có thể hiển thị Quick Trans trước nếu muốn. 
+    // Ở đây mình chọn LOADING và merge kết quả sau cùng để đồng bộ.
+    updateSession({ status: AppStatus.LOADING, error: null, result: null, completedSegments: [], currentHistoryId: undefined, currentChapterId: undefined });
+
+    try {
+      const hasPreEdited = !!(session.preEditedText && session.preEditedText.trim());
+      const hasDeepl = !!(session.deeplText && session.deeplText.trim());
+      let data: any = null;
+
+      if (mode === 'beta' && hasPreEdited) {
+          data = {
+              modelUsed: 'None (Local Alignment)',
+              segments: []
+          };
+      } else {
+          // --- BƯỚC 2: GỌI AI ---
+          data = await translateText(
+            session.inputText, 
+            currentTerms,
+            currentCharacters,
+            currentRelationships
+          );
+      }
+      
+      // --- BƯỚC 3: MERGE KẾT QUẢ ---
+      let mergedSegments = [];
+
+      if (mode === 'beta' && hasPreEdited) {
+         // Align pre-edited text to source lines
+         const preEditedLines = await alignTextWithAI(inputLines, session.preEditedText || "");
+         
+         // Align GG/DeepL text to source lines if it was provided
+         const deeplLines = hasDeepl ? await alignTextWithAI(inputLines, session.deeplText) : [];
+
+         mergedSegments = inputLines.map((line, i) => {
+             // In Beta mode:
+             // - If GG/DeepL is NOT pasted, we just leave it empty since we skip AI
+             // - If GG/DeepL IS pasted, we use the aligned GG/DeepL as "deepl" reference
+             let refDeepl = "";
+             if (hasDeepl) {
+                 refDeepl = deeplLines[i] || "";
+             }
+
+             return {
+                 source: line,
+                 natural: preEditedLines[i] || "", // Main translation is replaced with aligned pre-edited text
+                 quick: vpSegments[i]?.quick || "",
+                 deepl: refDeepl
+             };
+         });
+      } else {
+         // Standard Edit Mode
+         const deeplLines = await alignTextWithAI(inputLines, session.deeplText || "");
+         mergedSegments = data.segments.map((seg, i) => ({
+            ...seg,
+            quick: vpSegments[i]?.quick || seg.quick, // Prefer local Vietphrase
+            deepl: deeplLines[i] || "" // Set DeepL reference
+         }));
+      }
+
+      const mergedResult = {
+         ...data,
+         segments: mergedSegments,
+         naturalTranslation: mergedSegments.map(s => s.natural).join('\n'),
+         quickTrans: mergedSegments.map(s => s.quick).join('\n'),
+         deeplTranslation: mergedSegments.map(s => s.deepl).join('\n')
+      };
+
+      const sanitized = sanitizeResult(mergedResult);
+      
+      const historyId = Date.now().toString();
+      
+      updateSession({ 
+        result: sanitized, 
+        status: AppStatus.SUCCESS,
+        currentHistoryId: historyId,
+        completedSegments: []
+      });
+
+      pushActiveSessionToCloud({
+        result: sanitized,
+        status: AppStatus.SUCCESS,
+        currentHistoryId: historyId,
+        completedSegments: []
+      });
+      
+      const newHistoryItem: HistoryItem = {
+        id: historyId,
+        timestamp: Date.now(),
+        sourceText: session.inputText,
+        result: sanitized as TranslationResponse,
+        modelId: data.modelUsed,
+        completedSegments: []
+      };
+      setHistory(prev => [newHistoryItem, ...prev].slice(0, 50));
+    } catch (err: any) {
+      updateSession({ 
+        error: err.message || "Đã xảy ra lỗi không xác định.", 
+        status: AppStatus.ERROR 
+      });
+    }
+  };
+
+  const handleRestoreHistory = (item: HistoryItem) => {
+    updateSession({
+      inputText: item.sourceText,
+      deeplText: item.result?.deeplTranslation || "",
+      preEditedText: item.result?.naturalTranslation || "",
+      result: sanitizeResult(item.result),
+      status: AppStatus.SUCCESS,
+      error: null,
+      completedSegments: item.completedSegments || [],
+      currentHistoryId: item.id
+    });
+    pushActiveSessionToCloud({
+      inputText: item.sourceText,
+      deeplText: item.result?.deeplTranslation || "",
+      preEditedText: item.result?.naturalTranslation || "",
+      result: sanitizeResult(item.result),
+      status: AppStatus.SUCCESS,
+      completedSegments: item.completedSegments || [],
+      currentHistoryId: item.id
+    });
+    setShowHistory(false);
+  };
+
+  const deleteHistoryItem = (id: string) => {
+    setHistory(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleSaveChapter = async (name: string) => {
+    if (!session.result) return;
+
+    // Reuse existing chapter ID if we are editing an active chapter, or overwrite by name
+    const existingChapter = chapters.find(c => c.id === session.currentChapterId || c.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const chapterId = existingChapter?.id || `chap_${Date.now()}`;
+
+    const newChapter: Chapter = {
+      id: chapterId,
+      novelId: session.currentNovelId,
+      name,
+      timestamp: Date.now(),
+      inputText: session.inputText,
+      deeplText: session.deeplText,
+      preEditedText: session.preEditedText,
+      result: session.result,
+      completedSegments: session.completedSegments
+    };
+
+    await db.saveChapter(newChapter);
+    await saveChapterToCloud(newChapter);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.name.trim().toLowerCase() !== name.trim().toLowerCase())]);
+    updateSession({ currentChapterId: chapterId });
+    pushActiveSessionToCloud({ currentChapterId: chapterId });
+  };
+
+  const handleRestoreChapter = (chapter: Chapter) => {
+    updateSession({
+      inputText: chapter.inputText,
+      deeplText: chapter.deeplText || "",
+      preEditedText: chapter.preEditedText || "",
+      result: sanitizeResult(chapter.result),
+      status: AppStatus.SUCCESS,
+      error: null,
+      completedSegments: chapter.completedSegments || [],
+      currentHistoryId: undefined,
+      currentChapterId: chapter.id,
+      currentNovelId: chapter.novelId || session.currentNovelId
+    });
+    pushActiveSessionToCloud({
+      novelId: chapter.novelId || session.currentNovelId,
+      inputText: chapter.inputText,
+      deeplText: chapter.deeplText || "",
+      preEditedText: chapter.preEditedText || "",
+      result: sanitizeResult(chapter.result),
+      status: AppStatus.SUCCESS,
+      completedSegments: chapter.completedSegments || [],
+      currentChapterId: chapter.id
+    });
+    setShowChapters(false);
+  };
+
+  const handleDeleteChapter = async (id: string) => {
+    await db.deleteChapter(id);
+    await deleteChapterFromCloud(id);
+    setChapters(prev => prev.filter(c => c.id !== id));
+  };
+
+  const handleRenameChapter = async (id: string, newName: string) => {
+    const chapter = chapters.find(c => c.id === id);
+    if (!chapter) return;
+    const updated = { ...chapter, name: newName };
+    await db.saveChapter(updated);
+    await saveChapterToCloud(updated);
+    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+  };
+
+  const handleClearAllChapters = async () => {
+    await db.clearAllChapters();
+    if (session.currentNovelId) {
+      await clearNovelChaptersFromCloud(session.currentNovelId);
+    }
+    setChapters([]);
+  };
+
+  const handleExportExcel = async () => {
+    let novelName = "Truyện";
+    const currentId = session.currentNovelId;
+    try {
+      const allNovels = await getNovels();
+      const found = allNovels.find(n => n.id === currentId);
+      if (found) novelName = found.name;
+    } catch (e) {
+      console.warn("Could not fetch novel name for export", e);
+    }
+
+    // Chỉ xuất dữ liệu của bộ truyện hiện tại
+    const filteredTerms = (session.customTerms || []).filter(t => !currentId || !t.novelId || t.novelId === currentId);
+    const filteredChars = (session.characters || []).filter(c => !currentId || !c.novelId || c.novelId === currentId);
+    const filteredRels = (session.relationships || []).filter(r => !currentId || !r.novelId || r.novelId === currentId);
+    const filteredShortcuts = getStoredShortcuts(currentId);
+
+    exportToExcel(filteredTerms, filteredChars, filteredRels, novelName, filteredShortcuts);
+  };
+
+  return (
+    <div className="min-h-screen lg:h-screen flex flex-col bg-[#F5E6D3] text-[#3E2723] font-sans lg:overflow-hidden">
+      
+      {/* HEADER */}
+      {!isFocusMode && (
+      <header className="sticky top-0 bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-2 sm:px-4 shrink-0 z-20 shadow-md overflow-x-auto no-scrollbar touch-pan-x w-full max-w-full select-none">
+        <div className="flex items-center gap-1.5 sm:gap-4 shrink-0 pr-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="text-[#FFECB3] shrink-0">
+              <PenLine size={20} className="sm:w-6 sm:h-6" />
+            </div>
+            <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-xl sm:text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1 hidden sm:block">Edit</h1>
+          </div>
+
+          {/* Segmented Mode Control */}
+          <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037] shrink-0">
+            <button
+              onClick={() => setMode('edit')}
+              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center shrink-0 ${mode === 'edit' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+            >
+              <span className="sm:hidden">E</span>
+              <span className="hidden sm:inline">Edit</span>
+            </button>
+            <button
+              onClick={() => setMode('beta')}
+              className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center shrink-0 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
+            >
+              <span className="sm:hidden">B</span>
+              <span className="hidden sm:inline">Beta</span>
+            </button>
+          </div>
+        </div>
+        
+        {/* RIGHT CONTROLS */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <NovelSelector 
+              currentNovelId={session.currentNovelId || ''} 
+              onSelectNovel={(id) => {
+                updateSession({ currentNovelId: id });
+                pushActiveSessionToCloud({ novelId: id });
+              }} 
+            />
+
+            {/* Font chữ toàn web */}
+            <div className="flex items-center gap-1 bg-[#5D4037]/80 hover:bg-[#5D4037] rounded-full border border-[#FFECB3]/30 px-2 py-1 transition-colors h-8 shrink-0" title="Chỉnh font chữ toàn trang">
+              <Type size={12} className="text-[#FFECB3] shrink-0" />
+              <select 
+                value={currentFont} 
+                onChange={(e) => setCurrentFont(e.target.value)}
+                className="bg-transparent text-[#FFECB3] font-medium text-[10px] sm:text-[11px] outline-none cursor-pointer max-w-[85px] sm:max-w-[125px]"
+              >
+                <option value="default" className="text-black bg-white">Mặc định</option>
+                <option value="times" className="text-black bg-white">Times New Roman</option>
+                <option value="alegreya" className="text-black bg-white">Alegreya</option>
+                <option value="garamond" className="text-black bg-white">Garamond</option>
+                <option value="mali" className="text-black bg-white">Mali</option>
+                <option value="dosis" className="text-black bg-white">Dosis</option>
+              </select>
+            </div>
+            
+            {/* 1. Icon Từ điển di động - Chỉ hiện trên mobile/tablet (< lg) */}
+            <button 
+              onClick={() => setShowMobileDict(true)}
+              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20 shrink-0"
+              title="Từ điển riêng"
+            >
+              <div className="w-5 h-5 border border-[#FFECB3]/40 rounded flex items-center justify-center font-bold text-[10px] text-[#FFECB3]">
+                A
+              </div>
+            </button>
+
+            {/* 2. Icon Nhân vật di động - Chỉ hiện trên mobile/tablet (< lg) */}
+            <button 
+              onClick={() => setShowMobileWorld(true)}
+              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-full border border-[#5D4037] text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] transition-all bg-[#5D4037]/20 shrink-0"
+              title="Nhân vật & Thiết lập thế giới"
+            >
+              <Users size={14} className="text-[#FFECB3]" />
+            </button>
+
+            <button 
+              onClick={() => setShowShortcuts(true)} 
+              className={`flex items-center justify-center gap-1 text-[10px] font-medium h-8 px-2 sm:px-2.5 rounded-full border transition-colors shrink-0 ${
+                shortcutsEnabled 
+                  ? 'text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/40 border-[#FFECB3]/20' 
+                  : 'text-[#A1887F] hover:text-white hover:bg-[#5D4037] border-[#5D4037]'
+              }`}
+              title="Bảng gõ tắt (Auto-replace)"
+            >
+               <Keyboard size={12} />
+               <span className="hidden sm:inline">Gõ tắt</span>
+               {shortcuts.length > 0 && (
+                 <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${shortcutsEnabled ? 'bg-[#FFECB3]/20 text-[#FFECB3]' : 'bg-gray-600/40 text-gray-300'}`}>
+                   {shortcuts.filter(s => s.enabled).length}
+                 </span>
+               )}
+            </button>
+            <button onClick={() => setShowChapters(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 px-2 sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors shrink-0">
+               <FolderOpen size={12} />
+               <span className="hidden sm:inline">Kho chương</span>
+               <span className="font-mono text-[9px] font-bold">({currentNovelChapters.length})</span>
+            </button>
+            <button onClick={() => setShowHistory(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] h-8 px-2 sm:px-2.5 rounded-full border border-[#5D4037] transition-colors shrink-0">
+               <History size={12} />
+               <span className="hidden sm:inline">Lịch sử</span>
+            </button>
+            {auth.currentUser && (
+              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-[#3E2723]/80 rounded-full border border-[#5D4037] text-[10px] text-[#A5D6A7] shrink-0" title="Đồng bộ thời gian thực hai chiều giữa Laptop và Điện thoại">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#66BB6A] animate-pulse"></span>
+                <span className="font-semibold text-[#C8E6C9]">Realtime Sync</span>
+              </div>
+            )}
+            <AuthPanel />
+        </div>
+      </header>
+      )}
+
+      {/* FLOATING REALTIME NOTIFICATION TOAST */}
+      {realtimeNotify && (
+        <div className="fixed top-16 right-4 z-50 bg-[#2E7D32] text-white px-3.5 py-2 rounded-lg shadow-xl border border-[#43A047] text-xs font-bold flex items-center gap-2 transition-all">
+          <RefreshCw size={14} className="animate-spin text-[#C8E6C9]" />
+          <span>{realtimeNotify}</span>
+        </div>
+      )}
+
+      {/* MAIN WORKSPACE */}
+      <div className="flex-1 flex lg:overflow-hidden">
+        {/* LEFT SIDEBAR */}
+        <div className={`hidden lg:block w-80 border-r border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'lg:hidden' : ''}`}>
+            <DictionarySidebar 
+                currentNovelId={session.currentNovelId || ''}
+                terms={session.customTerms} onExportExcel={handleExportExcel} 
+                onUpdateTerms={handleUpdateTerms} 
+                sheetUrl={session.sheetUrl} 
+                onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                refreshTrigger={vpLoaded}
+                
+            />
+        </div>
+
+        {/* CENTER MAIN CONTENT */}
+        <main className={`flex-1 flex flex-col ${isFocusMode ? 'h-screen p-0 m-0 overflow-hidden' : 'lg:h-full lg:overflow-hidden'} bg-[#F5E6D3] min-w-0 sm:min-w-[320px]`}>
+          <div className={`flex-1 ${isFocusMode ? 'h-full overflow-hidden' : 'lg:overflow-y-auto lg:overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent'}`}>
+             <div className={`flex flex-col ${isFocusMode ? 'h-full p-0' : 'px-2 pb-2'}`}>
+                
+                {/* INPUT AREA */}
+                {!isFocusMode && (
+                  <div className="mt-2 bg-white rounded-xl shadow-sm border border-[#D7CCC8] overflow-hidden transition-all focus-within:ring-2 focus-within:ring-[#8D6E63]/20 focus-within:border-[#8D6E63]/50 mb-2 flex flex-col">
+                      <div className="flex justify-between items-center bg-[#EFEBE9]/50 px-3 py-1.5 border-b border-[#EFEBE9]">
+                          <div className="flex items-center gap-2">
+                              {mode === 'beta' && (
+                                <span className="bg-[#5D4037] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                                    Beta
+                                </span>
+                              )}
+                              <div className="flex items-center gap-1 text-[10px] font-bold text-[#8D6E63]">
+                                  <Layers size={10} />
+                                  <span>{segmentCount} đoạn văn</span>
+                              </div>
+                          </div>
+                          <div className="flex gap-2">
+                              <button 
+                                  onClick={handleRemoveAllEmptyLines} 
+                                  disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
+                                  title="Xóa tất cả các dòng trống trong ô Raw, DeepL và Edit"
+                              >
+                                  <AlignJustify size={10} /> Xóa dòng trống
+                              </button>
+                              <button 
+                                  onClick={() => updateSession({ 
+                                      inputText: EXAMPLE_TEXT, 
+                                      deeplText: "Đường dài mới biết ngựa hay, ở lâu mới biết lòng dạ con người.",
+                                      preEditedText: mode === 'beta' ? "Đường dài mới biết sức ngựa, ngày lâu mới tỏ lòng người." : ""
+                                  })} 
+                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1"
+                              >
+                                  <Quote size={10} /> Ví dụ
+                              </button>
+                              <button 
+                                  onClick={handleClearSession} 
+                                  disabled={!session.inputText && !session.deeplText && !session.preEditedText} 
+                                  className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] px-2 py-1 rounded hover:bg-[#D7CCC8] flex items-center gap-1 disabled:opacity-50"
+                              >
+                                  <Eraser size={10} /> Xóa
+                              </button>
+                          </div>
+                      </div>
+
+                      <div className={`grid ${mode === 'beta' ? 'grid-cols-3' : 'grid-cols-2'} flex-1 min-h-[140px] divide-x divide-[#EFEBE9]`}>
+                          <div className="flex flex-col flex-1">
+                              <div className="flex items-center justify-between px-3 pt-1.5 bg-[#FAFAFA]/40">
+                                  <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider">1. Raw</div>
+                                  {session.inputText && (
+                                      <button
+                                          type="button"
+                                          onClick={() => handleRemoveFieldEmptyLines('inputText')}
+                                          className="text-[9px] text-[#8D6E63] hover:text-[#3E2723] hover:underline cursor-pointer"
+                                          title="Xóa dòng trống trong ô này"
+                                      >
+                                          Lọc dòng trống
+                                      </button>
+                                  )}
+                              </div>
+                              <textarea
+                                  ref={textareaRef}
+                                  value={session.inputText}
+                                  onChange={(e) => updateSession({ inputText: e.target.value })}
+                                  onPaste={(e) => handleCleanPaste(e, 'inputText')}
+                                  placeholder="Nhập Raw (Trung)..."
+                                  className="flex-1 p-3 text-lg font-serif-sc bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                                  spellCheck="false"
+                              />
+                          </div>
+                          <div className="flex flex-col flex-1">
+                              <div className="flex items-center justify-between px-3 pt-1.5 bg-[#FAFAFA]/40">
+                                  <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider">2. DeepL {mode === 'beta' && <span className="text-[8px] font-normal lowercase text-[#BCAAA4]">(không bắt buộc)</span>}</div>
+                                  {session.deeplText && (
+                                      <button
+                                          type="button"
+                                          onClick={() => handleRemoveFieldEmptyLines('deeplText')}
+                                          className="text-[9px] text-[#8D6E63] hover:text-[#3E2723] hover:underline cursor-pointer"
+                                          title="Xóa dòng trống trong ô này"
+                                      >
+                                          Lọc dòng trống
+                                      </button>
+                                  )}
+                              </div>
+                              <textarea
+                                  value={session.deeplText}
+                                  onChange={(e) => updateSession({ deeplText: e.target.value })}
+                                  onPaste={(e) => handleCleanPaste(e, 'deeplText')}
+                                  onKeyDown={(e) => {
+                                      const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                                      if (triggerKeys.includes(e.key)) {
+                                          const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                                          const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                                          if (replaced) {
+                                              e.preventDefault();
+                                              updateSession({ deeplText: newText });
+                                          }
+                                      }
+                                  }}
+                                  placeholder="Dán DeepL vào đây..."
+                                  className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed"
+                                  spellCheck="false"
+                              />
+                          </div>
+                          {mode === 'beta' && (
+                              <div className="flex flex-col flex-1">
+                                  <div className="flex items-center justify-between px-3 pt-1.5 bg-[#FAFAFA]/40">
+                                      <div className="text-[9px] font-bold text-[#E64A19] uppercase tracking-wider flex items-center gap-1">3. Edit sẵn <span className="bg-[#E64A19] text-white text-[7px] px-1 rounded-full uppercase">Beta</span></div>
+                                      {session.preEditedText && (
+                                          <button
+                                              type="button"
+                                              onClick={() => handleRemoveFieldEmptyLines('preEditedText')}
+                                              className="text-[9px] text-[#E64A19] hover:text-[#BF360C] hover:underline cursor-pointer"
+                                              title="Xóa dòng trống trong ô này"
+                                          >
+                                              Lọc dòng trống
+                                          </button>
+                                      )}
+                                  </div>
+                                  <textarea
+                                      value={session.preEditedText || ''}
+                                      onChange={(e) => updateSession({ preEditedText: e.target.value })}
+                                      onPaste={(e) => handleCleanPaste(e, 'preEditedText')}
+                                      onKeyDown={(e) => {
+                                          const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+                                          if (triggerKeys.includes(e.key)) {
+                                              const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+                                              const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+                                              if (replaced) {
+                                                  e.preventDefault();
+                                                  updateSession({ preEditedText: newText });
+                                              }
+                                          }
+                                      }}
+                                      placeholder="Dán Edit sẵn vào đây..."
+                                      className="flex-1 p-3 text-sm bg-transparent border-none outline-none resize-none placeholder:text-[#BCAAA4] leading-relaxed font-medium text-[#4E342E]"
+                                      spellCheck="false"
+                                  />
+                              </div>
+                          )}
+                      </div>
+
+                      <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">
+                          <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-medium transition-colors text-[#A1887F]">
+                                  {session.inputText.length} ký tự
+                              </div>
+                          </div>
+                          <button
+                              onClick={() => handleTranslate(false)}
+                              disabled={session.status === AppStatus.LOADING || !session.inputText.trim()}
+                              className="bg-[#3E2723] text-[#FFECB3] hover:bg-[#4E342E] disabled:bg-[#A1887F] disabled:cursor-not-allowed px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all shadow-sm"
+                          >
+                              {session.status === AppStatus.LOADING ? (<><Loader2 className="animate-spin" size={14} /> Phân tích...</>) : 'Phân tích'}
+                          </button>
+                      </div>
+                  </div>
+                )}
+
+                {/* ERROR */}
+                {session.status === AppStatus.ERROR && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-800 text-sm flex gap-3 items-start shrink-0 mb-6">
+                        <AlertTriangle className="shrink-0 text-red-600" size={16} /> 
+                        <div className="flex-1"><p className="font-bold mb-1">Đã xảy ra lỗi:</p><p className="opacity-90 leading-relaxed whitespace-pre-wrap">{session.error}</p></div>
+                    </div>
+                )}
+
+                {/* RESULT */}
+                {(session.result && (session.status === AppStatus.SUCCESS || session.status === AppStatus.LOADING)) ? (
+                    <div className={isFocusMode ? "h-full w-full" : "sticky top-2 z-10"}>
+                        <div className={isFocusMode ? "h-full w-full" : "h-[calc(100vh-4.5rem)]"}>
+                            <TranslationOutput 
+                                data={session.result} 
+                                customTerms={session.customTerms} 
+                                characters={session.characters} 
+                                completedSegments={session.completedSegments || []}
+                                onUpdateSegment={handleUpdateSegment} 
+                                onUpdateAllSegments={handleUpdateAllSegments}
+                                onUpdateSegmentData={handleUpdateSegmentData}
+                                onDeleteSegment={handleDeleteSegment}
+                                onToggleComplete={handleToggleComplete}
+                                onSaveChapter={handleSaveChapter}
+                                onUndo={handleUndo}
+                                onRedo={handleRedo}
+                                canUndo={undoStack.length > 0}
+                                canRedo={redoStack.length > 0}
+                                isFocusMode={isFocusMode}
+                                onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+                                onUpdateTerms={handleUpdateTerms}
+                                onUpdateCharacters={handleUpdateCharacters}
+                                currentNovelId={session.currentNovelId || ''}
+                                onOpenDictionary={() => setShowMobileDict(true)}
+                                onOpenWorldInfo={() => setShowMobileWorld(true)}
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    session.status === AppStatus.IDLE && (
+                        <div className="flex flex-col items-center justify-center text-[#BCAAA4] border-2 border-dashed border-[#D7CCC8] rounded-xl py-12">
+                            <Layout size={32} className="mb-2 opacity-50"/>
+                            <p className="text-xs">Khu vực hiển thị kết quả</p>
+                        </div>
+                    )
+                )}
+             </div>
+          </div>
+        </main>
+
+        {/* RIGHT SIDEBAR */}
+        <div className={`hidden lg:block w-[360px] border-l border-[#D7CCC8] bg-[#EFE5D9] shrink-0 ${isFocusMode ? 'lg:hidden' : ''}`}>
+            <WorldInfoPanel 
+                currentNovelId={session.currentNovelId || ''}
+                characters={session.characters} 
+                onUpdateCharacters={handleUpdateCharacters} 
+                relationships={session.relationships} 
+                onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                notes={session.notes} 
+                onUpdateNotes={(val) => updateSession({ notes: val })} 
+                sheetUrl={session.sheetUrl} 
+                onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                
+            />
+        </div>
+      </div>
+
+      {/* MOBILE & FOCUS MODE LEFT SIDEBAR DICTIONARY (OVERLAY) */}
+      {showMobileDict && (
+        <div className={`fixed inset-0 z-50 flex ${isFocusMode ? '' : 'lg:hidden'} bg-black/40 backdrop-blur-xs transition-opacity`}>
+          <div className="relative w-80 max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-left">
+            <button 
+              onClick={() => setShowMobileDict(false)}
+              className="absolute top-2 right-2 p-1.5 rounded-full bg-white/80 hover:bg-white text-[#3E2723] shadow-sm z-50 border border-[#D7CCC8]"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex-1 overflow-hidden pt-10">
+              <DictionarySidebar 
+                  currentNovelId={session.currentNovelId || ''}
+                  terms={session.customTerms} onExportExcel={handleExportExcel} 
+                  onUpdateTerms={handleUpdateTerms}
+                  sheetUrl={session.sheetUrl} 
+                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+                  refreshTrigger={vpLoaded}
+              />
+            </div>
+          </div>
+          {/* Click outside to close */}
+          <div className="flex-1" onClick={() => setShowMobileDict(false)} />
+        </div>
+      )}
+
+      {/* MOBILE & FOCUS MODE RIGHT SIDEBAR WORLD INFO (OVERLAY) */}
+      {showMobileWorld && (
+        <div className={`fixed inset-0 z-50 flex ${isFocusMode ? '' : 'lg:hidden'} bg-black/40 backdrop-blur-xs transition-opacity justify-end`}>
+          {/* Click outside to close */}
+          <div className="flex-1" onClick={() => setShowMobileWorld(false)} />
+          <div className="relative w-[360px] max-w-[85vw] h-full bg-[#EFE5D9] shadow-2xl flex flex-col animate-slide-in-right">
+            <button 
+              onClick={() => setShowMobileWorld(false)}
+              className="absolute top-2 left-2 p-1.5 rounded-full bg-white/80 hover:bg-white text-[#3E2723] shadow-sm z-50 border border-[#D7CCC8]"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex-1 overflow-hidden pt-10">
+              <WorldInfoPanel 
+                  currentNovelId={session.currentNovelId || ''}
+                  characters={session.characters} 
+                  onUpdateCharacters={handleUpdateCharacters} 
+                  relationships={session.relationships} 
+                  onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                  notes={session.notes} 
+                  onUpdateNotes={(val) => updateSession({ notes: val })} 
+                  sheetUrl={session.sheetUrl} 
+                  onUpdateSheetUrl={(url) => updateSession({ sheetUrl: url })} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <HistoryModal isOpen={showHistory} onClose={() => setShowHistory(false)} history={history} onSelect={handleRestoreHistory} onDelete={deleteHistoryItem} onClearAll={() => setHistory([])} />
+
+      <ChapterArchiveModal 
+        isOpen={showChapters} 
+        onClose={() => setShowChapters(false)} 
+        chapters={currentNovelChapters} 
+        customTerms={(session.customTerms || []).filter(t => !session.currentNovelId || t.novelId === session.currentNovelId)} 
+        onSelectChapter={handleRestoreChapter} 
+        onDeleteChapter={handleDeleteChapter} 
+        onRenameChapter={handleRenameChapter} 
+        onClearAll={handleClearAllChapters} 
+      />
+
+      <ShortcutModal 
+        isOpen={showShortcuts} 
+        onClose={() => setShowShortcuts(false)} 
+        currentNovelId={session.currentNovelId || ''}
+        onSelectNovel={(id) => updateSession({ currentNovelId: id })}
+      />
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}

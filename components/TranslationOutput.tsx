@@ -1,0 +1,2734 @@
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Character, TextShortcut } from '../types';
+import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical, RefreshCw } from 'lucide-react';
+import { vietphraseEngine, LacVietLookupResult } from '../services/vietphraseService';
+import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
+// Deleted smartClassify import
+
+interface TranslationOutputProps {
+  data: TranslationResponse;
+  customTerms?: CustomTerm[];
+  characters?: Character[];
+  completedSegments?: number[];
+  onUpdateSegment?: (index: number, newNatural: string) => void;
+  onUpdateAllSegments?: (newNaturals: string[]) => void;
+  onUpdateSegmentData?: (index: number, updated: Partial<TranslationSegment>) => void;
+  onDeleteSegment?: (index: number) => void;
+  onToggleComplete?: (index: number) => void;
+  onSaveChapter?: (name: string) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
+  onUpdateTerms?: (terms: CustomTerm[]) => void;
+  onUpdateCharacters?: (characters: Character[]) => void;
+  currentNovelId?: string;
+  onOpenDictionary?: () => void;
+  onOpenWorldInfo?: () => void;
+}
+
+const escapeRegExp = (string: string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const DIACRITIC_CLASSES_LOWER: Record<string, string> = {
+  'a': '[aàáảãạăằắẳẵặâầấẩẫậ]',
+  'e': '[eèéẻẽẹêềếểễệ]',
+  'i': '[iìíỉĩị]',
+  'o': '[oòóỏõọôồốổỗộơờớởỡợ]',
+  'u': '[uùúủũụưừứửữự]',
+  'y': '[yỳýỷỹỵ]',
+  'd': '[dđ]'
+};
+
+const DIACRITIC_CLASSES_UPPER: Record<string, string> = {
+  'A': '[AÀÁẢÃẠĂẰẮ|ẲẴẶÂẦẤẨẪẬ]',
+  'E': '[EÈÉẺẼẸÊỀẾỂỄỆ]',
+  'I': '[IÌÍỈĨỊ]',
+  'O': '[OÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢ]',
+  'U': '[UÙÚỦŨỤƯỪỨỬỮỰ]',
+  'Y': '[YỲÝỶỸỴ]',
+  'D': '[DĐ]'
+};
+
+const toBaseVietnamese = (str: string): string => {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+};
+
+const getDiacriticRegexClass = (char: string, matchCase: boolean): string => {
+  if (!matchCase) {
+    const lower = char.toLowerCase();
+    return DIACRITIC_CLASSES_LOWER[lower] || escapeRegExp(char);
+  } else {
+    if (DIACRITIC_CLASSES_UPPER[char]) {
+      return DIACRITIC_CLASSES_UPPER[char];
+    }
+    if (DIACRITIC_CLASSES_LOWER[char]) {
+      return DIACRITIC_CLASSES_LOWER[char];
+    }
+    return escapeRegExp(char);
+  }
+};
+
+const buildSearchRegex = (findText: string, matchCase: boolean, matchDiacritics: boolean): RegExp | null => {
+  if (!findText) return null;
+  try {
+    if (matchDiacritics) {
+      return new RegExp(escapeRegExp(findText), matchCase ? 'g' : 'gi');
+    } else {
+      const baseText = toBaseVietnamese(findText);
+      let regexPattern = '';
+      for (let i = 0; i < baseText.length; i++) {
+        regexPattern += getDiacriticRegexClass(baseText[i], matchCase);
+      }
+      return new RegExp(regexPattern, matchCase ? 'g' : 'gi');
+    }
+  } catch (e) {
+    console.error("Failed to build regex", e);
+    return null;
+  }
+};
+
+const EditableSegment = ({ 
+    text, 
+    onUpdate,
+    isFocusMode,
+    findText,
+    matchCase,
+    matchDiacritics,
+    novelId,
+    segmentIndex,
+    onEnterNext
+}: { 
+    text: string; 
+    onUpdate: (val: string) => void;
+    isFocusMode?: boolean;
+    findText?: string;
+    matchCase?: boolean;
+    matchDiacritics?: boolean;
+    novelId?: string;
+    segmentIndex?: number;
+    onEnterNext?: () => void;
+}) => {
+    const [localText, setLocalText] = useState(text);
+    const [isFocused, setIsFocused] = useState(false);
+    const [shortcuts, setShortcuts] = useState<TextShortcut[]>(() => getStoredShortcuts(novelId));
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
+    
+    useEffect(() => {
+        setLocalText(text);
+    }, [text]);
+
+    useEffect(() => {
+        setShortcuts(getStoredShortcuts(novelId));
+    }, [novelId]);
+
+    useEffect(() => {
+        const handleUpdate = () => {
+            setShortcuts(getStoredShortcuts(novelId));
+        };
+        window.addEventListener('shortcuts_updated', handleUpdate);
+        window.addEventListener('shortcuts_toggle', handleUpdate);
+        return () => {
+            window.removeEventListener('shortcuts_updated', handleUpdate);
+            window.removeEventListener('shortcuts_toggle', handleUpdate);
+        };
+    }, [novelId]);
+    
+    const adjustHeight = () => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = '0px';
+            const scrollHeight = textareaRef.current.scrollHeight;
+            textareaRef.current.style.height = `${scrollHeight}px`;
+        }
+    };
+
+    useEffect(() => {
+        adjustHeight();
+        const timer = setTimeout(adjustHeight, 10);
+        window.addEventListener('resize', adjustHeight);
+        return () => {
+            window.removeEventListener('resize', adjustHeight);
+            clearTimeout(timer);
+        };
+    }, [localText, isFocusMode, isFocused]);
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // Phím tắt ngầm: Nhấn Enter (không kèm Shift) để lưu, đánh dấu hoàn thành và nhảy sang đoạn tiếp theo
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            let currentVal = e.currentTarget.value;
+            const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, '\n');
+            if (replaced) {
+                currentVal = newText;
+                setLocalText(newText);
+                adjustHeight();
+            }
+            if (debounceTimeout.current) {
+                clearTimeout(debounceTimeout.current);
+            }
+            onUpdate(currentVal);
+            if (onEnterNext) {
+                onEnterNext();
+            }
+            return;
+        }
+
+        const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+        if (triggerKeys.includes(e.key)) {
+            const triggerChar = e.key === 'Tab' ? '\t' : (e.key === 'Enter' ? '\n' : e.key);
+            const { replaced, newText } = checkAndApplyShortcut(e.currentTarget, shortcuts, triggerChar);
+            if (replaced) {
+                e.preventDefault();
+                setLocalText(newText);
+                adjustHeight();
+                if (debounceTimeout.current) {
+                    clearTimeout(debounceTimeout.current);
+                }
+                debounceTimeout.current = setTimeout(() => {
+                    onUpdate(newText);
+                }, 200);
+            }
+        }
+    };
+
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setLocalText(val);
+
+        if (debounceTimeout.current) {
+            clearTimeout(debounceTimeout.current);
+        }
+        debounceTimeout.current = setTimeout(() => {
+            onUpdate(val);
+        }, 500);
+    };
+
+    const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+        setIsFocused(false);
+        if (debounceTimeout.current) {
+            clearTimeout(debounceTimeout.current);
+        }
+        onUpdate(e.target.value);
+    };
+
+    const handleFocus = () => {
+        setIsFocused(true);
+    };
+
+    const regex = findText ? buildSearchRegex(findText, matchCase ?? false, matchDiacritics ?? true) : null;
+    const hasSearchMatch = regex ? regex.test(localText) : false;
+
+    const renderSearchTextHighlight = (plainText: string) => {
+        if (!plainText) return "";
+        if (!findText) return plainText;
+        const searchRegex = buildSearchRegex(findText, matchCase ?? false, matchDiacritics ?? true);
+        if (!searchRegex) return plainText;
+
+        const parts = plainText.split(searchRegex);
+        const matches = plainText.match(searchRegex) || [];
+
+        let matchIdx = 0;
+        return parts.map((part, idx) => {
+            if (idx > 0) {
+                const matched = matches[matchIdx++];
+                return (
+                    <React.Fragment key={idx}>
+                        <mark className="bg-amber-200 text-amber-950 font-medium px-0.5 rounded shadow-sm">
+                            {matched}
+                        </mark>
+                        {part}
+                    </React.Fragment>
+                );
+            }
+            return part;
+        });
+    };
+
+    if (findText && hasSearchMatch && !isFocused) {
+        return (
+            <div 
+                onClick={() => {
+                    const sel = window.getSelection();
+                    if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
+                    setIsFocused(true);
+                    setTimeout(() => textareaRef.current?.focus(), 20);
+                }}
+                className={`w-full bg-transparent border-none p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[15px] lg:text-[19px]' : 'text-[15px]'} m-0 block whitespace-pre-wrap break-words min-h-[1.2em] cursor-text`}
+                style={{ fontWeight: 400, display: 'block', margin: 0 }}
+            >
+                {renderSearchTextHighlight(localText)}
+            </div>
+        );
+    }
+
+    return (
+        <textarea
+            ref={textareaRef}
+            data-segment-index={segmentIndex}
+            value={localText}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
+            onFocus={handleFocus}
+            className={`w-full bg-transparent border-none outline-none resize-none overflow-hidden p-0 text-[#4E342E] leading-[1.2] ${isFocusMode ? 'text-[15px] lg:text-[19px]' : 'text-[15px]'} focus:ring-0 m-0 block whitespace-normal min-h-0`}
+            style={{ fontWeight: 400, display: 'block', margin: 0 }}
+            rows={1}
+            spellCheck={false}
+        />
+    );
+};
+
+const EditableRawSegment = ({
+  source,
+  segmentIndex,
+  onUpdate,
+  isFocusMode,
+  renderHighlight,
+}: {
+  source: string;
+  segmentIndex?: number;
+  onUpdate: (val: string) => void;
+  isFocusMode?: boolean;
+  renderHighlight: () => React.ReactNode;
+  hasHighlight?: boolean;
+}) => {
+  const [localVal, setLocalVal] = useState(source);
+  const [isFocused, setIsFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalVal(source);
+  }, [source]);
+
+  useEffect(() => {
+    const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
+      if (e.detail?.index === segmentIndex) {
+        setIsFocused(true);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+            adjustHeight();
+          }
+        }, 30);
+      }
+    };
+    window.addEventListener('focus_raw_segment' as any, handleCustomFocus);
+    return () => window.removeEventListener('focus_raw_segment' as any, handleCustomFocus);
+  }, [segmentIndex]);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    if (isFocused) {
+      adjustHeight();
+      const timer = setTimeout(adjustHeight, 10);
+      return () => clearTimeout(timer);
+    }
+  }, [localVal, isFocusMode, isFocused]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      onUpdate(val);
+    }, 500);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    onUpdate(e.target.value);
+  };
+
+  if (!isFocused) {
+    return (
+      <div
+        data-raw-container={segmentIndex}
+        className={`w-full bg-transparent border-none p-0 text-[#3E2723] font-serif-sc leading-[1.2] ${
+          isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
+        } m-0 whitespace-normal break-words select-text min-h-[1.2em]`}
+        title="Quét chọn bôi đen để tra từ (Dùng menu 3 chấm hoặc chuột phải để sửa câu gốc)"
+      >
+        {renderHighlight()}
+      </div>
+    );
+  }
+
+  return (
+    <textarea
+      ref={textareaRef}
+      data-raw-index={segmentIndex}
+      value={localVal}
+      onChange={handleChange}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsFocused(false);
+        }
+      }}
+      onBlur={handleBlur}
+      placeholder="(trống)"
+      rows={1}
+      spellCheck={false}
+      autoFocus
+      className={`w-full bg-transparent border border-[#8D6E63]/40 rounded-xs outline-none resize-none overflow-hidden p-0.5 text-[#3E2723] font-serif-sc leading-[1.2] ${
+        isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'
+      } focus:ring-1 focus:ring-[#8D6E63] m-0 block whitespace-normal min-h-0 bg-white/70`}
+    />
+  );
+};
+
+const EditableVpSegment = ({
+  quick,
+  segmentIndex,
+  onUpdate,
+  isFocusMode,
+}: {
+  quick: string;
+  segmentIndex?: number;
+  onUpdate: (val: string) => void;
+  isFocusMode?: boolean;
+}) => {
+  const [localVal, setLocalVal] = useState(quick);
+  const [isFocused, setIsFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalVal(quick);
+  }, [quick]);
+
+  useEffect(() => {
+    const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
+      if (e.detail?.index === segmentIndex) {
+        setIsFocused(true);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+            adjustHeight();
+          }
+        }, 30);
+      }
+    };
+    window.addEventListener('focus_vp_segment' as any, handleCustomFocus);
+    return () => window.removeEventListener('focus_vp_segment' as any, handleCustomFocus);
+  }, [segmentIndex]);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    if (isFocused) {
+      adjustHeight();
+      const timer = setTimeout(adjustHeight, 10);
+      return () => clearTimeout(timer);
+    }
+  }, [localVal, isFocusMode, isFocused]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      onUpdate(val);
+    }, 500);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    onUpdate(e.target.value);
+  };
+
+  if (!isFocused) {
+    return (
+      <div
+        data-vp-container={segmentIndex}
+        className={`w-full bg-transparent border-none p-0 text-[#8D6E63] opacity-75 hover:opacity-100 leading-[1.1] not-italic font-normal ${
+          isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
+        } m-0 whitespace-normal break-words select-text min-h-[1.1em]`}
+        style={{ fontStyle: 'normal' }}
+        title="Vietphrase đối chiếu (Dùng menu 3 chấm hoặc chuột phải để sửa)"
+      >
+        {localVal || <span className="opacity-40 text-[9px] not-italic font-normal" style={{ fontStyle: 'normal' }}>(Chưa có Vietphrase)</span>}
+      </div>
+    );
+  }
+
+  return (
+    <textarea
+      ref={textareaRef}
+      data-vp-index={segmentIndex}
+      value={localVal}
+      onChange={handleChange}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsFocused(false);
+        }
+      }}
+      onBlur={handleBlur}
+      placeholder="(Chưa có Vietphrase)"
+      rows={1}
+      spellCheck={false}
+      autoFocus
+      style={{ fontStyle: 'normal' }}
+      className={`w-full bg-transparent border border-[#8D6E63]/40 rounded-xs outline-none resize-none overflow-hidden p-0.5 text-[#8D6E63] opacity-100 leading-[1.1] not-italic font-normal ${
+        isFocusMode ? 'text-[10px] lg:text-[13px]' : 'text-[10px]'
+      } focus:ring-1 focus:ring-[#8D6E63] m-0 block whitespace-normal min-h-0 placeholder:opacity-50 bg-white/70`}
+    />
+  );
+};
+
+const EditableDeeplSegment = ({
+  deepl,
+  segmentIndex,
+  onUpdate,
+  isFocusMode,
+}: {
+  deepl: string;
+  segmentIndex?: number;
+  onUpdate: (val: string) => void;
+  isFocusMode?: boolean;
+}) => {
+  const [localVal, setLocalVal] = useState(deepl);
+  const [isFocused, setIsFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setLocalVal(deepl);
+  }, [deepl]);
+
+  useEffect(() => {
+    const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
+      if (e.detail?.index === segmentIndex) {
+        setIsFocused(true);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+            adjustHeight();
+          }
+        }, 30);
+      }
+    };
+    window.addEventListener('focus_deepl_segment' as any, handleCustomFocus);
+    return () => window.removeEventListener('focus_deepl_segment' as any, handleCustomFocus);
+  }, [segmentIndex]);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    if (isFocused) {
+      adjustHeight();
+      const timer = setTimeout(adjustHeight, 10);
+      return () => clearTimeout(timer);
+    }
+  }, [localVal, isFocusMode, isFocused]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setLocalVal(val);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      onUpdate(val);
+    }, 500);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    onUpdate(e.target.value);
+  };
+
+  if (!isFocused) {
+    return (
+      <div
+        data-deepl-container={segmentIndex}
+        className={`w-full bg-transparent border-none p-0 text-[#A1887F] opacity-60 hover:opacity-100 leading-[1.1] not-italic font-normal ${
+          isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
+        } m-0 whitespace-normal break-words select-text min-h-[1.1em] mt-0.5`}
+        style={{ fontStyle: 'normal' }}
+        title="Tham khảo DeepL (Dùng menu 3 chấm hoặc chuột phải để sửa)"
+      >
+        {localVal || <span className="opacity-40 text-[8.5px] not-italic font-normal" style={{ fontStyle: 'normal' }}>(Chưa có GG/DL)</span>}
+      </div>
+    );
+  }
+
+  return (
+    <textarea
+      ref={textareaRef}
+      data-deepl-index={segmentIndex}
+      value={localVal}
+      onChange={handleChange}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsFocused(false);
+        }
+      }}
+      onBlur={handleBlur}
+      placeholder="(Chưa có GG/DL)"
+      rows={1}
+      spellCheck={false}
+      autoFocus
+      style={{ fontStyle: 'normal' }}
+      className={`w-full bg-transparent border border-[#8D6E63]/40 rounded-xs outline-none resize-none overflow-hidden p-0.5 text-[#A1887F] opacity-100 leading-[1.1] not-italic font-normal ${
+        isFocusMode ? 'text-[8.5px] lg:text-[11.5px]' : 'text-[8.5px]'
+      } focus:ring-1 focus:ring-[#8D6E63] m-0 block whitespace-normal min-h-0 placeholder:opacity-50 mt-0.5 bg-white/70`}
+    />
+  );
+};
+
+
+
+export const TranslationOutput: React.FC<TranslationOutputProps> = ({ 
+    data, 
+    customTerms = [], 
+    characters = [],
+    completedSegments = [],
+    onUpdateSegment,
+    onUpdateAllSegments,
+    onUpdateSegmentData,
+    onDeleteSegment,
+    onToggleComplete,
+    onSaveChapter,
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo,
+    isFocusMode,
+    onToggleFocusMode,
+    onUpdateTerms,
+    onUpdateCharacters,
+    currentNovelId,
+    onOpenDictionary,
+    onOpenWorldInfo
+}) => {
+  const [showNamingModal, setShowNamingModal] = useState(false);
+  const [exportFileName, setExportFileName] = useState('');
+  const [showSaveArchiveModal, setShowSaveArchiveModal] = useState(false);
+  const [archiveChapterName, setArchiveChapterName] = useState('');
+  const [vpVersion, setVpVersion] = useState(0);
+
+  const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
+  const [rowMenu, setRowMenu] = useState<{
+    index: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!rowMenu) return;
+    const handleClose = () => setRowMenu(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRowMenu(null);
+    };
+    window.addEventListener('click', handleClose);
+    window.addEventListener('contextmenu', handleClose);
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClose);
+      window.removeEventListener('contextmenu', handleClose);
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [rowMenu]);
+
+  // Full row modal edit state
+  const [modalEditRow, setModalEditRow] = useState<{
+    index: number;
+    source: string;
+    quick: string;
+    deepl: string;
+    natural: string;
+  } | null>(null);
+
+  const handleSaveModalRow = () => {
+    if (!modalEditRow) return;
+    onUpdateSegmentData?.(modalEditRow.index, {
+      source: modalEditRow.source.trim(),
+      quick: modalEditRow.quick.trim(),
+      deepl: modalEditRow.deepl.trim(),
+      natural: modalEditRow.natural.trim()
+    });
+    setModalEditRow(null);
+  };
+  const [activeVocab, setActiveVocab] = useState<{ 
+    item: VocabItem; 
+    position: { x: number; y: number }; 
+    side: 'top' | 'bottom';
+    type?: 'char' | 'custom' | 'ai';
+    rawItem?: CustomTerm | Character | VocabItem;
+  } | null>(null);
+
+  const [isEditingVocabPopup, setIsEditingVocabPopup] = useState(false);
+  const [popupMeaningInput, setPopupMeaningInput] = useState('');
+  const [popupCategoryInput, setPopupCategoryInput] = useState('');
+  const [popupPronounsInput, setPopupPronounsInput] = useState('Hắn');
+  const [popupDescInput, setPopupDescInput] = useState('');
+  const [copiedMode, setCopiedMode] = useState<'all' | 'parallel' | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  // Search and replace states
+  const [showSearchReplace, setShowSearchReplace] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [matchDiacritics, setMatchDiacritics] = useState(true);
+
+  // Calculate search match count
+  const matchingSegmentIndices = React.useMemo(() => {
+    if (!findText || !data.segments) return [];
+    try {
+      const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
+      if (!regex) return [];
+      return data.segments
+        .map((seg, idx) => {
+          const hasMatch = regex.test(seg.natural || '') || regex.test(seg.source || '');
+          return hasMatch ? idx : -1;
+        })
+        .filter(idx => idx !== -1);
+    } catch (e) {
+      return [];
+    }
+  }, [findText, matchCase, matchDiacritics, data.segments]);
+
+  const matchCount = React.useMemo(() => {
+    if (!findText || !data.segments) return 0;
+    try {
+      const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
+      if (!regex) return 0;
+      let count = 0;
+      data.segments.forEach(seg => {
+        const matches = (seg.natural || '').match(regex);
+        if (matches) count += matches.length;
+      });
+      return count;
+    } catch (e) {
+      return 0;
+    }
+  }, [findText, matchCase, matchDiacritics, data.segments]);
+
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+  useEffect(() => {
+    setCurrentMatchIndex(0);
+  }, [matchingSegmentIndices.length, findText]);
+
+  useEffect(() => {
+    if (matchingSegmentIndices.length > 0 && currentMatchIndex >= 0 && currentMatchIndex < matchingSegmentIndices.length) {
+      const targetIdx = matchingSegmentIndices[currentMatchIndex];
+      const element = document.getElementById(`segment-row-${targetIdx}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [currentMatchIndex, matchingSegmentIndices]);
+
+  const handleNextMatch = () => {
+    if (matchingSegmentIndices.length === 0) return;
+    setCurrentMatchIndex(prev => (prev + 1) % matchingSegmentIndices.length);
+  };
+
+  const handlePrevMatch = () => {
+    if (matchingSegmentIndices.length === 0) return;
+    setCurrentMatchIndex(prev => (prev - 1 + matchingSegmentIndices.length) % matchingSegmentIndices.length);
+  };
+
+  // Execute search and replace
+  const handleReplaceAll = () => {
+    if (!findText || !data.segments) return;
+    try {
+      const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
+      if (!regex) return;
+      const newNaturals = data.segments.map(seg => (seg.natural || '').replace(regex, replaceText));
+      onUpdateAllSegments?.(newNaturals);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Subscribe to vietphrase changes to trigger re-renders
+  useEffect(() => {
+    return vietphraseEngine.subscribe(() => {
+      setVpVersion(prev => prev + 1);
+    });
+  }, []);
+
+  // Filter terms and characters for current novel
+  const currentCustomTerms = useMemo(() => {
+    const list = Array.isArray(customTerms) ? customTerms : [];
+    if (!currentNovelId) return list;
+    return list.filter(t => !t.novelId || t.novelId === currentNovelId);
+  }, [customTerms, currentNovelId]);
+
+  const currentCharacters = useMemo(() => {
+    const list = Array.isArray(characters) ? characters : [];
+    if (!currentNovelId) return list;
+    return list.filter(c => !c.novelId || c.novelId === currentNovelId);
+  }, [characters, currentNovelId]);
+
+  // Combined terms map for Vietphrase translate (customTerms take priority over characters)
+  const customMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    currentCharacters.forEach(c => {
+      if (c.chineseName && c.vietName) {
+        map.set(c.chineseName.trim(), c.vietName.trim());
+      }
+    });
+    currentCustomTerms.forEach(t => {
+      if (t.term && t.meaning) {
+        map.set(t.term.trim(), t.meaning.trim());
+      }
+    });
+    return map;
+  }, [currentCustomTerms, currentCharacters]);
+
+  // --- SELECTION POPUP STATE ---
+  const [selectionPopup, setSelectionPopup] = useState<{
+    text: string;
+    vietphrase: string;
+    lacviet?: LacVietLookupResult | null;
+    rect: { left: number; right: number; top: number; bottom: number; width: number; height: number };
+    type: 'idle' | 'vocab' | 'char';
+  } | null>(null);
+
+  const popupCoords = useMemo(() => {
+    if (!selectionPopup) return { left: 0, top: 0, width: 280 };
+    const { rect, type } = selectionPopup;
+    
+    // Horizontal space constraints
+    const maxW = type === 'idle' ? 300 : 320;
+    const W = Math.min(maxW, window.innerWidth - 24);
+    
+    // Approximate popup heights for clamping and placement
+    const H = type === 'idle' ? 290 : type === 'vocab' ? 240 : 330;
+
+    // Scroll offsets for absolute positioning relative to body
+    const scrollX = typeof window !== 'undefined' ? window.scrollX : 0;
+    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+
+    // Horizontal placement: center relative to the selection rect
+    let left = rect.left + rect.width / 2 - W / 2;
+    // Clamp horizontally with 12px padding from viewport boundaries
+    left = Math.max(12, Math.min(left, window.innerWidth - W - 12));
+    left += scrollX;
+
+    // Vertical placement: default is above the selection (with 8px spacing)
+    let top = rect.top - H - 8;
+    
+    // If the popup would overflow the top of the viewport (< 12px)
+    if (top < 12) {
+      // Put it below the selection rect instead
+      top = rect.bottom + 8;
+    }
+    
+    // Safety clamp vertical position relative to viewport height
+    top = Math.max(12, Math.min(top, window.innerHeight - H - 12));
+    top += scrollY;
+
+    return { left, top, width: W };
+  }, [selectionPopup]);
+
+  const [vocabMeaning, setVocabMeaning] = useState('');
+  const [vocabCategory, setVocabCategory] = useState('');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const [charVietName, setCharVietName] = useState('');
+  const [charPronoun, setCharPronoun] = useState('Hắn');
+  const [charDescription, setCharDescription] = useState('');
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const DEFAULT_CATEGORIES = ['Vật phẩm', 'Địa danh', 'Chiêu thức', 'Môn phái', 'Nhân vật', 'Thành thị', 'Vũ khí', 'Trạng thái', 'Hành động', 'Thường dùng', 'Khác'];
+
+  const allCategories = useMemo(() => {
+    const unique = Array.from(new Set(currentCustomTerms.map(t => t.category).filter(Boolean))) as string[];
+    const categoriesSet = new Set([...DEFAULT_CATEGORIES, ...unique]);
+    if (vocabCategory && vocabCategory.trim() && vocabCategory !== '__new__') {
+      categoriesSet.add(vocabCategory.trim());
+    }
+    return Array.from(categoriesSet);
+  }, [currentCustomTerms, vocabCategory]);
+
+  const handleSaveSelectedVocab = () => {
+    console.log("handleSaveSelectedVocab called", { selectionPopup, vocabMeaning, hasOnUpdateTerms: !!onUpdateTerms });
+    
+    if (!selectionPopup) {
+      setSaveStatus({ type: 'error', message: 'Không tìm thấy vùng chọn!' });
+      return;
+    }
+    if (!vocabMeaning.trim()) {
+      setSaveStatus({ type: 'error', message: 'Vui lòng điền nghĩa tiếng Việt!' });
+      return;
+    }
+    if (!onUpdateTerms) {
+      setSaveStatus({ type: 'error', message: 'Hệ thống lỗi: thiếu hàm lưu từ vựng!' });
+      return;
+    }
+
+    try {
+      const cleanTerm = selectionPopup.text.trim();
+      const cleanMeaning = vocabMeaning.trim();
+
+      const newTerm: CustomTerm = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        term: cleanTerm,
+        meaning: cleanMeaning,
+        category: vocabCategory.trim() || undefined
+      };
+
+      const safeTerms = currentCustomTerms;
+      
+      // Duplicate check (nếu giống cả term lẫn meaning)
+      const duplicateExists = safeTerms.some(t => t.term === cleanTerm && t.meaning === cleanMeaning);
+      if (duplicateExists) {
+        setSaveStatus({ type: 'success', message: 'Từ vựng này đã có sẵn!' });
+        setTimeout(() => {
+          setSelectionPopup(null);
+          setSaveStatus(null);
+          setVocabCategory('');
+          setIsCreatingCategory(false);
+          setNewCategoryInput('');
+        }, 800);
+        return;
+      }
+
+      // Đảm bảo 100% ghi đè vào engine ngay tức khắc
+      vietphraseEngine.addCustomTerm(cleanTerm, cleanMeaning);
+
+      // Thay thế từ cũ nếu trùng chữ Hán
+      const remainingTerms = safeTerms.filter(t => t.term.trim() !== cleanTerm);
+      onUpdateTerms([...remainingTerms, newTerm]);
+      setVpVersion(prev => prev + 1);
+      vietphraseEngine.notify();
+      setSaveStatus({ type: 'success', message: 'Đã thêm từ vựng thành công!' });
+      setTimeout(() => {
+        setSelectionPopup(null);
+        setSaveStatus(null);
+        setVocabCategory('');
+        setIsCreatingCategory(false);
+        setNewCategoryInput('');
+      }, 800);
+    } catch (err: any) {
+      console.error("Save vocab error:", err);
+      setSaveStatus({ type: 'error', message: err.message || 'Lỗi khi lưu từ vựng!' });
+    }
+  };
+
+  const handleSaveSelectedCharacter = () => {
+    console.log("handleSaveSelectedCharacter called", { selectionPopup, charVietName, hasOnUpdateCharacters: !!onUpdateCharacters });
+
+    if (!selectionPopup) {
+      setSaveStatus({ type: 'error', message: 'Không tìm thấy vùng chọn!' });
+      return;
+    }
+    if (!charVietName.trim()) {
+      setSaveStatus({ type: 'error', message: 'Vui lòng điền tên nhân vật!' });
+      return;
+    }
+    if (!onUpdateCharacters) {
+      setSaveStatus({ type: 'error', message: 'Hệ thống lỗi: thiếu hàm lưu nhân vật!' });
+      return;
+    }
+
+    try {
+      const cleanChinese = selectionPopup.text.trim();
+      const cleanViet = charVietName.trim();
+
+      const newChar: Character = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        chineseName: cleanChinese,
+        vietName: cleanViet,
+        pronouns: charPronoun.trim() || 'Hắn',
+        description: charDescription.trim()
+      };
+
+      const safeCharacters = currentCharacters;
+      
+      // Duplicate check (nếu giống cả chineseName lẫn vietName)
+      const duplicateExists = safeCharacters.some(c => c.chineseName === cleanChinese && c.vietName === cleanViet);
+      if (duplicateExists) {
+        setSaveStatus({ type: 'success', message: 'Nhân vật này đã có sẵn!' });
+        setTimeout(() => {
+          setSelectionPopup(null);
+          setSaveStatus(null);
+        }, 800);
+        return;
+      }
+
+      // Đảm bảo 100% ghi đè vào engine ngay tức khắc
+      vietphraseEngine.addCustomTerm(cleanChinese, cleanViet);
+
+      // Thay thế nhân vật cũ nếu trùng chữ Hán
+      const remainingChars = safeCharacters.filter(c => c.chineseName.trim() !== cleanChinese);
+      onUpdateCharacters([...remainingChars, newChar]);
+      setVpVersion(prev => prev + 1);
+      vietphraseEngine.notify();
+      setSaveStatus({ type: 'success', message: 'Đã thêm nhân vật thành công!' });
+      setTimeout(() => {
+        setSelectionPopup(null);
+        setSaveStatus(null);
+      }, 800);
+    } catch (err: any) {
+      console.error("Save character error:", err);
+      setSaveStatus({ type: 'error', message: err.message || 'Lỗi khi lưu nhân vật!' });
+    }
+  };
+
+  // Selection change or mouseup listener
+  useEffect(() => {
+    const handleMouseUp = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.selection-popup-container')) {
+        return;
+      }
+
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        setSelectionPopup(null);
+        return;
+      }
+
+      const selectedText = selection.toString().trim();
+      
+      // Chỉ hiện pop up khi tô xanh đoạn là Raw (chứa chữ Hán / tiếng Trung)
+      const isChineseText = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(selectedText);
+      if (!isChineseText) {
+        setSelectionPopup(null);
+        return;
+      }
+
+      // Only trigger if selection is Chinese text of reasonable length
+      if (selectedText.length > 0 && selectedText.length < 150) {
+        try {
+          const range = selection.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+
+          // Compute Vietphrase & LacViet
+          const vpText = vietphraseEngine.translate(selectedText, customMap);
+          const lvResult = vietphraseEngine.lookupLacViet(selectedText);
+
+          setSelectionPopup({
+            text: selectedText,
+            vietphrase: vpText || '',
+            lacviet: lvResult,
+            rect: {
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.width,
+              height: rect.height
+            },
+            type: 'idle'
+          });
+
+          const defaultMeaning = vpText || (lvResult.found ? (lvResult.charByChar && lvResult.charByChar.length > 0 ? lvResult.charByChar.map(c => c.meaning.split('/')[0].split(' - ')[0]).join(' ') : lvResult.meaning.split('/')[0].split(' - ')[0]) : '');
+          setVocabMeaning(defaultMeaning);
+          setCharVietName(defaultMeaning);
+          setCharPronoun('Hắn');
+          setCharDescription('');
+        } catch (err) {
+          console.warn("Failed to capture range bounding rect:", err);
+        }
+      } else {
+        setSelectionPopup(null);
+      }
+    };
+
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [customTerms, characters, customMap, onUpdateTerms, onUpdateCharacters, currentNovelId]);
+
+  const copyToClipboard = (text: string, mode: 'all' | 'parallel') => {
+    navigator.clipboard.writeText(text.trim());
+    setCopiedMode(mode);
+    setTimeout(() => setCopiedMode(null), 2000);
+  };
+
+  const hasSegments = data.segments && data.segments.length > 0;
+  
+  // SỬA ĐỔI: Dùng .join('\n') để dính sát nhau
+  const getParallelText = () => data.segments.map(seg => `${(seg.source || '').trim()}\n${(seg.natural || '').trim()}`).join('\n');
+  const getNaturalText = () => data.segments.map(seg => (seg.natural || '').trim()).join('\n');
+
+  const performWordExport = (fileName: string) => {
+    if (!data.segments || data.segments.length === 0) return;
+
+    let tableRowsHtml = "";
+    data.segments.forEach((seg, idx) => {
+      const cleanSource = (seg.source || '').trim();
+      const cleanNatural = (seg.natural || '').trim();
+      const cleanDeepl = (seg.deepl || '').trim();
+      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).trim();
+
+      if (!cleanSource && !cleanNatural) return;
+
+      tableRowsHtml += `
+        <tr>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'SimSun', serif; font-size: 11pt; background-color: #FFFDF7; width: 22%;">${cleanSource}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #8D6E63; width: 23%;">${cleanQuick}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 10.5pt; color: #A1887F; width: 23%;">${cleanDeepl}</td>
+          <td style="border: 1px solid #D7CCC8; padding: 8px; vertical-align: top; font-family: 'Times New Roman', serif; font-size: 11pt; color: #3E2723; width: 32%;">${cleanNatural}</td>
+        </tr>
+      `;
+    });
+
+    const htmlContent = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head>
+        <meta charset="utf-8">
+        <title>${fileName}</title>
+        <style>
+          body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #333333; }
+          table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+          th { background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8; padding: 10px 8px; font-weight: bold; text-align: left; font-size: 11pt; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 22%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Raw</th>
+              <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Vietphrase</th>
+              <th style="width: 23%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">DeepL</th>
+              <th style="width: 32%; background-color: #EFEBE9; color: #3E2723; border: 1px solid #D7CCC8;">Edit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['\ufeff' + htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleConfirmExport = () => {
+    let name = exportFileName.trim();
+    if (!name) {
+      name = `Bang_doi_chieu_${new Date().toISOString().slice(0, 10)}`;
+    }
+    if (!name.endsWith('.doc') && !name.endsWith('.docx')) {
+      name += '.doc';
+    }
+    performWordExport(name);
+    setShowNamingModal(false);
+  };
+
+  const exportToWord = () => {
+    if (!data.segments || data.segments.length === 0) return;
+    const defaultName = `Bang_doi_chieu_${new Date().toISOString().slice(0, 10)}`;
+    setExportFileName(defaultName);
+    setShowNamingModal(true);
+  };
+
+  const handleConfirmSaveArchive = () => {
+    let name = archiveChapterName.trim();
+    if (!name) {
+      name = `Chương_${new Date().toISOString().slice(0, 10)}`;
+    }
+    onSaveChapter?.(name);
+    setShowSaveArchiveModal(false);
+  };
+
+  const saveToArchive = () => {
+    if (!data.segments || data.segments.length === 0) return;
+    const defaultName = `Chương_${new Date().toISOString().slice(0, 10)}`;
+    setArchiveChapterName(defaultName);
+    setShowSaveArchiveModal(true);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(event.target as Node)) setActiveVocab(null);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleVocabClick = (
+    event: React.MouseEvent, 
+    vocab: VocabItem & { rawItem?: CustomTerm | Character | VocabItem }, 
+    type: 'char' | 'custom' | 'ai' = 'ai'
+  ) => {
+     const selection = window.getSelection();
+     if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+       // Ignore click if the user is currently selecting text
+       return;
+     }
+
+     event.stopPropagation();
+     const rect = event.currentTarget.getBoundingClientRect();
+     const viewportHeight = window.innerHeight;
+     const spaceBelow = viewportHeight - rect.bottom;
+     
+     const side = spaceBelow < 260 ? 'top' : 'bottom';
+     
+     let x = rect.left + rect.width / 2;
+     let y = side === 'bottom' 
+        ? rect.bottom + 10
+        : rect.top - 10;
+
+     if (x < 130) x = 130;
+     if (x > window.innerWidth - 130) x = window.innerWidth - 130;
+     
+     setIsEditingVocabPopup(false);
+     setPopupMeaningInput(vocab.meaning || '');
+
+     if (type === 'custom') {
+       const raw = vocab.rawItem as CustomTerm;
+       setPopupCategoryInput(raw?.category || 'Thường dùng');
+     } else if (type === 'char') {
+       const raw = vocab.rawItem as Character;
+       setPopupMeaningInput(raw?.vietName || vocab.meaning || '');
+       setPopupPronounsInput(raw?.pronouns || 'Hắn');
+       setPopupDescInput(raw?.description || '');
+     } else {
+       setPopupCategoryInput('Thường dùng');
+       setPopupPronounsInput('Hắn');
+       setPopupDescInput(vocab.explanation || '');
+     }
+
+     setActiveVocab({ item: vocab, position: { x, y }, side, type, rawItem: vocab.rawItem });
+  };
+
+  const handleSaveEditVocabPopup = (vocab: NonNullable<typeof activeVocab>) => {
+    if (!vocab) return;
+    if (vocab.type === 'custom') {
+      const raw = vocab.rawItem as CustomTerm;
+      const termToMatch = raw ? raw.term : vocab.item.term;
+      const updatedTerms = currentCustomTerms.map(t => {
+        if ((raw && t.id === raw.id) || t.term === termToMatch) {
+          return {
+            ...t,
+            meaning: popupMeaningInput.trim(),
+            category: popupCategoryInput.trim() || undefined
+          };
+        }
+        return t;
+      });
+      onUpdateTerms?.(updatedTerms);
+    } else if (vocab.type === 'char') {
+      const raw = vocab.rawItem as Character;
+      const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
+      const updatedChars = currentCharacters.map(c => {
+        if ((raw && c.id === raw.id) || c.chineseName === chineseToMatch) {
+          return {
+            ...c,
+            vietName: popupMeaningInput.trim(),
+            pronouns: popupPronounsInput.trim() || 'Hắn',
+            description: popupDescInput.trim()
+          };
+        }
+        return c;
+      });
+      onUpdateCharacters?.(updatedChars);
+    }
+    setIsEditingVocabPopup(false);
+    setActiveVocab(null);
+  };
+
+  const handleDeleteVocabFromPopup = (vocab: NonNullable<typeof activeVocab>) => {
+    if (!vocab) return;
+    if (vocab.type === 'custom') {
+      const raw = vocab.rawItem as CustomTerm;
+      const termToMatch = raw ? raw.term : vocab.item.term;
+      const idToMatch = raw ? raw.id : undefined;
+      const updatedTerms = currentCustomTerms.filter(t => (idToMatch ? t.id !== idToMatch : t.term !== termToMatch));
+      onUpdateTerms?.(updatedTerms);
+    } else if (vocab.type === 'char') {
+      const raw = vocab.rawItem as Character;
+      const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
+      const idToMatch = raw ? raw.id : undefined;
+      const updatedChars = currentCharacters.filter(c => (idToMatch ? c.id !== idToMatch : c.chineseName !== chineseToMatch));
+      onUpdateCharacters?.(updatedChars);
+    }
+    setIsEditingVocabPopup(false);
+    setActiveVocab(null);
+  };
+
+  const handleQuickAddAiVocab = (item: VocabItem, addType: 'term' | 'char') => {
+    if (addType === 'term') {
+      const newTerm: CustomTerm = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        term: item.term.trim(),
+        meaning: (popupMeaningInput || item.meaning).trim(),
+        category: (popupCategoryInput || 'Thường dùng').trim()
+      };
+      onUpdateTerms?.([...currentCustomTerms, newTerm]);
+    } else {
+      const newChar: Character = {
+        id: Date.now().toString(),
+        novelId: currentNovelId || '',
+        chineseName: item.term.trim(),
+        vietName: (popupMeaningInput || item.meaning).trim(),
+        pronouns: popupPronounsInput || 'Hắn',
+        description: popupDescInput || item.explanation || ''
+      };
+      onUpdateCharacters?.([...currentCharacters, newChar]);
+    }
+    setActiveVocab(null);
+  };
+
+  const { pattern, termMap } = React.useMemo(() => {
+    const map = new Map<string, VocabItem & { type: 'char' | 'custom' | 'ai'; rawItem?: CustomTerm | Character | VocabItem }>();
+    const aiVocab = data.vocabulary || [];
+
+    const allTerms = [
+        ...currentCustomTerms.map(c => ({ term: c.term, item: c, type: 'custom' as const })),
+        ...currentCharacters.map(c => ({ term: c.chineseName, item: c, type: 'char' as const })),
+        ...aiVocab.map(v => ({ term: v.term, item: v, type: 'ai' as const }))
+    ]
+    .filter(t => t.term && t.term.trim().length > 0);
+
+    // Sort by length descending, then by type priority (custom > char > ai)
+    const typePriority = { custom: 1, char: 2, ai: 3 };
+    allTerms.sort((a, b) => {
+        if (b.term.length !== a.term.length) {
+            return b.term.length - a.term.length;
+        }
+        return typePriority[a.type] - typePriority[b.type];
+    });
+
+    allTerms.forEach(({ term, item, type }) => {
+        if (!map.has(term)) {
+            let vocabItem: VocabItem;
+            if (type === 'char') {
+                 const c = item as Character;
+                 vocabItem = { term: c.chineseName, pinyin: "Nhân vật", hanViet: c.vietName, meaning: c.vietName, explanation: `(Ngôi 3: ${c.pronouns}) ${c.description || ''}` };
+            } else if (type === 'custom') {
+                 const c = item as CustomTerm;
+                 vocabItem = { term: c.term, pinyin: "Từ điển riêng", hanViet: c.category || "Custom", meaning: c.meaning, explanation: "Từ vựng khớp với danh sách từ điển riêng của bạn." };
+            } else {
+                 vocabItem = item as VocabItem;
+            }
+            map.set(term, { ...vocabItem, type, rawItem: item });
+        }
+    });
+
+    const uniqueTerms = Array.from(map.keys());
+    if (uniqueTerms.length === 0) return { pattern: null, termMap: map };
+    
+    const pattern = new RegExp(`(${uniqueTerms.map(t => escapeRegExp(t)).join('|')})`, 'g');
+    
+    return { pattern, termMap: map };
+  }, [currentCharacters, currentCustomTerms, data.vocabulary]);
+
+  const renderSourceWithHighlight = (text: string) => {
+    const trimmedText = (text || "").trim();
+    if (!trimmedText) return null;
+
+    const searchRegex = findText ? buildSearchRegex(findText, matchCase, matchDiacritics) : null;
+
+    const renderSearchTextHighlight = (plainText: string) => {
+      if (!plainText) return "";
+      if (!searchRegex) return plainText;
+
+      const parts = plainText.split(searchRegex);
+      const matches = plainText.match(searchRegex) || [];
+
+      let matchIdx = 0;
+      return parts.map((part, idx) => {
+        if (idx > 0) {
+          const matched = matches[matchIdx++];
+          return (
+            <React.Fragment key={idx}>
+              <mark className="bg-amber-200 text-amber-950 font-semibold px-0.5 rounded shadow-sm">
+                {matched}
+              </mark>
+              {part}
+            </React.Fragment>
+          );
+        }
+        return part;
+      });
+    };
+
+    if (!pattern) {
+      if (searchRegex) {
+        return <>{renderSearchTextHighlight(trimmedText)}</>;
+      }
+      return trimmedText;
+    }
+
+    return trimmedText.split(pattern).map((part, i) => {
+        if (!part) return null;
+        const match = termMap.get(part);
+
+        if (match) {
+             if (match.type === 'char') {
+                 return <span key={i} data-vocab-item="true" onClick={(e) => handleVocabClick(e, match, 'char')} className="border-b border-dashed border-[#5D4037] bg-[#EFEBE9] cursor-pointer hover:bg-[#D7CCC8] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block">{part}</span>;
+             } else if (match.type === 'custom') {
+                 return <span key={i} data-vocab-item="true" onClick={(e) => handleVocabClick(e, match, 'custom')} className="border-b border-dashed border-[#5D4037] bg-[#EFEBE9] cursor-pointer hover:bg-[#D7CCC8] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block">{part}</span>;
+             } else if (match.type === 'ai') {
+                 return <span key={i} data-vocab-item="true" onClick={(e) => handleVocabClick(e, match, 'ai')} className="border-b-2 border-dashed border-[#FBC02D] bg-[#FFF9C4] cursor-pointer hover:bg-[#FFF176] transition-colors rounded-sm px-0.5 text-[#3E2723] font-bold leading-none inline-block shadow-[inset_0_-2px_0_rgba(251,192,45,0.2)]">{part}</span>;
+             }
+        }
+
+        if (searchRegex && searchRegex.test(part)) {
+          return <React.Fragment key={i}>{renderSearchTextHighlight(part)}</React.Fragment>;
+        }
+
+        return part;
+    });
+  };
+
+  return (
+    <div className="bg-white flex flex-col h-full overflow-hidden relative border border-[#D7CCC8] rounded-xl shadow-sm">
+      <div className="shrink-0 bg-white">
+          <div className="flex items-center justify-between bg-[#EFEBE9] px-3 py-1 border-b border-[#D7CCC8]">
+             <div className="flex items-center gap-1.5 text-[#3E2723] font-bold text-[10px] uppercase tracking-tight"><TableProperties size={12} /><span>Bảng đối chiếu</span></div>
+             <div className="flex items-center gap-1">
+                {/* Undo / Redo */}
+                <div className="flex items-center gap-0.5 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
+                   <button 
+                      onClick={onUndo} onMouseDown={(e) => e.preventDefault()} 
+                      disabled={!canUndo} 
+                      title="Hoàn tác (Ctrl+Z)"
+                      className="p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                   >
+                      <Undo2 size={11} />
+                   </button>
+                   <button 
+                      onClick={onRedo} onMouseDown={(e) => e.preventDefault()} 
+                      disabled={!canRedo} 
+                      title="Làm lại (Ctrl+Y)"
+                      className="p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                   >
+                      <Redo2 size={11} />
+                   </button>
+                </div>
+
+                {/* Khi vào chế độ tập trung: 2 nút kho từ vựng và bảng nvat/xưng hô hiện bên cạnh nút hoàn tác */}
+                {isFocusMode && (
+                   <div className="flex items-center gap-1 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
+                      <button 
+                         type="button"
+                         onClick={onOpenDictionary}
+                         title="Mở Kho từ vựng (Tra cứu & Thêm từ)"
+                         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] hover:text-[#3E2723] transition-all shadow-2xs cursor-pointer"
+                      >
+                         <BookOpen size={11} className="text-[#8D6E63]" />
+                         <span>Kho từ vựng</span>
+                      </button>
+                      <button 
+                         type="button"
+                         onClick={onOpenWorldInfo}
+                         title="Mở Bảng nhân vật & quan hệ xưng hô"
+                         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] hover:text-[#3E2723] transition-all shadow-2xs cursor-pointer"
+                      >
+                         <Users size={11} className="text-[#8D6E63]" />
+                         <span>Bảng nvat/xưng hô</span>
+                      </button>
+                   </div>
+                )}
+
+                {/* Batch Search and Replace */}
+                <button 
+                   onClick={() => setShowSearchReplace(!showSearchReplace)} 
+                   title="Tìm kiếm & Thay thế"
+                   className={`p-1 rounded text-[#5D4037] hover:bg-[#D7CCC8] transition-colors mr-1 ${showSearchReplace ? 'bg-[#D7CCC8]' : ''}`}
+                >
+                   <Search size={11} />
+                </button>
+
+                {/* Focus mode */}
+                <button 
+                   onClick={onToggleFocusMode} 
+                   title={isFocusMode ? "Hủy tập trung (Hiện 2 bên)" : "Tập trung (Mở rộng tối đa)"}
+                   className={`p-1 rounded border transition-colors shadow-sm mr-1 ${isFocusMode ? 'bg-[#FFECB3] border-[#FFD54F] text-[#3E2723] hover:bg-[#FFE082]' : 'bg-white border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]'}`}
+                >
+                   {isFocusMode ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
+                </button>
+
+                {/* Edit & Raw copy button */}
+                <button 
+                   onClick={() => copyToClipboard(getParallelText(), 'parallel')} 
+                   title="Sao chép Đối chiếu (Gốc & Edit)" 
+                   className="p-1 rounded text-[#5D4037] hover:text-[#3E2723] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] transition-colors shadow-sm mr-1"
+                >
+                   {copiedMode === 'parallel' ? <Check size={11} className="text-green-600 font-bold" /> : <ClipboardList size={11} />}
+                </button>
+
+                {/* Edit only copy button */}
+                <button 
+                   onClick={() => copyToClipboard(getNaturalText(), 'all')} 
+                   title="Sao chép Edit" 
+                   className="p-1 rounded text-[#8D6E63] hover:text-[#3E2723] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] transition-colors shadow-sm mr-1"
+                >
+                   {copiedMode === 'all' ? <Check size={11} className="text-green-600 font-bold" /> : <Copy size={11} />}
+                </button>
+
+                {/* Export to Word button */}
+                <button 
+                   onClick={exportToWord} 
+                   title="Xuất file Word (.docx)" 
+                   className="p-1 rounded text-[#3E2723] hover:text-white hover:bg-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#5D4037] transition-colors shadow-sm mr-1"
+                >
+                   <FileDown size={11} />
+                </button>
+
+                {/* Save chapter button */}
+                {onSaveChapter && (
+                   <button 
+                      onClick={saveToArchive} 
+                      title="Lưu vào Kho Lưu trữ Chương" 
+                      className="p-1 rounded text-[#5D4037] hover:text-white hover:bg-[#8D6E63] bg-white border border-[#D7CCC8] hover:bg-[#8D6E63] transition-colors shadow-sm mr-1"
+                   >
+                      <BookOpen size={11} />
+                   </button>
+                )}
+             </div>
+          </div>
+          {showSearchReplace && (
+             <div className="bg-[#FFFDF7] border-b border-[#D7CCC8] p-2 px-3 flex flex-wrap items-center gap-3 animate-in slide-in-from-top-1 duration-150 shrink-0 select-none">
+                <div className="flex items-center gap-1.5">
+                   <span className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wide">Tìm:</span>
+                   <input 
+                     type="text" 
+                     value={findText}
+                     onChange={(e) => setFindText(e.target.value)}
+                     placeholder="Từ cần tìm..." 
+                     className="bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[11px] text-[#3E2723] outline-none focus:border-[#8D6E63] w-36 font-medium"
+                   />
+                </div>
+                <div className="flex items-center gap-1.5">
+                   <span className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wide">Thay bằng:</span>
+                   <input 
+                     type="text" 
+                     value={replaceText}
+                     onChange={(e) => setReplaceText(e.target.value)}
+                     placeholder="Từ thay thế..." 
+                     className="bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[11px] text-[#3E2723] outline-none focus:border-[#8D6E63] w-36 font-medium"
+                   />
+                </div>
+                <div className="flex items-center gap-1.5">
+                   <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[#5D4037] font-medium select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={matchCase} 
+                        onChange={(e) => setMatchCase(e.target.checked)}
+                        className="rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8] h-3 w-3"
+                      />
+                      <span>Phân biệt hoa thường</span>
+                   </label>
+                </div>
+                <div className="flex items-center gap-1.5">
+                   <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[#5D4037] font-medium select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={matchDiacritics} 
+                        onChange={(e) => setMatchDiacritics(e.target.checked)}
+                        className="rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8] h-3 w-3"
+                      />
+                      <span>Khớp dấu</span>
+                   </label>
+                </div>
+                {findText && (
+                   <div className="flex items-center gap-1 bg-[#FFF8E1] px-2 py-0.5 rounded border border-[#FFE082]">
+                      <span className="text-[10.5px] font-semibold text-[#8D6E63]">
+                         Khớp: {matchingSegmentIndices.length > 0 ? `${currentMatchIndex + 1}/${matchingSegmentIndices.length}` : '0'} ({matchCount} từ)
+                      </span>
+                      {matchingSegmentIndices.length > 0 && (
+                         <div className="flex items-center gap-0.5 border-l border-[#FFE282] pl-1 ml-1">
+                            <button
+                               onClick={handlePrevMatch}
+                               className="p-0.5 rounded hover:bg-[#FFE082] text-[#8D6E63] transition-colors"
+                               title="Khớp trước đó"
+                            >
+                               <ChevronLeft size={11} />
+                            </button>
+                            <button
+                               onClick={handleNextMatch}
+                               className="p-0.5 rounded hover:bg-[#FFE082] text-[#8D6E63] transition-colors"
+                               title="Khớp tiếp theo"
+                            >
+                               <ChevronRight size={11} />
+                            </button>
+                         </div>
+                      )}
+                   </div>
+                )}
+                <div className="flex items-center gap-1.5 ml-auto">
+                   <button 
+                     onClick={handleReplaceAll}
+                     disabled={!findText || matchCount === 0}
+                     className="bg-[#5D4037] hover:bg-[#3E2723] disabled:bg-[#D7CCC8] disabled:cursor-not-allowed text-white text-[10px] font-bold px-2.5 py-0.5 rounded transition-colors shadow-sm"
+                   >
+                     Thay thế tất cả
+                   </button>
+                   <button 
+                     onClick={() => {
+                       setShowSearchReplace(false);
+                       setFindText('');
+                       setReplaceText('');
+                     }}
+                     className="text-[#A1887F] hover:text-[#3E2723] text-[10px] font-medium px-1.5 py-0.5"
+                   >
+                     Hủy
+                   </button>
+                </div>
+             </div>
+          )}
+          {hasSegments && (
+             <div className="hidden lg:flex w-full bg-[#EFEBE9] text-[#5D4037] text-[9px] font-bold uppercase tracking-wider shadow-sm border-t border-[#D7CCC8]">
+                 <div className="w-[45%] p-1 border-r border-[#D7CCC8] pl-2">Raw</div>
+                 <div className="w-[55%] p-1 pl-2">Edit</div>
+             </div>
+          )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto bg-white scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent pb-4">
+        {hasSegments ? (
+             <div className="w-full text-left m-0 p-0 border-none block lg:table lg:table-fixed border-collapse">
+                <div className="divide-y divide-[#EFEBE9] block lg:table-row-group">
+                   {data.segments.map((seg, idx) => {
+                      const isDone = completedSegments.includes(idx);
+                      const cleanSource = (seg.source || '').trim();
+                      const cleanNatural = (seg.natural || '').trim();
+                      const cleanDeepl = (seg.deepl || '').trim();
+                      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).trim();
+
+                      if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl) return null;
+
+                      return (
+                         <div 
+                          id={`segment-row-${idx}`}
+                          key={idx} 
+                          onContextMenu={(e) => {
+                            if ((e.target as HTMLElement)?.tagName === 'TEXTAREA' || (e.target as HTMLElement)?.tagName === 'INPUT') {
+                              return;
+                            }
+                            e.preventDefault();
+                            setRowMenu({
+                              index: idx,
+                              x: e.clientX,
+                              y: e.clientY
+                            });
+                          }}
+                          className={`flex flex-col lg:table-row ${isDone ? 'bg-[#EFEBE9]/40 hover:bg-[#D7CCC8]/30' : 'hover:bg-[#F5F5F5]/40'} ${
+                            findText && matchingSegmentIndices[currentMatchIndex] === idx 
+                              ? 'bg-amber-100/70 border-2 border-amber-400 ring-2 ring-amber-400/50 lg:ring-0 lg:border-none' 
+                              : findText && matchingSegmentIndices.includes(idx) 
+                                ? 'bg-amber-50/50' 
+                                : ''
+                          } transition-all duration-300 group/row border-b border-[#EFEBE9] lg:border-none pb-2.5 lg:pb-0`}
+                        >
+                           <div className={`py-1.5 lg:py-0.5 px-2 align-top lg:border-r border-[#EFEBE9] relative ${isDone ? 'opacity-80' : 'bg-[#FFFDF7]/30'} block lg:table-cell lg:w-[45%] lg:max-w-0`}>
+                              <div className="flex flex-col py-0.5">
+                                {/* Raw text section */}
+                                <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
+                                   <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
+                                       {idx + 1}.
+                                   </span>
+                                   <div className="flex-1 min-w-0">
+                                     <EditableRawSegment
+                                       source={cleanSource}
+                                       segmentIndex={idx}
+                                       onUpdate={(val) => onUpdateSegmentData?.(idx, { source: val })}
+                                       isFocusMode={isFocusMode}
+                                       renderHighlight={() => renderSourceWithHighlight(cleanSource || '(trống)')}
+                                       hasHighlight={Boolean(pattern || (findText && buildSearchRegex(findText, matchCase, matchDiacritics)?.test(cleanSource)))}
+                                     />
+                                   </div>
+                                </div>
+
+                                {/* Vietphrase section */}
+                                <div className="flex items-center pl-[24px] mt-0.5 w-full">
+                                  <EditableVpSegment
+                                    quick={cleanQuick}
+                                    segmentIndex={idx}
+                                    onUpdate={(val) => onUpdateSegmentData?.(idx, { quick: val })}
+                                    isFocusMode={isFocusMode}
+                                  />
+                                </div>
+                              </div>
+                           </div>
+
+                           <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-7 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
+                              <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch w-full">
+                                  {/* Mobile action buttons */}
+                                  <div className="lg:hidden flex items-center gap-1 mr-1 shrink-0 mt-0.5">
+                                      <button
+                                          onClick={() => onToggleComplete?.(idx)}
+                                          className={`w-5 min-w-[20px] h-5 flex items-center justify-center rounded-full transition-all shrink-0 ${isDone ? 'text-[#5D4037]' : 'text-[#A1887F]/60 hover:text-[#5D4037]'}`}
+                                          title={isDone ? "Đã hoàn thành" : "Chưa hoàn thành"}
+                                       >
+                                          <CheckCircle2 size={14} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
+                                       </button>
+                                       <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setRowMenu({
+                                              index: idx,
+                                              x: Math.max(10, rect.left),
+                                              y: rect.bottom + 4
+                                            });
+                                          }}
+                                          className="p-1 text-[#8D6E63] hover:text-[#3E2723]"
+                                          title="Tùy chọn hàng"
+                                       >
+                                          <MoreVertical size={13} />
+                                       </button>
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0">
+                                     <EditableSegment 
+                                       text={cleanNatural} 
+                                       onUpdate={(val) => onUpdateSegment?.(idx, val)} 
+                                       isFocusMode={isFocusMode} 
+                                       findText={findText}
+                                       matchCase={matchCase}
+                                       matchDiacritics={matchDiacritics}
+                                       novelId={currentNovelId}
+                                       segmentIndex={idx}
+                                       onEnterNext={() => {
+                                         if (!isDone) {
+                                           onToggleComplete?.(idx);
+                                         }
+                                         setTimeout(() => {
+                                           const allTextareas = Array.from(document.querySelectorAll('textarea[data-segment-index]')) as HTMLTextAreaElement[];
+                                           const currentPos = allTextareas.findIndex(el => el.getAttribute('data-segment-index') === String(idx));
+                                           const nextEl = currentPos >= 0 && currentPos < allTextareas.length - 1 ? allTextareas[currentPos + 1] : null;
+
+                                           if (nextEl) {
+                                             nextEl.focus({ preventScroll: true });
+                                             nextEl.setSelectionRange(nextEl.value.length, nextEl.value.length);
+                                             const nextRow = (nextEl.closest('[id^="segment-row-"]') || nextEl) as HTMLElement;
+                                             if (nextRow) {
+                                               nextRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                             }
+                                           }
+                                         }, 30);
+                                       }}
+                                     />
+
+                                     {/* Deepl Section */}
+                                     <EditableDeeplSegment
+                                       deepl={cleanDeepl}
+                                       segmentIndex={idx}
+                                       onUpdate={(val) => onUpdateSegmentData?.(idx, { deepl: val })}
+                                       isFocusMode={isFocusMode}
+                                     />
+                                  </div>
+                                  
+                                  {/* Desktop action buttons */}
+                                  <div className="hidden lg:flex flex-col items-center gap-1 absolute top-1 right-1 z-10">
+                                     <button
+                                        type="button"
+                                        onClick={() => onToggleComplete?.(idx)}
+                                        className={`p-1 rounded-full transition-all shadow-xs border cursor-pointer ${isDone ? 'opacity-100 bg-[#EFEBE9] border-[#D7CCC8] text-[#5D4037] hover:bg-[#D7CCC8]' : 'opacity-0 group-hover/row:opacity-100 bg-white/90 hover:bg-white text-[#A1887F] hover:text-[#3E2723] border-[#D7CCC8]'}`}
+                                        title={isDone ? "Đã đánh dấu hoàn thành (Click để bỏ)" : "Đánh dấu hoàn thành"}
+                                     >
+                                        <CheckCircle2 size={isFocusMode ? 14 : 12} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
+                                     </button>
+
+                                     <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          setRowMenu({
+                                            index: idx,
+                                            x: Math.max(10, rect.right - 190),
+                                            y: rect.bottom + 4
+                                          });
+                                        }}
+                                        className="p-1 rounded-full opacity-0 group-hover/row:opacity-100 bg-white/90 hover:bg-white text-[#8D6E63] hover:text-[#3E2723] border border-[#D7CCC8] transition-all shadow-xs cursor-pointer"
+                                        title="Tùy chọn hàng (hoặc click chuột phải)"
+                                     >
+                                        <MoreVertical size={isFocusMode ? 13 : 11} />
+                                     </button>
+                                  </div>
+                             </div>
+
+                             {/* Inline delete confirmation banner */}
+                             {confirmDeleteIndex === idx && (
+                               <div className="w-full bg-red-50 border border-red-200 text-red-900 px-2.5 py-1.5 rounded-md flex items-center justify-between text-xs my-1 shadow-xs animate-in fade-in">
+                                 <div className="flex items-center gap-1.5">
+                                   <Trash2 size={13} className="text-red-600 shrink-0" />
+                                   <span>Xác nhận xóa <strong>hàng #{idx + 1}</strong>?</span>
+                                 </div>
+                                 <div className="flex items-center gap-1.5">
+                                   <button
+                                     type="button"
+                                     onClick={() => {
+                                       onDeleteSegment?.(idx);
+                                       setConfirmDeleteIndex(null);
+                                     }}
+                                     className="px-2.5 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded font-bold text-[11px] transition-colors shadow-xs"
+                                   >
+                                     Xóa
+                                   </button>
+                                   <button
+                                     type="button"
+                                     onClick={() => setConfirmDeleteIndex(null)}
+                                     className="px-2 py-0.5 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded text-[11px] transition-colors"
+                                   >
+                                     Hủy
+                                   </button>
+                                 </div>
+                               </div>
+                             )}
+                          </div>
+                        </div>
+                      );
+                   })}
+                </div>
+             </div>
+        ) : (
+             <div className="p-3"><p className="text-[15px] leading-[1.2] text-[#3E2723] whitespace-normal">{data.naturalTranslation.trim()}</p></div>
+        )}
+      </div>
+
+      {activeVocab && createPortal(
+        <div 
+          ref={popupRef} 
+          style={{ 
+            left: activeVocab.position.x, 
+            top: activeVocab.position.y, 
+            transform: activeVocab.side === 'bottom' ? 'translate(-50%, 0)' : 'translate(-50%, -100%)' 
+          }} 
+          className="fixed z-50 w-[270px] bg-[#FFFDF7] rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-200 overflow-hidden"
+        >
+            {activeVocab.side === 'bottom' ? (
+                <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#FFFDF7] border-l border-t border-[#D7CCC8] rotate-45"></div>
+            ) : (
+                <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#FFFDF7] border-r border-b border-[#D7CCC8] rotate-45"></div>
+            )}
+            <div className="p-3">
+                {/* Header */}
+                <div className="flex justify-between items-start mb-2 pb-1.5 border-b border-[#EFEBE9]">
+                    <div>
+                        <h3 className="text-base font-serif-sc font-bold text-[#3E2723] leading-none mb-1 flex items-center gap-1.5">
+                            {activeVocab.type === 'char' && <Users size={12} className="text-[#8D6E63]" />}
+                            {activeVocab.item.term}
+                        </h3>
+                        <div className="flex items-center gap-1">
+                            <span className="bg-[#EFEBE9] text-[#5D4037] px-1 py-0.5 rounded text-[8px] font-mono border border-[#D7CCC8]">
+                                {activeVocab.type === 'char' ? 'Nhân vật' : activeVocab.type === 'custom' ? 'Từ điển riêng' : activeVocab.item.pinyin || 'Gợi ý AI'}
+                            </span>
+                            {activeVocab.item.hanViet && activeVocab.type === 'ai' && (
+                              <span className="text-[10px] text-[#8D6E63] font-medium ml-1">
+                                {activeVocab.item.hanViet}
+                              </span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        {(activeVocab.type === 'custom' || activeVocab.type === 'char') && !isEditingVocabPopup && (
+                            <button 
+                                onClick={() => setIsEditingVocabPopup(true)} 
+                                className="text-[#5D4037] hover:text-[#3E2723] px-1.5 py-0.5 rounded hover:bg-[#EFEBE9] transition-colors flex items-center gap-1 text-[10px] font-bold border border-[#D7CCC8]/60 bg-white shadow-2xs"
+                                title="Sửa từ này"
+                            >
+                                <Pencil size={11} />
+                                <span>Sửa</span>
+                            </button>
+                        )}
+                        <button 
+                            onClick={() => { setActiveVocab(null); setIsEditingVocabPopup(false); }} 
+                            className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#EFEBE9]"
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Content Body */}
+                {isEditingVocabPopup && (activeVocab.type === 'custom' || activeVocab.type === 'char') ? (
+                    <div className="space-y-2">
+                        <div className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wider flex items-center gap-1">
+                            <Pencil size={10} /> Chỉnh sửa {activeVocab.type === 'char' ? 'nhân vật' : 'từ vựng'}
+                        </div>
+                        {activeVocab.type === 'custom' ? (
+                            <>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Nghĩa / Tiếng Việt</label>
+                                    <input 
+                                        type="text" 
+                                        value={popupMeaningInput} 
+                                        onChange={(e) => setPopupMeaningInput(e.target.value)}
+                                        className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] font-bold outline-none focus:border-[#8D6E63]" 
+                                        autoFocus
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Phân loại</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="VD: Vật phẩm, Địa danh..." 
+                                        value={popupCategoryInput} 
+                                        onChange={(e) => setPopupCategoryInput(e.target.value)}
+                                        className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63]" 
+                                    />
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div>
+                                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Tên Việt hiển thị</label>
+                                    <input 
+                                        type="text" 
+                                        value={popupMeaningInput} 
+                                        onChange={(e) => setPopupMeaningInput(e.target.value)}
+                                        className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] font-bold outline-none focus:border-[#8D6E63]" 
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                        <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Xưng hô (ngôi 3)</label>
+                                        <input 
+                                            type="text" 
+                                            value={popupPronounsInput} 
+                                            onChange={(e) => setPopupPronounsInput(e.target.value)}
+                                            className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63]" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[8px] font-bold text-[#8D6E63] uppercase mb-0.5">Mô tả</label>
+                                        <input 
+                                            type="text" 
+                                            value={popupDescInput} 
+                                            onChange={(e) => setPopupDescInput(e.target.value)}
+                                            className="w-full bg-white border border-[#D7CCC8] rounded px-1.5 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63]" 
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        <div className="flex items-center justify-between pt-1">
+                            <button 
+                                type="button"
+                                onClick={() => handleDeleteVocabFromPopup(activeVocab)}
+                                className="px-2 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-[10px] font-bold flex items-center gap-0.5"
+                            >
+                                <Trash2 size={10} /> Xóa
+                            </button>
+                            <div className="flex gap-1">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsEditingVocabPopup(false)} 
+                                    className="px-2 py-1 bg-[#EFEBE9] text-[#5D4037] hover:bg-[#D7CCC8] rounded text-[10px] font-bold"
+                                >
+                                    Hủy
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleSaveEditVocabPopup(activeVocab)} 
+                                    className="px-2 py-1 bg-[#5D4037] text-white hover:bg-[#3E2723] rounded text-[10px] font-bold"
+                                >
+                                    Lưu
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-1.5">
+                        <div className="flex justify-between items-baseline border-b border-[#EFEBE9] pb-0.5">
+                            <span className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider">
+                                {activeVocab.type === 'char' ? 'Tên Việt' : 'Hán Việt'}
+                            </span>
+                            <span className="text-xs text-[#3E2723] font-medium">
+                                {activeVocab.item.hanViet}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">
+                                {activeVocab.type === 'char' ? 'Tên hiển thị' : 'Nghĩa'}
+                            </div>
+                            <div className="text-xs font-bold text-[#3E2723] bg-[#FFF8E1] p-1 rounded border-l-2 border-[#5D4037]">
+                                {activeVocab.item.meaning}
+                            </div>
+                        </div>
+                        {activeVocab.item.explanation && (
+                            <div>
+                                <div className="text-[7px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                                    <Info size={8} /> Chi tiết
+                                </div>
+                                <div className="text-[10px] text-[#5D4037] italic leading-tight bg-white border border-[#EFEBE9] p-1 rounded">
+                                    {activeVocab.item.explanation}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Nút Thêm Nhanh dành cho Từ AI (Chưa có trong kho từ vựng) */}
+                        {activeVocab.type === 'ai' && (
+                            <div className="pt-2 border-t border-[#EFEBE9] space-y-1">
+                                <div className="text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider">Thêm nhanh vào kho:</div>
+                                <div className="grid grid-cols-2 gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickAddAiVocab(activeVocab.item, 'term')}
+                                        className="px-2 py-1.5 bg-[#5D4037] text-white hover:bg-[#3E2723] rounded text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                    >
+                                        <Plus size={11} /> + Từ vựng
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickAddAiVocab(activeVocab.item, 'char')}
+                                        className="px-2 py-1.5 bg-[#8D6E63] text-white hover:bg-[#5D4037] rounded text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                    >
+                                        <UserPlus size={11} /> + Nhân vật
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>,
+        document.body
+      )}
+
+      {showNamingModal && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF7] border border-[#D7CCC8] rounded-xl shadow-[0_20px_50px_rgba(62,39,35,0.3)] w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-[#EFEBE9] px-4 py-3 border-b border-[#D7CCC8] flex items-center justify-between">
+              <span className="text-xs font-bold text-[#3E2723] uppercase tracking-wider flex items-center gap-1.5">
+                <FileDown size={14} className="text-[#8D6E63]" />
+                <span>Đặt tên file Word</span>
+              </span>
+              <button 
+                onClick={() => setShowNamingModal(false)}
+                className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#D7CCC8]/30 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="p-5">
+              <label className="block text-[11px] font-bold text-[#8D6E63] uppercase tracking-wider mb-2">
+                Tên file (hệ thống sẽ tự động thêm .doc):
+              </label>
+              <input
+                type="text"
+                value={exportFileName}
+                onChange={(e) => setExportFileName(e.target.value)}
+                placeholder="VD: chuong_153_doi_chieu"
+                className="w-full bg-white border border-[#D7CCC8] rounded px-3 py-2 text-[#3E2723] text-sm outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all font-medium"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmExport();
+                  }
+                }}
+              />
+              <p className="text-[10px] text-[#A1887F] mt-2 italic">
+                Bảng sẽ xuất ra Word gồm 4 cột đối chiếu: Raw, Vietphrase, DeepL và Edit.
+              </p>
+            </div>
+            
+            <div className="bg-[#F5F2F0] px-5 py-3 border-t border-[#D7CCC8] flex justify-end gap-2">
+              <button
+                onClick={() => setShowNamingModal(false)}
+                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleConfirmExport}
+                className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm"
+              >
+                Xuất file
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showSaveArchiveModal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3E2723]/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#FFFDF7] rounded-xl border border-[#D7CCC8] shadow-2xl w-full max-w-md overflow-hidden transform animate-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-[#D7CCC8] bg-[#EFE5D9] flex justify-between items-center">
+              <div className="flex items-center gap-2 text-[#3E2723] font-bold text-sm">
+                <BookOpen size={16} />
+                <span>Lưu chương vào kho lưu trữ</span>
+              </div>
+              <button onClick={() => setShowSaveArchiveModal(false)} className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="p-5">
+              <label className="block text-xs font-bold text-[#5D4037] mb-2 uppercase tracking-wide">Tên chương để lưu trữ</label>
+              <input
+                type="text"
+                value={archiveChapterName}
+                onChange={(e) => setArchiveChapterName(e.target.value)}
+                placeholder="VD: Chương 123: Tiêu đề chương"
+                className="w-full bg-white border border-[#D7CCC8] rounded px-3 py-2 text-[#3E2723] text-sm outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all font-medium"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmSaveArchive();
+                  }
+                }}
+              />
+              <p className="text-[10px] text-[#A1887F] mt-2 italic">
+                Chương sẽ được lưu trữ cục bộ để tích lũy. Khi cần có thể tải ZIP toàn bộ hoặc khôi phục để sửa tiếp.
+              </p>
+            </div>
+            
+            <div className="bg-[#F5F2F0] px-5 py-3 border-t border-[#D7CCC8] flex justify-end gap-2">
+              <button
+                onClick={() => setShowSaveArchiveModal(false)}
+                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleConfirmSaveArchive}
+                className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm"
+              >
+                Lưu Chương
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {selectionPopup && createPortal(
+        <div 
+          className="absolute z-50 selection-popup-container bg-[#FFFDF7] rounded-xl shadow-[0_12px_40px_rgba(62,39,35,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col"
+          style={{ 
+            left: `${popupCoords.left}px`, 
+            top: `${popupCoords.top}px`, 
+            width: `${popupCoords.width}px`,
+            maxHeight: '380px'
+          }}
+        >
+          {/* Header */}
+          <div className="bg-[#EFEBE9]/60 px-3.5 py-2 border-b border-[#D7CCC8]/80 flex justify-between items-center shrink-0">
+            <span className="text-[10px] font-bold text-[#5D4037] uppercase tracking-wider flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#8D6E63]"></span>
+              Tra cứu & Thêm nhanh
+            </span>
+            <button 
+              onClick={() => setSelectionPopup(null)} 
+              className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#D7CCC8]/30 transition-colors"
+            >
+              <X size={12} />
+            </button>
+          </div>
+
+          <div className="p-3.5 space-y-3 overflow-y-auto scrollbar-thin max-h-[300px]">
+            {selectionPopup.type === 'idle' && (
+              <>
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Cụm từ chọn</div>
+                    <div className="text-sm font-serif-sc font-bold text-[#3E2723] bg-[#EFEBE9]/20 border border-[#EFEBE9] px-2 py-1 rounded leading-snug">
+                      {selectionPopup.text}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[9px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Nghĩa Vietphrase</div>
+                    <div className="text-xs font-bold text-[#5D4037] bg-[#FFF8E1] px-2 py-1 rounded border-l-4 border-[#8D6E63] leading-snug shadow-[inset_0_-1px_0_rgba(141,110,99,0.1)]">
+                      {selectionPopup.vietphrase || <span className="opacity-40 not-italic font-normal text-[10px]">Không có trong từ điển thô</span>}
+                    </div>
+                  </div>
+
+                  {/* Nghĩa Lạc Việt */}
+                  <div>
+                    <div className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider mb-0.5 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                        Nghĩa Lạc Việt
+                      </span>
+                      {selectionPopup.lacviet?.found && (
+                        <span className="text-[8.5px] font-normal text-emerald-700/80">
+                          {selectionPopup.lacviet.charByChar && selectionPopup.lacviet.charByChar.length > 0 ? 'Từng chữ' : 'Cụm từ'}
+                        </span>
+                      )}
+                    </div>
+                    {selectionPopup.lacviet?.found ? (
+                      <div className="text-xs text-[#1B5E20] bg-emerald-50/80 border border-emerald-200/80 rounded p-1.5 space-y-1">
+                        {selectionPopup.lacviet.charByChar && selectionPopup.lacviet.charByChar.length > 0 ? (
+                          <div className="space-y-1">
+                            {selectionPopup.lacviet.charByChar.map((cItem, cIdx) => (
+                              <div 
+                                key={cIdx} 
+                                onClick={() => {
+                                  const singleMeaning = cItem.meaning.split('/')[0].split(' - ')[0].trim();
+                                  setVocabMeaning(singleMeaning);
+                                  setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
+                                }}
+                                className="flex items-start gap-1.5 text-[11px] leading-snug hover:bg-emerald-100/60 p-0.5 rounded cursor-pointer transition-colors"
+                                title="Bấm để dùng nghĩa này tạo từ vựng"
+                              >
+                                <span className="font-bold font-serif-sc text-emerald-950 bg-emerald-200/70 px-1 py-0.2 rounded text-[11px] shrink-0">
+                                  {cItem.char}
+                                </span>
+                                <span className="text-[#2E7D32] break-words">
+                                  {cItem.meaning}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              const cleanMeaning = selectionPopup.lacviet?.meaning.split('/')[0].split(' - ')[0].trim() || '';
+                              setVocabMeaning(cleanMeaning);
+                              setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
+                            }}
+                            className="font-medium text-[11.5px] break-words hover:bg-emerald-100/60 p-0.5 rounded cursor-pointer transition-colors"
+                            title="Bấm để dùng nghĩa này tạo từ vựng"
+                          >
+                            {selectionPopup.lacviet.meaning}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-[#8D6E63] opacity-60 bg-[#EFEBE9]/30 px-2 py-1 rounded border border-[#EFEBE9] leading-snug">
+                        Chưa có trong từ điển Lạc Việt
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#EFEBE9]">
+                  <button
+                    onClick={() => {
+                      setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
+                      const initialMeaning = selectionPopup.vietphrase || (selectionPopup.lacviet?.found ? selectionPopup.lacviet.meaning.split('/')[0].split(' - ')[0].trim() : '');
+                      setVocabMeaning(initialMeaning);
+                    }}
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-white border border-[#D7CCC8] hover:border-[#8D6E63] hover:bg-[#FFFDF7] text-center transition-all group/btn"
+                  >
+                    <BookOpen size={14} className="text-[#8D6E63] mb-0.5 group-hover/btn:scale-110 transition-transform" />
+                    <span className="text-[9px] font-bold text-[#5D4037]">+ Kho từ vựng</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectionPopup(prev => prev ? { ...prev, type: 'char' } : null);
+                      const initialMeaning = selectionPopup.vietphrase || (selectionPopup.lacviet?.found ? selectionPopup.lacviet.meaning.split('/')[0].split(' - ')[0].trim() : '');
+                      setCharVietName(initialMeaning);
+                    }}
+                    className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-white border border-[#D7CCC8] hover:border-[#8D6E63] hover:bg-[#FFFDF7] text-center transition-all group/btn"
+                  >
+                    <Users size={14} className="text-[#8D6E63] mb-0.5 group-hover/btn:scale-110 transition-transform" />
+                    <span className="text-[9px] font-bold text-[#5D4037]">+ Nhân vật</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {selectionPopup.type === 'vocab' && (
+              <div className="space-y-2.5">
+                <div className="text-xs font-bold text-[#5D4037] flex items-center gap-1 pb-1 border-b border-[#EFEBE9]">
+                  <BookOpen size={12} className="text-[#8D6E63]" />
+                  <span>Thêm cụm từ mới</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Cụm từ Trung</label>
+                    <input 
+                      type="text" 
+                      value={selectionPopup.text} 
+                      disabled
+                      className="w-full bg-[#EFEBE9]/30 border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-medium font-serif-sc"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Nghĩa Việt (Tự điền)</label>
+                    <input 
+                      type="text" 
+                      value={vocabMeaning} 
+                      onChange={(e) => setVocabMeaning(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && vocabMeaning.trim()) {
+                          handleSaveSelectedVocab();
+                        }
+                      }}
+                      placeholder="Nhập nghĩa cho từ..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Phân loại (Không bắt buộc)</label>
+                    {isCreatingCategory ? (
+                      <div className="flex gap-1 items-center">
+                        <input
+                          type="text"
+                          value={newCategoryInput}
+                          onChange={(e) => setNewCategoryInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (newCategoryInput.trim()) {
+                                setVocabCategory(newCategoryInput.trim());
+                              }
+                              setIsCreatingCategory(false);
+                            }
+                          }}
+                          placeholder="Nhập tên phân loại mới..."
+                          className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newCategoryInput.trim()) {
+                              setVocabCategory(newCategoryInput.trim());
+                            }
+                            setIsCreatingCategory(false);
+                          }}
+                          className="px-2 py-1 bg-[#5D4037] text-white rounded text-[10px] font-bold whitespace-nowrap hover:bg-[#3E2723]"
+                        >
+                          Lưu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsCreatingCategory(false)}
+                          className="px-2 py-1 bg-[#D7CCC8] text-[#3E2723] rounded text-[10px] font-bold whitespace-nowrap hover:bg-[#BCAAA4]"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1 items-center">
+                        <select
+                          value={vocabCategory}
+                          onChange={(e) => {
+                            if (e.target.value === '__new__') {
+                              setIsCreatingCategory(true);
+                              setNewCategoryInput('');
+                            } else {
+                              setVocabCategory(e.target.value);
+                            }
+                          }}
+                          className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] cursor-pointer"
+                        >
+                          <option value="">Chưa phân loại</option>
+                          {allCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                          <option value="__new__" className="text-blue-600 font-bold">+ Thêm phân loại mới...</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {saveStatus ? (
+                  <div className={`text-[10px] font-bold text-center py-1 rounded ${
+                    saveStatus.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  } animate-pulse`}>
+                    {saveStatus.message}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
+                    <button 
+                      onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
+                    >
+                      Quay lại
+                    </button>
+                    <button 
+                      onClick={handleSaveSelectedVocab}
+                      disabled={!vocabMeaning.trim()}
+                      className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
+                    >
+                      Lưu từ vựng
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectionPopup.type === 'char' && (
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-[#5D4037] flex items-center gap-1 pb-1 border-b border-[#EFEBE9]">
+                  <Users size={12} className="text-[#8D6E63]" />
+                  <span>Thêm nhân vật mới</span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Tên tiếng Trung</label>
+                    <input 
+                      type="text" 
+                      value={selectionPopup.text} 
+                      disabled
+                      className="w-full bg-[#EFEBE9]/30 border border-[#D7CCC8] rounded px-2 py-0.5 text-[#3E2723] text-xs font-medium font-serif-sc"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Tên tiếng Việt (Tự điền)</label>
+                    <input 
+                      type="text" 
+                      value={charVietName} 
+                      onChange={(e) => setCharVietName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && charVietName.trim()) {
+                          handleSaveSelectedCharacter();
+                        }
+                      }}
+                      placeholder="Nhập tên tiếng Việt..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-xs font-bold outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Đại từ xưng hô (Pronoun)</label>
+                    <input 
+                      type="text" 
+                      value={charPronoun} 
+                      onChange={(e) => setCharPronoun(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && charVietName.trim()) {
+                          handleSaveSelectedCharacter();
+                        }
+                      }}
+                      placeholder="VD: Hắn, Nàng, Y, Linh thú..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-0.5 text-[#3E2723] text-xs outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#8D6E63] uppercase tracking-wider mb-0.5">Mô tả chi tiết</label>
+                    <textarea 
+                      value={charDescription} 
+                      onChange={(e) => setCharDescription(e.target.value)}
+                      placeholder="Mô tả lai lịch, môn phái, vũ khí..."
+                      className="w-full bg-white border border-[#D7CCC8] rounded px-2 py-1 text-[#3E2723] text-[10px] h-10 outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all resize-none"
+                    />
+                  </div>
+                </div>
+
+                {saveStatus ? (
+                  <div className={`text-[10px] font-bold text-center py-1 rounded ${
+                    saveStatus.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                  } animate-pulse`}>
+                    {saveStatus.message}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5 justify-end pt-1.5 border-t border-[#EFEBE9]">
+                    <button 
+                      onClick={() => setSelectionPopup(prev => prev ? { ...prev, type: 'idle' } : null)}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all"
+                    >
+                      Quay lại
+                    </button>
+                    <button 
+                      onClick={handleSaveSelectedCharacter}
+                      disabled={!charVietName.trim()}
+                      className="px-2.5 py-0.5 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-50 text-white rounded text-[10px] font-bold transition-all"
+                    >
+                      Lưu nhân vật
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal Chỉnh sửa chi tiết hàng (Raw, Vietphrase, DeepL, Bản edit) */}
+      {modalEditRow && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl border border-[#D7CCC8] overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95">
+            <div className="px-4 py-3 bg-[#EFEBE9] border-b border-[#D7CCC8] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal size={16} className="text-[#5D4037]" />
+                <h3 className="font-bold text-sm text-[#3E2723]">
+                  Chỉnh sửa hàng #{modalEditRow.index + 1}
+                </h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setModalEditRow(null)}
+                className="text-[#8D6E63] hover:text-[#3E2723] p-1 rounded-full hover:bg-[#D7CCC8]/40 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+              {/* Raw */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-[#5D4037] flex items-center gap-1.5">
+                    <span>Raw</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const autoVp = vietphraseEngine.translate(modalEditRow.source || '', customMap) || '';
+                      setModalEditRow(prev => prev ? { ...prev, quick: autoVp } : null);
+                    }}
+                    className="text-[11px] text-[#8D6E63] hover:text-[#5D4037] hover:underline flex items-center gap-1"
+                    title="Tự động tạo Vietphrase dựa trên Raw này"
+                  >
+                    <RefreshCw size={11} />
+                    <span>Tạo Vietphrase từ Raw này</span>
+                  </button>
+                </div>
+                <textarea
+                  value={modalEditRow.source}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, source: e.target.value } : null)}
+                  rows={3}
+                  placeholder="Nhập bản gốc tiếng Trung..."
+                  className="w-full text-[14px] font-serif-sc p-2 border border-[#D7CCC8] rounded bg-[#FFFDF7] text-[#3E2723] outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                />
+              </div>
+
+              {/* Vietphrase */}
+              <div>
+                <label className="block text-xs font-bold text-[#8D6E63] mb-1">
+                  Vietphrase
+                </label>
+                <textarea
+                  value={modalEditRow.quick}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, quick: e.target.value } : null)}
+                  rows={2}
+                  placeholder="Nhập Vietphrase..."
+                  className="w-full text-xs p-2 border border-[#D7CCC8] rounded bg-white text-[#5D4037] outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                />
+              </div>
+
+              {/* Deepl / Google */}
+              <div>
+                <label className="block text-xs font-bold text-[#8D6E63] mb-1">
+                  DeepL
+                </label>
+                <textarea
+                  value={modalEditRow.deepl}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, deepl: e.target.value } : null)}
+                  rows={2}
+                  placeholder="Nhập DeepL..."
+                  className="w-full text-xs p-2 border border-[#D7CCC8] rounded bg-white text-[#4E342E] outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63]"
+                />
+              </div>
+
+              {/* Natural translation */}
+              <div>
+                <label className="block text-xs font-bold text-[#3E2723] mb-1">
+                  Edit
+                </label>
+                <textarea
+                  value={modalEditRow.natural}
+                  onChange={(e) => setModalEditRow(prev => prev ? { ...prev, natural: e.target.value } : null)}
+                  rows={3}
+                  placeholder="Nhập Edit hoàn chỉnh..."
+                  className="w-full text-xs p-2 border border-[#8D6E63] rounded bg-white text-[#3E2723] font-medium outline-none focus:border-[#5D4037] focus:ring-1 focus:ring-[#5D4037]"
+                />
+              </div>
+            </div>
+
+            <div className="px-4 py-3 bg-[#FAFAFA] border-t border-[#EFEBE9] flex items-center justify-between">
+              {onDeleteSegment ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Bạn có chắc muốn xóa hàng #${modalEditRow.index + 1} này không?`)) {
+                      onDeleteSegment(modalEditRow.index);
+                      setModalEditRow(null);
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded border border-red-200 font-medium flex items-center gap-1.5 transition-colors"
+                >
+                  <Trash2 size={13} /> Xóa hàng này
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalEditRow(null)}
+                  className="px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveModalRow}
+                  className="px-4 py-1.5 text-xs font-bold bg-[#5D4037] hover:bg-[#3E2723] text-white rounded shadow-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <Check size={14} /> Lưu thay đổi
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Context Menu / Options Menu cho từng hàng */}
+      {rowMenu && createPortal(
+        <div 
+          className="fixed z-9999 bg-white border border-[#D7CCC8] shadow-xl rounded-lg py-1 min-w-[210px] text-[12px] text-[#3E2723] animate-in fade-in zoom-in-95 duration-100 divide-y divide-[#EFEBE9]"
+          style={{
+            top: Math.min(Math.max(8, rowMenu.y), window.innerHeight - 250),
+            left: Math.min(Math.max(8, rowMenu.x), window.innerWidth - 225),
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-[10px] font-bold text-[#8D6E63] uppercase tracking-wider bg-[#FAF7F2] flex items-center justify-between">
+            <span>Hàng #{rowMenu.index + 1}</span>
+            <span className="text-[9px] font-normal text-[#A1887F] lowercase">tùy chọn chỉnh sửa</span>
+          </div>
+
+          <div className="py-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                const targetIdx = rowMenu.index;
+                setRowMenu(null);
+                window.dispatchEvent(new CustomEvent('focus_raw_segment', { detail: { index: targetIdx } }));
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Pencil size={12} className="text-[#8D6E63]" />
+              <span>Sửa Raw</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const targetIdx = rowMenu.index;
+                setRowMenu(null);
+                window.dispatchEvent(new CustomEvent('focus_vp_segment', { detail: { index: targetIdx } }));
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Pencil size={12} className="text-[#8D6E63]" />
+              <span>Sửa Vietphrase</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const targetIdx = rowMenu.index;
+                setRowMenu(null);
+                window.dispatchEvent(new CustomEvent('focus_deepl_segment', { detail: { index: targetIdx } }));
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <Pencil size={12} className="text-[#8D6E63]" />
+              <span>Sửa DeepL</span>
+            </button>
+          </div>
+
+          <div className="py-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                const seg = data.segments[rowMenu.index];
+                const quick = (seg?.source ? (vietphraseEngine.translate(seg.source || '', customMap) || seg?.quick || '') : (seg?.quick || ''));
+                setModalEditRow({
+                  index: rowMenu.index,
+                  source: seg?.source || '',
+                  quick: quick || '',
+                  deepl: seg?.deepl || '',
+                  natural: seg?.natural || ''
+                });
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors font-medium text-[#5D4037]"
+            >
+              <SlidersHorizontal size={12} className="text-[#5D4037]" />
+              <span>Chỉnh sửa chi tiết hàng...</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onToggleComplete?.(rowMenu.index);
+                setRowMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#F5E6D3]/60 flex items-center gap-2 cursor-pointer transition-colors"
+            >
+              <CheckCircle2 size={12} className={completedSegments?.includes(rowMenu.index) ? "text-[#5D4037]" : "text-[#A1887F]"} />
+              <span>{completedSegments?.includes(rowMenu.index) ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}</span>
+            </button>
+          </div>
+
+          {onDeleteSegment && (
+            <div className="py-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const idxToDelete = rowMenu.index;
+                  setRowMenu(null);
+                  setConfirmDeleteIndex(idxToDelete);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Trash2 size={12} />
+                <span>Xóa hàng này</span>
+              </button>
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};

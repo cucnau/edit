@@ -1,0 +1,139 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Edit</title>
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Android / Chrome -->
+    <meta name="theme-color" content="#4E342E">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- iOS / Safari PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Edit">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/1828/1828911.png">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1828/1828911.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400..900;1,400..900&family=Dosis:wght@400;500;600;700&family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Mali:ital,wght@0,400;0,600;0,700;1,400&family=Noto+Sans+Vietnamese:wght@400;500;700&family=Noto+Serif+SC:wght@400;700&family=Nunito:wght@700;800&family=Pacifico&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/index.css">
+    <style>
+        body {
+            font-family: 'Noto Sans Vietnamese', sans-serif;
+        }
+        .font-serif-sc {
+            font-family: 'Noto Serif SC', serif !important;
+        }
+
+        /* App Font Switcher for the whole website */
+        body[data-app-font="times"] *:not(.font-serif-sc):not(.font-serif-sc *),
+        body[data-app-font="times"] textarea:not(.font-serif-sc), 
+        body[data-app-font="times"] input:not(.font-serif-sc), 
+        body[data-app-font="times"] button, 
+        body[data-app-font="times"] select {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+
+        body[data-app-font="alegreya"] *:not(.font-serif-sc):not(.font-serif-sc *),
+        body[data-app-font="alegreya"] textarea:not(.font-serif-sc), 
+        body[data-app-font="alegreya"] input:not(.font-serif-sc), 
+        body[data-app-font="alegreya"] button, 
+        body[data-app-font="alegreya"] select {
+            font-family: 'Alegreya', serif !important;
+        }
+
+        body[data-app-font="garamond"] *:not(.font-serif-sc):not(.font-serif-sc *),
+        body[data-app-font="garamond"] textarea:not(.font-serif-sc), 
+        body[data-app-font="garamond"] input:not(.font-serif-sc), 
+        body[data-app-font="garamond"] button, 
+        body[data-app-font="garamond"] select {
+            font-family: 'EB Garamond', Garamond, Georgia, serif !important;
+        }
+
+        body[data-app-font="mali"] *:not(.font-serif-sc):not(.font-serif-sc *),
+        body[data-app-font="mali"] textarea:not(.font-serif-sc), 
+        body[data-app-font="mali"] input:not(.font-serif-sc), 
+        body[data-app-font="mali"] button, 
+        body[data-app-font="mali"] select {
+            font-family: 'Mali', cursive, sans-serif !important;
+        }
+
+        body[data-app-font="dosis"] *:not(.font-serif-sc):not(.font-serif-sc *),
+        body[data-app-font="dosis"] textarea:not(.font-serif-sc), 
+        body[data-app-font="dosis"] input:not(.font-serif-sc), 
+        body[data-app-font="dosis"] button, 
+        body[data-app-font="dosis"] select {
+            font-family: 'Dosis', sans-serif !important;
+        }
+
+        /* Dòng chữ nhỏ dưới raw (Vietphrase) và dưới edit (DeepL/GG) tuyệt đối không nghiêng */
+        [data-vp-container],
+        [data-deepl-container],
+        [data-vp-index],
+        [data-deepl-index],
+        [data-vp-container] *,
+        [data-deepl-container] * {
+            font-style: normal !important;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F5E6D3; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #A1887F; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #8D6E63; 
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+
+        /* RESET BẢNG */
+        table {
+            border-collapse: collapse;
+            border-spacing: 0;
+        }
+
+    </style>
+    <!-- Polyfill process để tránh lỗi crash khi chạy local -->
+    <script>
+      window.process = window.process || { env: {} };
+      // Hủy đăng ký ServiceWorker cũ và xóa cache để tránh lỗi 404 bundle cũ
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (var i = 0; i < registrations.length; i++) {
+            registrations[i].unregister();
+          }
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          for (var i = 0; i < keys.length; i++) {
+            caches.delete(keys[i]);
+          }
+        });
+      }
+    </script>
+</head>
+  <body class="bg-[#F5E6D3] text-[#3E2723] min-h-screen" translate="no">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

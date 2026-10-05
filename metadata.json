@@ -1,0 +1,7 @@
+
+{
+  "name": "Edit",
+  "description": "A customized web application for content translation and editing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

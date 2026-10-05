@@ -51,6 +51,14 @@ export const AuthPanel: React.FC = () => {
   // Map Firebase errors to Vietnamese friendly messages
   const getFriendlyErrorMessage = (errorCode: string) => {
     switch (errorCode) {
+      case 'auth/operation-not-allowed':
+        return 'Phương thức đăng nhập này (Email hoặc Google) chưa được BẬT trong Firebase Console của dự án.';
+      case 'auth/unauthorized-domain':
+        return 'Tên miền trang web này chưa được thêm vào Authorized Domains trong Firebase Console.';
+      case 'auth/popup-closed-by-user':
+        return 'Cửa sổ đăng nhập đã bị đóng trước khi hoàn tất xác thực.';
+      case 'auth/popup-blocked':
+        return 'Trình duyệt đã chặn cửa sổ pop-up đăng nhập. Vui lòng cho phép pop-up.';
       case 'auth/email-already-in-use':
         return 'Email này đã được sử dụng bởi một tài khoản khác.';
       case 'auth/invalid-email':
@@ -68,7 +76,7 @@ export const AuthPanel: React.FC = () => {
       case 'auth/invalid-credential':
         return 'Thông tin đăng nhập không hợp lệ (sai email hoặc sai mật khẩu).';
       default:
-        return 'Có lỗi xảy ra trong quá trình xác thực. Vui lòng thử lại sau.';
+        return errorCode ? `Lỗi xác thực (${errorCode}). Vui lòng kiểm tra lại cấu hình Firebase.` : 'Có lỗi xảy ra trong quá trình xác thực. Vui lòng thử lại sau.';
     }
   };
 

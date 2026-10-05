@@ -1026,6 +1026,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
         return;
       }
 
+      // Không hiển thị pop up khi bôi đen trong ô input hoặc textarea
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        setSelectionPopup(null);
+        return;
+      }
+
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
         setSelectionPopup(null);
@@ -1034,9 +1040,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
       const selectedText = selection.toString().trim();
       
-      // Chỉ hiện pop up khi tô xanh đoạn là Raw (chứa chữ Hán / tiếng Trung)
-      const isChineseText = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(selectedText);
-      if (!isChineseText) {
+      // Chỉ hiện pop up khi tô xanh đoạn là Raw (chứa chữ Hán / tiếng Trung và KHÔNG chứa chữ Latin / tiếng Việt)
+      const hasChinese = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(selectedText);
+      const hasLatin = /[a-zA-Zà-ỹÀ-Ỹ]/.test(selectedText);
+
+      if (!hasChinese || hasLatin) {
         setSelectionPopup(null);
         return;
       }

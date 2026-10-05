@@ -1,6 +1,7 @@
 
 import { CustomTerm, VietphraseFile, VietphraseFileType } from "../types";
 import { db } from "./db";
+import { cleanVietphraseMeaning, cleanTextArtifacts } from "./textUtils";
 
 export interface TrieNode {
   children: Map<string, TrieNode>;
@@ -408,27 +409,21 @@ class VietphraseEngine {
         }
 
         if (key && value) {
-          // Lọc sạch các placeholder QuickTranslator như {0}, {1}, {2}... (thường thấy ở các rule ngữ pháp QT như 的={0})
-          const cleanVal = value.replace(/\{\d+\}/g, '').trim();
+          // Lọc sạch toàn bộ rác từ điển (ký hiệu ✚, phiên âm [pinyin], nhãn Hán Việt, placeholder {0}, v.v.)
+          const cleanVal = cleanVietphraseMeaning(value);
 
           if (isLacViet) {
-            // Nạp đầy đủ nghĩa giải thích chi tiết vào từ điển Lạc Việt riêng
-            this.lacVietDictionary.set(key, value);
+            // Nạp bản làm sạch ký hiệu ✚ vào từ điển Lạc Việt riêng để tra cứu
+            this.lacVietDictionary.set(key, value.replace(/^[✚\+\*\#\•\-\▪\▫\■\□\▲\▼\◆\◇\※\s]+/, ''));
             // Đồng thời đưa một bản rút gọn vào dictionary dịch nếu chưa có để làm từ đơn dự phòng
-            if (!this.dictionary.has(key)) {
-              let shortMeaning = cleanVal.split('/')[0];
-              const colonIdx = shortMeaning.indexOf(':');
-              const dashIdx = shortMeaning.indexOf(' - ');
-              if (dashIdx > 0) {
-                shortMeaning = shortMeaning.substring(0, dashIdx).trim();
-              } else if (colonIdx > 0) {
-                shortMeaning = shortMeaning.substring(0, colonIdx).trim();
-              }
-              this.dictionary.set(key, shortMeaning || cleanVal);
+            if (!this.dictionary.has(key) && cleanVal) {
+              this.dictionary.set(key, cleanVal);
             }
           } else {
             // Các file khác (Names, Danh Từ, Pronouns, Vietphrase...): nạp đè theo chuẩn QuickTrans
-            this.dictionary.set(key, cleanVal);
+            if (cleanVal) {
+              this.dictionary.set(key, cleanVal);
+            }
           }
 
           if (key.length > this.maxKeyLength) {
@@ -502,11 +497,8 @@ class VietphraseEngine {
         const sub = text.substring(i, j);
         if (this.dictionary.has(sub)) {
           let meaning = this.dictionary.get(sub) || sub;
-          if (meaning.includes('/')) {
-            meaning = meaning.split('/')[0];
-          }
-          // Lọc sạch placeholder {0}, {1}... của QuickTranslator
-          meaning = meaning.replace(/\{\d+\}/g, '').trim();
+          // Lọc sạch toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
+          meaning = cleanVietphraseMeaning(meaning);
           if (meaning) {
             result += " " + meaning + " ";
           }
@@ -606,7 +598,7 @@ class VietphraseEngine {
         const gap = text.substring(cur, m.start);
         result += " " + this.translateWithFMM(gap) + " ";
       }
-      const cleanCustomVal = (m.meaning || "").replace(/\{\d+\}/g, '').trim();
+      const cleanCustomVal = cleanVietphraseMeaning(m.meaning || "");
       if (cleanCustomVal) {
         result += " " + cleanCustomVal + " ";
       }
@@ -618,11 +610,8 @@ class VietphraseEngine {
       result += " " + this.translateWithFMM(remaining) + " ";
     }
 
-    // Chuẩn hóa: lọc sạch hoàn toàn bất kỳ {0}, {1}... nào còn sót lại và chuẩn hóa khoảng trắng thừa
-    return result
-      .replace(/\{\d+\}/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Chuẩn hóa và quét dọn triệt để toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
+    return cleanTextArtifacts(result);
   }
 }
 

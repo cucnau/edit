@@ -5,7 +5,7 @@ import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Charact
 import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical, RefreshCw } from 'lucide-react';
 import { vietphraseEngine, LacVietLookupResult } from '../services/vietphraseService';
 import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
-import { convertToSmartQuotes } from '../services/textUtils';
+import { convertToSmartQuotes, cleanTextArtifacts } from '../services/textUtils';
 // Deleted smartClassify import
 
 interface TranslationOutputProps {
@@ -1117,7 +1117,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       const cleanSource = (seg.source || '').trim();
       const cleanNatural = (seg.natural || '').trim();
       const cleanDeepl = (seg.deepl || '').trim();
-      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).replace(/\{\d+\}/g, '').trim();
+      const cleanQuick = cleanTextArtifacts(cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || ''));
 
       if (!cleanSource && !cleanNatural) return;
 
@@ -1654,7 +1654,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
                       const cleanDeepl = (seg.deepl || '').trim();
-                      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).replace(/\{\d+\}/g, '').trim();
+                      const cleanQuick = cleanTextArtifacts(cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || ''));
 
                       if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl) return null;
 

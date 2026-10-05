@@ -19,7 +19,7 @@ import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
 import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
-import { convertToSmartQuotes } from './services/textUtils';
+import { convertToSmartQuotes, cleanTextArtifacts } from './services/textUtils';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -173,12 +173,12 @@ const sanitizeResult = (result: TranslationResponse | null): TranslationResponse
             ...result,
             segments: (result.segments || []).map(s => ({
                 source: (s.source || "").trim(),
-                natural: convertToSmartQuotes((s.natural || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, "")),
-                quick: (s.quick || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, ""),
+                natural: convertToSmartQuotes(cleanTextArtifacts(s.natural || "").replace(/\n+$/, "")),
+                quick: cleanTextArtifacts(s.quick || "").replace(/\n+$/, ""),
                 deepl: (s.deepl || "").trim().replace(/\n+$/, "")
             })),
-            naturalTranslation: convertToSmartQuotes((result.naturalTranslation || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, "")),
-            quickTrans: (result.quickTrans || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, ""),
+            naturalTranslation: convertToSmartQuotes(cleanTextArtifacts(result.naturalTranslation || "").replace(/\n+$/, "")),
+            quickTrans: cleanTextArtifacts(result.quickTrans || "").replace(/\n+$/, ""),
             deeplTranslation: (result.deeplTranslation || "").trim().replace(/\n+$/, ""),
             vocabulary: result.vocabulary || []
         };

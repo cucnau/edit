@@ -408,12 +408,15 @@ class VietphraseEngine {
         }
 
         if (key && value) {
+          // Lọc sạch các placeholder QuickTranslator như {0}, {1}, {2}... (thường thấy ở các rule ngữ pháp QT như 的={0})
+          const cleanVal = value.replace(/\{\d+\}/g, '').trim();
+
           if (isLacViet) {
             // Nạp đầy đủ nghĩa giải thích chi tiết vào từ điển Lạc Việt riêng
             this.lacVietDictionary.set(key, value);
             // Đồng thời đưa một bản rút gọn vào dictionary dịch nếu chưa có để làm từ đơn dự phòng
             if (!this.dictionary.has(key)) {
-              let shortMeaning = value.split('/')[0];
+              let shortMeaning = cleanVal.split('/')[0];
               const colonIdx = shortMeaning.indexOf(':');
               const dashIdx = shortMeaning.indexOf(' - ');
               if (dashIdx > 0) {
@@ -421,11 +424,11 @@ class VietphraseEngine {
               } else if (colonIdx > 0) {
                 shortMeaning = shortMeaning.substring(0, colonIdx).trim();
               }
-              this.dictionary.set(key, shortMeaning || value);
+              this.dictionary.set(key, shortMeaning || cleanVal);
             }
           } else {
             // Các file khác (Names, Danh Từ, Pronouns, Vietphrase...): nạp đè theo chuẩn QuickTrans
-            this.dictionary.set(key, value);
+            this.dictionary.set(key, cleanVal);
           }
 
           if (key.length > this.maxKeyLength) {
@@ -502,7 +505,11 @@ class VietphraseEngine {
           if (meaning.includes('/')) {
             meaning = meaning.split('/')[0];
           }
-          result += " " + meaning + " ";
+          // Lọc sạch placeholder {0}, {1}... của QuickTranslator
+          meaning = meaning.replace(/\{\d+\}/g, '').trim();
+          if (meaning) {
+            result += " " + meaning + " ";
+          }
           i = j;
           matched = true;
           break;
@@ -540,7 +547,10 @@ class VietphraseEngine {
 
     // Nếu không có custom terms nào, dịch toàn bộ bằng Vietphrase FMM
     if (combinedCustomMap.size === 0) {
-      return this.translateWithFMM(text).replace(/\s+/g, ' ').trim();
+      return this.translateWithFMM(text)
+        .replace(/\{\d+\}/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
     }
 
     // 2. Tìm tất cả vị trí xuất hiện của Custom Terms (Ưu tiên từ dài hơn trước)
@@ -596,7 +606,10 @@ class VietphraseEngine {
         const gap = text.substring(cur, m.start);
         result += " " + this.translateWithFMM(gap) + " ";
       }
-      result += " " + m.meaning + " ";
+      const cleanCustomVal = (m.meaning || "").replace(/\{\d+\}/g, '').trim();
+      if (cleanCustomVal) {
+        result += " " + cleanCustomVal + " ";
+      }
       cur = m.end;
     }
 
@@ -605,8 +618,11 @@ class VietphraseEngine {
       result += " " + this.translateWithFMM(remaining) + " ";
     }
 
-    // Chuẩn hóa khoảng trắng thừa
-    return result.replace(/\s+/g, ' ').trim();
+    // Chuẩn hóa: lọc sạch hoàn toàn bất kỳ {0}, {1}... nào còn sót lại và chuẩn hóa khoảng trắng thừa
+    return result
+      .replace(/\{\d+\}/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 }
 

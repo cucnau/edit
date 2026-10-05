@@ -173,12 +173,12 @@ const sanitizeResult = (result: TranslationResponse | null): TranslationResponse
             ...result,
             segments: (result.segments || []).map(s => ({
                 source: (s.source || "").trim(),
-                natural: convertToSmartQuotes((s.natural || "").trim().replace(/\n+$/, "")),
-                quick: (s.quick || "").trim().replace(/\n+$/, ""),
+                natural: convertToSmartQuotes((s.natural || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, "")),
+                quick: (s.quick || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, ""),
                 deepl: (s.deepl || "").trim().replace(/\n+$/, "")
             })),
-            naturalTranslation: convertToSmartQuotes((result.naturalTranslation || "").trim().replace(/\n+$/, "")),
-            quickTrans: (result.quickTrans || "").trim().replace(/\n+$/, ""),
+            naturalTranslation: convertToSmartQuotes((result.naturalTranslation || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, "")),
+            quickTrans: (result.quickTrans || "").replace(/\{\d+\}/g, '').trim().replace(/\n+$/, ""),
             deeplTranslation: (result.deeplTranslation || "").trim().replace(/\n+$/, ""),
             vocabulary: result.vocabulary || []
         };

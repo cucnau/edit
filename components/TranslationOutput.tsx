@@ -1117,7 +1117,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       const cleanSource = (seg.source || '').trim();
       const cleanNatural = (seg.natural || '').trim();
       const cleanDeepl = (seg.deepl || '').trim();
-      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).trim();
+      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).replace(/\{\d+\}/g, '').trim();
 
       if (!cleanSource && !cleanNatural) return;
 
@@ -1654,7 +1654,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
                       const cleanDeepl = (seg.deepl || '').trim();
-                      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).trim();
+                      const cleanQuick = (cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || '')).replace(/\{\d+\}/g, '').trim();
 
                       if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl) return null;
 

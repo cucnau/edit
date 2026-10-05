@@ -82,49 +82,42 @@
         [data-deepl-container] * {
             font-style: normal !important;
         }
-        /* Custom Scrollbar Chuẩn 100% Ảnh 2: Track hoàn toàn trong suốt, Thumb nâu đậm bo tròn viên thuốc mềm mại */
-        *, html, body, div, table, tbody, main, textarea, section, aside {
-            scrollbar-width: thin;
-            scrollbar-color: #8D6E63 transparent !important;
+        /* Ẩn hoàn toàn 100% tất cả thanh cuộn trên toàn bộ trang web nhưng vẫn cuộn và lăn chuột mượt mà */
+        *, *::before, *::after, html, body, div, table, tbody, main, textarea, section, aside, ul, ol, p, span {
+            -ms-overflow-style: none !important;  /* IE and Edge */
+            scrollbar-width: none !important;     /* Firefox */
         }
         *::-webkit-scrollbar,
-        ::-webkit-scrollbar {
-            width: 6px !important;
-            height: 6px !important;
-        }
-        *::-webkit-scrollbar-button,
-        ::-webkit-scrollbar-button {
+        ::-webkit-scrollbar,
+        html::-webkit-scrollbar,
+        body::-webkit-scrollbar {
             display: none !important;
             width: 0 !important;
             height: 0 !important;
+            background: transparent !important;
         }
+        *::-webkit-scrollbar-thumb,
+        ::-webkit-scrollbar-thumb,
         *::-webkit-scrollbar-track,
         ::-webkit-scrollbar-track,
         *::-webkit-scrollbar-track-piece,
-        ::-webkit-scrollbar-track-piece {
-            background: transparent !important;
-            border: none !important;
-        }
-        *::-webkit-scrollbar-thumb,
-        ::-webkit-scrollbar-thumb {
-            background-color: #8D6E63 !important;
-            border-radius: 9999px !important;
-            border: none !important;
-        }
-        *::-webkit-scrollbar-thumb:hover,
-        ::-webkit-scrollbar-thumb:hover {
-            background-color: #5D4037 !important;
-        }
+        ::-webkit-scrollbar-track-piece,
+        *::-webkit-scrollbar-button,
+        ::-webkit-scrollbar-button,
         *::-webkit-scrollbar-corner,
         ::-webkit-scrollbar-corner {
+            display: none !important;
             background: transparent !important;
+            width: 0 !important;
+            height: 0 !important;
+            border: none !important;
         }
         .no-scrollbar::-webkit-scrollbar {
-          display: none;
+          display: none !important;
         }
         .no-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
         }
 
         /* RESET BẢNG */

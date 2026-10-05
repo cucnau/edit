@@ -1,43 +1,43 @@
 @import "tailwindcss";
 
-/* Custom Scrollbar Chuẩn đẹp như Ảnh 2: Track trong suốt, Thumb bo tròn viên thuốc mềm mại */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #8D6E63 transparent;
+/* Ẩn hoàn toàn 100% tất cả thanh cuộn trên toàn bộ trang web nhưng vẫn giữ khả năng lăn chuột/cuộn mượt mà */
+*, *::before, *::after, html, body, div, table, tbody, main, textarea, section, aside, ul, ol, p, span {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;     /* Firefox */
 }
 
 *::-webkit-scrollbar,
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-*::-webkit-scrollbar-button,
-::-webkit-scrollbar-button {
+::-webkit-scrollbar,
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
-}
-
-*::-webkit-scrollbar-track,
-::-webkit-scrollbar-track,
-*::-webkit-scrollbar-track-piece,
-::-webkit-scrollbar-track-piece {
   background: transparent !important;
 }
 
 *::-webkit-scrollbar-thumb,
-::-webkit-scrollbar-thumb {
-  background-color: #8D6E63;
-  border-radius: 9999px;
-}
-
-*::-webkit-scrollbar-thumb:hover,
-::-webkit-scrollbar-thumb:hover {
-  background-color: #5D4037;
-}
-
+::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-track,
+::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-button,
+::-webkit-scrollbar-button,
 *::-webkit-scrollbar-corner,
 ::-webkit-scrollbar-corner {
+  display: none !important;
   background: transparent !important;
+  width: 0 !important;
+  height: 0 !important;
+  border: none !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }

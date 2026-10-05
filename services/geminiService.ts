@@ -22,12 +22,14 @@ const getApiKey = (): string => {
 };
 
 let aiClient: GoogleGenAI | null = null;
+let currentKey: string = "";
 const getAi = (): GoogleGenAI => {
-  if (aiClient) return aiClient;
   const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error("Chưa cấu hình API Key cho Gemini.");
+    throw new Error("Chưa cấu hình API Key cho Gemini. Nếu bạn đang chạy web trên GitHub Pages hoặc máy cá nhân, hãy mở Console (F12) và nhập: localStorage.setItem('GEMINI_API_KEY', 'khoa_api_cua_ban') rồi tải lại trang.");
   }
+  if (aiClient && currentKey === apiKey) return aiClient;
+  currentKey = apiKey;
   aiClient = new GoogleGenAI({ apiKey });
   return aiClient;
 };

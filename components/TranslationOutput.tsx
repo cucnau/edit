@@ -5,6 +5,7 @@ import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Charact
 import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical, RefreshCw } from 'lucide-react';
 import { vietphraseEngine, LacVietLookupResult } from '../services/vietphraseService';
 import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
+import { convertToSmartQuotes } from '../services/textUtils';
 // Deleted smartClassify import
 
 interface TranslationOutputProps {
@@ -156,8 +157,10 @@ const EditableSegment = ({
         adjustHeight();
         const timer = setTimeout(adjustHeight, 10);
         window.addEventListener('resize', adjustHeight);
+        window.addEventListener('app_font_changed', adjustHeight);
         return () => {
             window.removeEventListener('resize', adjustHeight);
+            window.removeEventListener('app_font_changed', adjustHeight);
             clearTimeout(timer);
         };
     }, [localText, isFocusMode, isFocused]);
@@ -203,13 +206,14 @@ const EditableSegment = ({
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value;
-        setLocalText(val);
+        const converted = convertToSmartQuotes(val);
+        setLocalText(converted);
 
         if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
         }
         debounceTimeout.current = setTimeout(() => {
-            onUpdate(val);
+            onUpdate(converted);
         }, 500);
     };
 
@@ -218,7 +222,7 @@ const EditableSegment = ({
         if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
         }
-        onUpdate(e.target.value);
+        onUpdate(convertToSmartQuotes(e.target.value));
     };
 
     const handleFocus = () => {
@@ -690,7 +694,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       source: modalEditRow.source.trim(),
       quick: modalEditRow.quick.trim(),
       deepl: modalEditRow.deepl.trim(),
-      natural: modalEditRow.natural.trim()
+      natural: convertToSmartQuotes(modalEditRow.natural.trim())
     });
     setModalEditRow(null);
   };
@@ -782,7 +786,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     try {
       const regex = buildSearchRegex(findText, matchCase, matchDiacritics);
       if (!regex) return;
-      const newNaturals = data.segments.map(seg => (seg.natural || '').replace(regex, replaceText));
+      const newNaturals = data.segments.map(seg => convertToSmartQuotes((seg.natural || '').replace(regex, replaceText)));
       onUpdateAllSegments?.(newNaturals);
     } catch (e) {
       console.error(e);
@@ -1464,26 +1468,24 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                    </button>
                 </div>
 
-                {/* Khi vào chế độ tập trung: 2 nút kho từ vựng và bảng nvat/xưng hô hiện bên cạnh nút hoàn tác */}
+                {/* Khi vào chế độ tập trung: 2 nút kho từ vựng và bảng nvat/xưng hô hiện bên cạnh nút hoàn tác (chỉ hiện icon) */}
                 {isFocusMode && (
                    <div className="flex items-center gap-1 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
                       <button 
                          type="button"
                          onClick={onOpenDictionary}
                          title="Mở Kho từ vựng (Tra cứu & Thêm từ)"
-                         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] hover:text-[#3E2723] transition-all shadow-2xs cursor-pointer"
+                         className="p-1 rounded text-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] hover:text-[#3E2723] transition-all shadow-2xs cursor-pointer"
                       >
                          <BookOpen size={11} className="text-[#8D6E63]" />
-                         <span>Kho từ vựng</span>
                       </button>
                       <button 
                          type="button"
                          onClick={onOpenWorldInfo}
                          title="Mở Bảng nhân vật & quan hệ xưng hô"
-                         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] hover:text-[#3E2723] transition-all shadow-2xs cursor-pointer"
+                         className="p-1 rounded text-[#5D4037] bg-white border border-[#D7CCC8] hover:bg-[#D7CCC8] hover:text-[#3E2723] transition-all shadow-2xs cursor-pointer"
                       >
                          <Users size={11} className="text-[#8D6E63]" />
-                         <span>Bảng nvat/xưng hô</span>
                       </button>
                    </div>
                 )}

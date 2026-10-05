@@ -82,20 +82,40 @@
         [data-deepl-container] * {
             font-style: normal !important;
         }
-        /* Custom Scrollbar */
+        /* Custom Scrollbar Chuẩn đẹp như Ảnh 1 - Bo tròn, Nâu ấm, Ẩn hoàn toàn mũi tên tam giác */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #A1887F #F5E6D3;
+        }
+        *::-webkit-scrollbar,
         ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
         }
+        *::-webkit-scrollbar-button,
+        ::-webkit-scrollbar-button {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+        }
+        *::-webkit-scrollbar-track,
         ::-webkit-scrollbar-track {
-            background: #F5E6D3; 
+            background: #F5E6D3;
+            border-radius: 9999px;
         }
+        *::-webkit-scrollbar-thumb,
         ::-webkit-scrollbar-thumb {
-            background: #A1887F; 
-            border-radius: 4px;
+            background-color: #A1887F;
+            border-radius: 9999px;
+            border: 1px solid #F5E6D3;
         }
+        *::-webkit-scrollbar-thumb:hover,
         ::-webkit-scrollbar-thumb:hover {
-            background: #8D6E63; 
+            background-color: #8D6E63;
+        }
+        *::-webkit-scrollbar-corner,
+        ::-webkit-scrollbar-corner {
+            background: transparent;
         }
         .no-scrollbar::-webkit-scrollbar {
           display: none;

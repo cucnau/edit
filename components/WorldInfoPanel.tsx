@@ -41,14 +41,23 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   const [syncMessage, setSyncMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(!!auth.currentUser);
 
-  const charsRef = useRef(characters);
-  const relsRef = useRef(relationships);
+  // Lọc chỉ lấy nhân vật & quan hệ thuộc bộ truyện hiện tại
+  const currentNovelCharacters = React.useMemo(() => {
+    return characters.filter(c => !currentNovelId || !c.novelId || c.novelId === currentNovelId);
+  }, [characters, currentNovelId]);
+
+  const currentNovelRelationships = React.useMemo(() => {
+    return relationships.filter(r => !currentNovelId || !r.novelId || r.novelId === currentNovelId);
+  }, [relationships, currentNovelId]);
+
+  const charsRef = useRef(currentNovelCharacters);
+  const relsRef = useRef(currentNovelRelationships);
   useEffect(() => {
-    charsRef.current = characters;
-  }, [characters]);
+    charsRef.current = currentNovelCharacters;
+  }, [currentNovelCharacters]);
   useEffect(() => {
-    relsRef.current = relationships;
-  }, [relationships]);
+    relsRef.current = currentNovelRelationships;
+  }, [currentNovelRelationships]);
 
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
@@ -71,7 +80,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
           const timer = setTimeout(() => {
               syncData('char', 'GET', true);
               syncData('rel', 'GET', true);
-          }, 500);
+          }, 300);
           return () => clearTimeout(timer);
       }
   }, [currentNovelId, isSignedIn]);
@@ -81,38 +90,23 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
     localStorage.setItem('autoSync_world', String(autoSync));
   }, [autoSync]);
 
-  // AUTO SYNC LOGIC (Characters & Relationships)
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    if (!autoSync || !isSignedIn || isPullingRef.current) return;
-
-    const timer = setTimeout(() => {
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [characters, relationships, autoSync, isSignedIn]); 
-
   // Dedicated Effect for Characters
   useEffect(() => {
     if (isInitialMount.current || !autoSync || !isSignedIn || isPullingRef.current) return;
     const timer = setTimeout(() => {
         syncData('char', 'POST', true);
-    }, 2000);
+    }, 2500);
     return () => clearTimeout(timer);
-  }, [characters, autoSync, isSignedIn]);
+  }, [currentNovelCharacters, autoSync, isSignedIn]);
 
   // Dedicated Effect for Relationships
   useEffect(() => {
     if (isInitialMount.current || !autoSync || !isSignedIn || isPullingRef.current) return;
     const timer = setTimeout(() => {
         syncData('rel', 'POST', true);
-    }, 2000);
+    }, 2500);
     return () => clearTimeout(timer);
-  }, [relationships, autoSync, isSignedIn]);
+  }, [currentNovelRelationships, autoSync, isSignedIn]);
 
 
   // --- SYNC HANDLERS ---
@@ -141,52 +135,18 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       if (action === 'GET') {
         const data = await syncFirestoreData<any>(type, currentNovelId, 'GET');
         
-        // CRITICAL PROTECTION: If silent pull returned empty cloud data but we have local data, do not overwrite!
-        if (silent && data.length === 0) {
-          if (type === 'char' && charsRef.current.length > 0) {
-             const hasLocal = charsRef.current.some(c => c.novelId === currentNovelId);
-             if (hasLocal) {
-                console.log("Preserving local characters since cloud is empty");
-                if (autoSync) {
-                   setTimeout(() => { syncData('char', 'POST', true); }, 1000);
-                }
-                return;
-             }
-          } else if (type === 'rel' && relsRef.current.length > 0) {
-             const hasLocal = relsRef.current.some(r => r.novelId === currentNovelId);
-             if (hasLocal) {
-                console.log("Preserving local relationships since cloud is empty");
-                if (autoSync) {
-                   setTimeout(() => { syncData('rel', 'POST', true); }, 1000);
-                }
-                return;
-             }
-          }
-        }
-
-        let mergedData = data;
         if (type === 'char') {
-          if (charsRef.current.length > 0) {
-            const cloudIds = new Set(data.map((c: any) => c.id));
-            const localNew = charsRef.current.filter((c: any) => c.novelId === currentNovelId && !cloudIds.has(c.id));
-            mergedData = [...data, ...localNew];
-          }
-          onUpdateCharacters(mergedData as Character[]);
+          onUpdateCharacters(data as Character[]);
         } else {
-          if (relsRef.current.length > 0) {
-            const cloudIds = new Set(data.map((r: any) => r.id));
-            const localNew = relsRef.current.filter((r: any) => r.novelId === currentNovelId && !cloudIds.has(r.id));
-            mergedData = [...data, ...localNew];
-          }
-          onUpdateRelationships(mergedData as Relationship[]);
+          onUpdateRelationships(data as Relationship[]);
         }
-        setSyncMessage({ type: 'success', text: `Đã tải ${mergedData.length} mục!` });
+        setSyncMessage({ type: 'success', text: `Đã tải ${data.length} mục!` });
       } else {
         if (type === 'char') {
-          const toPush = charsRef.current.filter(c => !c.novelId || c.novelId === currentNovelId).map(c => ({ ...c, novelId: currentNovelId }));
+          const toPush = currentNovelCharacters.map(c => ({ ...c, novelId: currentNovelId }));
           await syncFirestoreData<Character>(type, currentNovelId, 'POST', toPush);
         } else {
-          const toPush = relsRef.current.filter(r => !r.novelId || r.novelId === currentNovelId).map(r => ({ ...r, novelId: currentNovelId }));
+          const toPush = currentNovelRelationships.map(r => ({ ...r, novelId: currentNovelId }));
           await syncFirestoreData<Relationship>(type, currentNovelId, 'POST', toPush);
         }
         if (!silent) setSyncMessage({ type: 'success', text: 'Đã lưu lên mây!' });
@@ -214,20 +174,21 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       pronouns: '',
       description: ''
     };
-    onUpdateCharacters([...characters, newChar]);
+    onUpdateCharacters([...currentNovelCharacters, newChar]);
+    setEditingCharId(newChar.id);
   };
 
   const updateChar = (id: string, field: keyof Character, value: string) => {
-    onUpdateCharacters(characters.map(c => c.id === id ? { ...c, [field]: value } : c));
+    onUpdateCharacters(currentNovelCharacters.map(c => c.id === id ? { ...c, [field]: value } : c));
   };
 
   const handleSaveChar = (id?: string) => {
-    const target = id ? characters.find(c => c.id === id) : null;
+    const target = id ? currentNovelCharacters.find(c => c.id === id) : null;
     if (target && target.chineseName && target.vietName) {
       vietphraseEngine.addCustomTerm(target.chineseName, target.vietName);
     }
     if (isSignedIn && currentNovelId) {
-      const toPush = characters.filter(c => !c.novelId || c.novelId === currentNovelId).map(c => ({ ...c, novelId: currentNovelId }));
+      const toPush = currentNovelCharacters.map(c => ({ ...c, novelId: currentNovelId }));
       syncFirestoreData<Character>('char', currentNovelId, 'POST', toPush).catch(console.error);
       setSyncMessage({ type: 'success', text: 'Đã lưu nhân vật!' });
       setTimeout(() => setSyncMessage(null), 2000);
@@ -237,7 +198,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   const deleteChar = (id: string) => {
     deleteFirestoreDoc('char', id);
-    const updated = characters.filter(c => c.id !== id);
+    const updated = currentNovelCharacters.filter(c => c.id !== id);
     onUpdateCharacters(updated);
     if (isSignedIn && currentNovelId) {
       syncFirestoreData<Character>('char', currentNovelId, 'POST', updated).catch(console.error);
@@ -255,16 +216,16 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       callBtoA: '',
       note: ''
     };
-    onUpdateRelationships([...relationships, newRel]);
+    onUpdateRelationships([...currentNovelRelationships, newRel]);
   };
 
   const updateRel = (id: string, field: keyof Relationship, value: string) => {
-    onUpdateRelationships(relationships.map(r => r.id === id ? { ...r, [field]: value } : r));
+    onUpdateRelationships(currentNovelRelationships.map(r => r.id === id ? { ...r, [field]: value } : r));
   };
 
   const deleteRel = (id: string) => {
     deleteFirestoreDoc('rel', id);
-    const updated = relationships.filter(r => r.id !== id);
+    const updated = currentNovelRelationships.filter(r => r.id !== id);
     onUpdateRelationships(updated);
     if (isSignedIn && currentNovelId) {
       syncFirestoreData<Relationship>('rel', currentNovelId, 'POST', updated).catch(console.error);
@@ -275,7 +236,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   
   // Group relationships by Character A
   const getGroupedRelationships = () => {
-    const sorted = [...relationships].sort((a, b) => a.charA.localeCompare(b.charA));
+    const sorted = [...currentNovelRelationships].sort((a, b) => a.charA.localeCompare(b.charA));
     const groups: { [key: string]: Relationship[] } = {};
     
     sorted.forEach(rel => {
@@ -287,7 +248,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
     return groups;
   };
 
-  const filteredCharacters = characters.filter(c => 
+  const filteredCharacters = currentNovelCharacters.filter(c => 
     c.chineseName.toLowerCase().includes(searchTerm.toLowerCase()) || 
     c.vietName.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -379,7 +340,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                              });
                            }
                          });
-                         onUpdateCharacters([...characters, ...newItems]);
+                         onUpdateCharacters([...currentNovelCharacters, ...newItems]);
                          setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} NV!` });
                        } else {
                          const newItems: Relationship[] = [];
@@ -398,7 +359,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                              });
                            }
                          });
-                         onUpdateRelationships([...relationships, ...newItems]);
+                         onUpdateRelationships([...currentNovelRelationships, ...newItems]);
                          setSyncMessage({ type: 'success', text: `Đã thêm ${newItems.length} QH!` });
                        }
                        setBulkText('');
@@ -610,8 +571,8 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
                   </button>
                </div>
 
-               <button onClick={handleAddRel} className="bg-[#5D4037] text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 hover:bg-[#795548] shadow-sm h-6">
-                  <Plus size={10} /> Thêm QH
+               <button onClick={handleAddRel} className="bg-[#5D4037] text-white px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 hover:bg-[#795548] shadow-sm h-6" title="Thêm quan hệ mới">
+                  <Plus size={10} />
                </button>
             </div>
             <div className="flex-1 overflow-auto">

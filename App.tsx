@@ -19,6 +19,7 @@ import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
 import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
+import { convertToSmartQuotes } from './services/textUtils';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -172,11 +173,11 @@ const sanitizeResult = (result: TranslationResponse | null): TranslationResponse
             ...result,
             segments: (result.segments || []).map(s => ({
                 source: (s.source || "").trim(),
-                natural: (s.natural || "").trim().replace(/\n+$/, ""),
+                natural: convertToSmartQuotes((s.natural || "").trim().replace(/\n+$/, "")),
                 quick: (s.quick || "").trim().replace(/\n+$/, ""),
                 deepl: (s.deepl || "").trim().replace(/\n+$/, "")
             })),
-            naturalTranslation: (result.naturalTranslation || "").trim().replace(/\n+$/, ""),
+            naturalTranslation: convertToSmartQuotes((result.naturalTranslation || "").trim().replace(/\n+$/, "")),
             quickTrans: (result.quickTrans || "").trim().replace(/\n+$/, ""),
             deeplTranslation: (result.deeplTranslation || "").trim().replace(/\n+$/, ""),
             vocabulary: result.vocabulary || []
@@ -263,6 +264,23 @@ function AppContent() {
   useEffect(() => {
     document.body.setAttribute('data-app-font', currentFont);
     localStorage.setItem('app_font', currentFont);
+    
+    // Phát sự kiện để tất cả các ô textarea trong bảng tự động tính lại chiều cao (tránh khoảng trống thừa)
+    window.dispatchEvent(new Event('app_font_changed'));
+    window.dispatchEvent(new Event('resize'));
+    const t1 = setTimeout(() => {
+      window.dispatchEvent(new Event('app_font_changed'));
+      window.dispatchEvent(new Event('resize'));
+    }, 50);
+    const t2 = setTimeout(() => {
+      window.dispatchEvent(new Event('app_font_changed'));
+      window.dispatchEvent(new Event('resize'));
+    }, 150);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [currentFont]);
 
   useEffect(() => {
@@ -654,6 +672,61 @@ function AppContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undoStack, redoStack, session.result]);
 
+  // Tự động chuyển đổi dấu ngoặc kép thẳng "" sang dấu ngoặc kép cong thông minh “”
+  useEffect(() => {
+    const handleGlobalSmartQuotes = (e: KeyboardEvent) => {
+      if (e.key === '"') {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+
+        const isTextarea = target.tagName === 'TEXTAREA';
+        const isTextInput = target.tagName === 'INPUT' && (!((target as HTMLInputElement).type) || ['text', 'search', 'url'].includes((target as HTMLInputElement).type));
+
+        if (isTextarea || isTextInput) {
+          const inputEl = target as HTMLInputElement | HTMLTextAreaElement;
+          const start = inputEl.selectionStart ?? 0;
+          const end = inputEl.selectionEnd ?? 0;
+          const val = inputEl.value || '';
+
+          let replacement = '';
+          if (start !== end) {
+            const selectedText = val.substring(start, end);
+            replacement = `“${selectedText}”`;
+          } else {
+            if (start === 0) {
+              replacement = '“';
+            } else {
+              const prevChar = val[start - 1];
+              if (/[\s\(\[\{<«\n\r\t“]/.test(prevChar)) {
+                replacement = '“';
+              } else {
+                replacement = '”';
+              }
+            }
+          }
+
+          e.preventDefault();
+
+          // Dùng execCommand để giữ lịch sử Undo (Ctrl+Z) mượt mà
+          let inserted = false;
+          try {
+            inserted = document.execCommand('insertText', false, replacement);
+          } catch (err) {
+            inserted = false;
+          }
+
+          if (!inserted) {
+            inputEl.setRangeText(replacement, start, end, 'end');
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalSmartQuotes, true);
+    return () => window.removeEventListener('keydown', handleGlobalSmartQuotes, true);
+  }, []);
+
   // --- ACTIONS ---
 
   const updateSession = (updates: Partial<TranslationSession>, syncToCloud = true) => {
@@ -727,33 +800,28 @@ function AppContent() {
     }
   };
 
-  // Quản lý cập nhật nhân vật an toàn - đảm bảo 100% ghi đè chuẩn xác lên Vietphrase
+  // Quản lý cập nhật nhân vật an toàn - đảm bảo 100% ghi đè chuẩn xác lên Vietphrase và tách biệt chuẩn theo từng bộ truyện
   const handleUpdateCharacters = (novelChars: Character[]) => {
     try {
       const currentId = session.currentNovelId || '';
-      const otherChars = (session.characters || []).filter(c => c.novelId ? c.novelId !== currentId : false);
-      const globalChars = (session.characters || []).filter(c => !c.novelId);
+      // Giữ lại nhân vật thuộc các bộ truyện khác
+      const otherChars = (session.characters || []).filter(c => c.novelId && c.novelId !== currentId);
 
-      // Cho truyện hiện tại: dùng Map theo key chineseName.trim() để nhân vật mới luôn ghi đè triệt để
-      const novelCharsMap = new Map<string, Character>();
-      globalChars.forEach(c => {
-        if (c.chineseName?.trim()) novelCharsMap.set(c.chineseName.trim(), c);
-      });
-      novelChars.forEach(c => {
-        if (c.chineseName?.trim()) {
-          const cleanKey = c.chineseName.trim();
-          novelCharsMap.set(cleanKey, { ...c, chineseName: cleanKey, vietName: (c.vietName || '').trim(), novelId: c.novelId || currentId });
-        }
-      });
+      // Cho truyện hiện tại: dùng danh sách novelChars truyền vào (gán chuẩn novelId)
+      const currentNovelChars = novelChars.map(c => ({
+        ...c,
+        chineseName: (c.chineseName || '').trim(),
+        vietName: (c.vietName || '').trim(),
+        novelId: currentId
+      }));
 
-      const merged = [...otherChars, ...Array.from(novelCharsMap.values())];
+      const merged = [...otherChars, ...currentNovelChars];
 
-      // Tạo CustomMap chuẩn xác cho Vietphrase
-      const thisNovelChars = merged.filter(c => !currentId || c.novelId === currentId);
+      // Tạo CustomMap chuẩn xác cho Vietphrase của truyện hiện tại
       const thisNovelTerms = (session.customTerms || []).filter(t => !currentId || t.novelId === currentId);
       const customMap = new Map<string, string>();
-      thisNovelChars.forEach(c => {
-        if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+      currentNovelChars.forEach(c => {
+        if (c.chineseName && c.vietName) customMap.set(c.chineseName, c.vietName);
       });
       thisNovelTerms.forEach(t => {
         if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
@@ -778,12 +846,30 @@ function AppContent() {
 
       updateSession({ characters: merged, result: updatedResult });
       if (currentId && auth.currentUser) {
-        syncFirestoreData('char', currentId, 'POST', Array.from(novelCharsMap.values())).catch(err => {
+        syncFirestoreData('char', currentId, 'POST', currentNovelChars).catch(err => {
           console.error("App: syncFirestoreData char failed", err);
         });
       }
     } catch (err) {
       console.error("App: handleUpdateCharacters caught error:", err);
+    }
+  };
+
+  // Quản lý cập nhật mối quan hệ / xưng hô theo từng bộ truyện
+  const handleUpdateRelationships = (novelRels: Relationship[]) => {
+    try {
+      const currentId = session.currentNovelId || '';
+      const otherRels = (session.relationships || []).filter(r => r.novelId && r.novelId !== currentId);
+      const scopedNovelRels = novelRels.map(r => ({ ...r, novelId: currentId }));
+      const merged = [...otherRels, ...scopedNovelRels];
+      updateSession({ relationships: merged });
+      if (currentId && auth.currentUser) {
+        syncFirestoreData('rel', currentId, 'POST', scopedNovelRels).catch(err => {
+          console.error("App: syncFirestoreData rel failed", err);
+        });
+      }
+    } catch (err) {
+      console.error("App: handleUpdateRelationships caught error:", err);
     }
   };
 
@@ -1104,8 +1190,11 @@ function AppContent() {
     const pasteText = e.clipboardData.getData('text');
     if (!pasteText) return;
 
-    // Lọc sạch các dòng trống khi dán
-    const cleanedText = cleanEmptyLines(pasteText);
+    // Lọc sạch các dòng trống khi dán và chuyển ngoặc kép cong thông minh cho ô Edit sẵn
+    let cleanedText = cleanEmptyLines(pasteText);
+    if (field === 'preEditedText') {
+      cleanedText = convertToSmartQuotes(cleanedText);
+    }
 
     e.preventDefault();
     const target = e.currentTarget;
@@ -1622,7 +1711,7 @@ function AppContent() {
 
         {/* CENTER MAIN CONTENT */}
         <main className={`flex-1 flex flex-col ${isFocusMode ? 'h-screen p-0 m-0 overflow-hidden' : 'lg:h-full lg:overflow-hidden'} bg-[#F5E6D3] min-w-0 sm:min-w-[320px]`}>
-          <div className={`flex-1 ${isFocusMode ? 'h-full overflow-hidden' : 'lg:overflow-y-auto lg:overflow-x-hidden scroll-smooth scrollbar-thin scrollbar-thumb-[#D7CCC8] scrollbar-track-transparent'}`}>
+          <div className={`flex-1 ${isFocusMode ? 'h-full overflow-hidden' : 'lg:overflow-y-auto lg:overflow-x-hidden scroll-smooth'}`}>
              <div className={`flex flex-col ${isFocusMode ? 'h-full p-0' : 'px-2 pb-2'}`}>
                 
                 {/* INPUT AREA */}
@@ -1839,7 +1928,7 @@ function AppContent() {
                 characters={session.characters} 
                 onUpdateCharacters={handleUpdateCharacters} 
                 relationships={session.relationships} 
-                onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                onUpdateRelationships={handleUpdateRelationships} 
                 notes={session.notes} 
                 onUpdateNotes={(val) => updateSession({ notes: val })} 
                 sheetUrl={session.sheetUrl} 
@@ -1893,7 +1982,7 @@ function AppContent() {
                   characters={session.characters} 
                   onUpdateCharacters={handleUpdateCharacters} 
                   relationships={session.relationships} 
-                  onUpdateRelationships={(rels) => updateSession({ relationships: rels })} 
+                  onUpdateRelationships={handleUpdateRelationships} 
                   notes={session.notes} 
                   onUpdateNotes={(val) => updateSession({ notes: val })} 
                   sheetUrl={session.sheetUrl} 

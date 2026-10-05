@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
-/* Custom Scrollbar Chuẩn đẹp như Ảnh 1 - Bo tròn bo viên thuốc, Nâu cà phê ấm, Ẩn nút mũi tên */
+/* Custom Scrollbar Chuẩn đẹp như Ảnh 2: Track trong suốt, Thumb bo tròn viên thuốc mềm mại */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #A1887F #F5E6D3;
+  scrollbar-color: #8D6E63 transparent;
 }
 
 *::-webkit-scrollbar,
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-button,
@@ -20,24 +20,24 @@
 }
 
 *::-webkit-scrollbar-track,
-::-webkit-scrollbar-track {
-  background: #F5E6D3;
-  border-radius: 9999px;
+::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-track-piece {
+  background: transparent !important;
 }
 
 *::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
-  background-color: #A1887F;
+  background-color: #8D6E63;
   border-radius: 9999px;
-  border: 1px solid #F5E6D3;
 }
 
 *::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #8D6E63;
+  background-color: #5D4037;
 }
 
 *::-webkit-scrollbar-corner,
 ::-webkit-scrollbar-corner {
-  background: transparent;
+  background: transparent !important;
 }

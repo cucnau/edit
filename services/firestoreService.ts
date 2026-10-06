@@ -1,4 +1,5 @@
 import { db, auth } from './firebase';
+import { getAppScope } from './storageScope';
 import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { CustomTerm, Character, Relationship, Novel, Chapter, TextShortcut, TranslationResponse } from '../types';
 
@@ -465,7 +466,8 @@ export interface ActiveSessionCloudData {
 }
 
 export const getActiveSessionDocId = (userId: string) => {
-  return `session_${userId}`;
+  const scope = getAppScope();
+  return `session_${userId}_${scope}`;
 };
 
 export const saveActiveSessionToCloud = async (

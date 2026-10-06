@@ -20,6 +20,7 @@ import { NovelSelector } from './components/NovelSelector';
 import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 import { convertToSmartQuotes, cleanTextArtifacts } from './services/textUtils';
+import { getScopedStorageItem, setScopedStorageItem } from './services/storageScope';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -211,7 +212,7 @@ function AppContent() {
   // --- STATE ---
   const [mode, setMode] = useState<'edit' | 'beta'>(() => {
     try {
-      const savedMode = localStorage.getItem('app_mode');
+      const savedMode = getScopedStorageItem('app_mode');
       return (savedMode === 'beta' || savedMode === 'edit') ? savedMode : 'edit';
     } catch (e) {
       return 'edit';
@@ -220,13 +221,13 @@ function AppContent() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('app_mode', mode);
+      setScopedStorageItem('app_mode', mode);
     } catch (e) {}
   }, [mode]);
 
   const [session, setSession] = useState<TranslationSession>(() => {
     try {
-      const savedSingle = localStorage.getItem('chiVietSingleSession');
+      const savedSingle = getScopedStorageItem('app_single_session');
       if (savedSingle) {
           const parsed = JSON.parse(savedSingle);
           // Force customTerms empty to load from DB instead (avoid localStorage quota)
@@ -241,7 +242,7 @@ function AppContent() {
 
   const [history, setHistory] = useState<HistoryItem[]>(() => {
     try {
-      const saved = localStorage.getItem('chiVietHistory');
+      const saved = getScopedStorageItem('app_history');
       const parsed = saved ? JSON.parse(saved) : [];
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
@@ -258,12 +259,12 @@ function AppContent() {
   const [shortcutsEnabled, setShortcutsEnabled] = useState(() => isShortcutsEnabled());
   const [vpLoaded, setVpLoaded] = useState(false);
   const [currentFont, setCurrentFont] = useState<string>(() => {
-    return localStorage.getItem('app_font') || 'default';
+    return getScopedStorageItem('app_font') || 'default';
   });
 
   useEffect(() => {
     document.body.setAttribute('data-app-font', currentFont);
-    localStorage.setItem('app_font', currentFont);
+    setScopedStorageItem('app_font', currentFont);
     
     // Phát sự kiện để tất cả các ô textarea trong bảng tự động tính lại chiều cao (tránh khoảng trống thừa)
     window.dispatchEvent(new Event('app_font_changed'));
@@ -290,6 +291,76 @@ function AppContent() {
         if (cloudList) setShortcuts(cloudList);
       }).catch(console.warn);
     }
+  }, [session.currentNovelId]);
+
+  // Khi đổi truyện (novelId): Tải chính xác Nhân vật, Xưng hô & Từ vựng của đúng truyện này từ Cloud
+  useEffect(() => {
+    const novelId = session.currentNovelId;
+    if (!novelId || !auth.currentUser) return;
+
+    let isMounted = true;
+    (async () => {
+      try {
+        const [cloudChars, cloudRels, cloudVocab] = await Promise.all([
+          syncFirestoreData<Character>('char', novelId, 'GET').catch(() => [] as Character[]),
+          syncFirestoreData<Relationship>('rel', novelId, 'GET').catch(() => [] as Relationship[]),
+          syncFirestoreData<CustomTerm>('vocab', novelId, 'GET').catch(() => [] as CustomTerm[])
+        ]);
+
+        if (!isMounted) return;
+
+        setSession(prev => {
+          if (prev.currentNovelId !== novelId) return prev;
+
+          // Lọc giữ lại dữ liệu của các truyện khác
+          const otherChars = (prev.characters || []).filter(c => c.novelId && c.novelId !== novelId);
+          const otherRels = (prev.relationships || []).filter(r => r.novelId && r.novelId !== novelId);
+          const otherTerms = (prev.customTerms || []).filter(t => t.novelId && t.novelId !== novelId);
+
+          const mergedChars = [...otherChars, ...cloudChars.map(c => ({ ...c, novelId }))];
+          const mergedRels = [...otherRels, ...cloudRels.map(r => ({ ...r, novelId }))];
+          const mergedTerms = [...otherTerms, ...cloudVocab.map(t => ({ ...t, novelId }))];
+
+          // Cập nhật CustomMap chuẩn xác cho Vietphrase của truyện này
+          const customMap = new Map<string, string>();
+          cloudChars.forEach(c => {
+            if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+          });
+          cloudVocab.forEach(t => {
+            if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+          });
+          vietphraseEngine.setCustomMap(customMap);
+          vietphraseEngine.notify();
+
+          let updatedResult = prev.result;
+          if (prev.result?.segments && prev.result.segments.length > 0) {
+            const updatedSegments = prev.result.segments.map(seg => ({
+              ...seg,
+              quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
+            }));
+            updatedResult = {
+              ...prev.result,
+              segments: updatedSegments,
+              quickTrans: updatedSegments.map(s => s.quick).join('\n')
+            };
+          }
+
+          return {
+            ...prev,
+            characters: mergedChars,
+            relationships: mergedRels,
+            customTerms: mergedTerms,
+            result: updatedResult
+          };
+        });
+      } catch (err) {
+        console.warn("Lỗi tải dữ liệu truyện từ Cloud:", err);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, [session.currentNovelId]);
 
   useEffect(() => {
@@ -585,19 +656,19 @@ function AppContent() {
     try {
         // Exclude customTerms from localStorage to save space
         const sessionToSave = { ...session, customTerms: [] };
-        localStorage.setItem('chiVietSingleSession', JSON.stringify(sessionToSave));
+        setScopedStorageItem('app_single_session', JSON.stringify(sessionToSave));
     } catch (e) {
         if (session.result) {
             try {
                 // Thử lưu bản rút gọn (bỏ bớt segments nặng)
                 const leanResult = { ...session.result, segments: [] };
                 const leanSession = { ...session, customTerms: [], result: leanResult };
-                localStorage.setItem('chiVietSingleSession', JSON.stringify(leanSession));
+                setScopedStorageItem('app_single_session', JSON.stringify(leanSession));
             } catch (innerE) {
                 try {
                     // Thử lưu không có result để cứu inputText
                     const ultraLeanSession = { ...session, customTerms: [], result: null };
-                    localStorage.setItem('chiVietSingleSession', JSON.stringify(ultraLeanSession));
+                    setScopedStorageItem('app_single_session', JSON.stringify(ultraLeanSession));
                 } catch (lastE) {
                     console.warn("Storage Quota Exceeded for Session");
                 }
@@ -609,7 +680,7 @@ function AppContent() {
   // Fix lỗi QuotaExceededError khi lưu History
   useEffect(() => {
     try {
-        localStorage.setItem('chiVietHistory', JSON.stringify(history));
+        setScopedStorageItem('app_history', JSON.stringify(history));
     } catch (e) {
         // Nếu bộ nhớ đầy, nén bớt history bằng cách lược bỏ segments của các bản ghi cũ
         try {
@@ -625,7 +696,7 @@ function AppContent() {
                 }
                 return item;
             });
-            localStorage.setItem('chiVietHistory', JSON.stringify(leanHistory));
+            setScopedStorageItem('app_history', JSON.stringify(leanHistory));
         } catch (innerE) {
             try {
                 // Nếu vẫn đầy, chỉ giữ 5 bản ghi và bỏ hết segments
@@ -636,7 +707,7 @@ function AppContent() {
                         segments: []
                     } : null
                 }));
-                localStorage.setItem('chiVietHistory', JSON.stringify(superLeanHistory));
+                setScopedStorageItem('app_history', JSON.stringify(superLeanHistory));
             } catch (lastE) {
                 console.warn("Storage Quota Exceeded for History");
             }
@@ -871,6 +942,58 @@ function AppContent() {
     } catch (err) {
       console.error("App: handleUpdateRelationships caught error:", err);
     }
+  };
+
+  // Quản lý chuyển đổi truyện độc lập: lưu nháp truyện cũ và khôi phục nháp truyện mới
+  const handleSelectNovel = (id: string) => {
+    if (id === session.currentNovelId) return;
+
+    // 1. Lưu nháp phiên làm việc của truyện cũ vào scoped storage
+    const oldNovelId = session.currentNovelId || 'default';
+    try {
+      const oldDraft = {
+        inputText: session.inputText,
+        deeplText: session.deeplText,
+        preEditedText: session.preEditedText,
+        result: session.result,
+        currentChapterId: session.currentChapterId,
+        completedSegments: session.completedSegments
+      };
+      setScopedStorageItem(`novel_draft_${oldNovelId}`, JSON.stringify(oldDraft));
+    } catch (_) {}
+
+    // 2. Khôi phục nháp phiên làm việc của truyện mới nếu có
+    let nextDraft: any = null;
+    try {
+      const savedNewDraft = getScopedStorageItem(`novel_draft_${id}`);
+      if (savedNewDraft) {
+        nextDraft = JSON.parse(savedNewDraft);
+      }
+    } catch (_) {}
+
+    if (nextDraft) {
+      updateSession({
+        currentNovelId: id,
+        inputText: nextDraft.inputText || '',
+        deeplText: nextDraft.deeplText || '',
+        preEditedText: nextDraft.preEditedText || '',
+        result: sanitizeResult(nextDraft.result),
+        currentChapterId: nextDraft.currentChapterId,
+        completedSegments: nextDraft.completedSegments || []
+      });
+    } else {
+      updateSession({
+        currentNovelId: id,
+        inputText: '',
+        deeplText: '',
+        preEditedText: '',
+        result: null,
+        currentChapterId: undefined,
+        completedSegments: []
+      });
+    }
+
+    pushActiveSessionToCloud({ novelId: id });
   };
 
   const handleUpdateSegment = (index: number, newNatural: string) => {
@@ -1606,10 +1729,7 @@ function AppContent() {
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <NovelSelector 
               currentNovelId={session.currentNovelId || ''} 
-              onSelectNovel={(id) => {
-                updateSession({ currentNovelId: id });
-                pushActiveSessionToCloud({ novelId: id });
-              }} 
+              onSelectNovel={handleSelectNovel} 
             />
 
             {/* Font chữ toàn web */}
@@ -2010,7 +2130,7 @@ function AppContent() {
         isOpen={showShortcuts} 
         onClose={() => setShowShortcuts(false)} 
         currentNovelId={session.currentNovelId || ''}
-        onSelectNovel={(id) => updateSession({ currentNovelId: id })}
+        onSelectNovel={handleSelectNovel}
       />
     </div>
   );

@@ -1,8 +1,9 @@
 
 import { CustomTerm, Chapter, VietphraseFile } from '../types';
+import { getScopedDbName } from './storageScope';
 
-// IndexedDB Service
-const DB_NAME = 'ChiVietDB';
+// IndexedDB Service - Tự động cô lập theo từng trang web/repository
+const DB_NAME = getScopedDbName();
 const DB_VERSION = 5;
 const STORE_SETTINGS = 'settings';
 const STORE_CUSTOM_TERMS = 'custom_terms';

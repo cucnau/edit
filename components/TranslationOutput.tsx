@@ -19,6 +19,7 @@ interface TranslationOutputProps {
   onDeleteSegment?: (index: number) => void;
   onToggleComplete?: (index: number) => void;
   onSaveChapter?: (name: string) => void;
+  existingChapterNames?: string[];
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -636,6 +637,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     onDeleteSegment,
     onToggleComplete,
     onSaveChapter,
+    existingChapterNames,
     onUndo,
     onRedo,
     canUndo,
@@ -1190,11 +1192,16 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     setShowNamingModal(true);
   };
 
+  const isDuplicateChapterName = Boolean(
+    archiveChapterName.trim() &&
+    existingChapterNames &&
+    existingChapterNames.some(n => n.trim().toLowerCase() === archiveChapterName.trim().toLowerCase())
+  );
+
   const handleConfirmSaveArchive = () => {
     let name = archiveChapterName.trim();
-    if (!name) {
-      name = `Chương_${new Date().toISOString().slice(0, 10)}`;
-    }
+    if (!name) return;
+    if (isDuplicateChapterName) return;
     onSaveChapter?.(name);
     setShowSaveArchiveModal(false);
   };
@@ -2128,7 +2135,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 value={archiveChapterName}
                 onChange={(e) => setArchiveChapterName(e.target.value)}
                 placeholder="VD: Chương 123: Tiêu đề chương"
-                className="w-full bg-white border border-[#D7CCC8] rounded px-3 py-2 text-[#3E2723] text-sm outline-none focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] transition-all font-medium"
+                className={`w-full bg-white border ${
+                  isDuplicateChapterName 
+                    ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 text-red-900 bg-red-50/20' 
+                    : 'border-[#D7CCC8] focus:border-[#8D6E63] focus:ring-1 focus:ring-[#8D6E63] text-[#3E2723]'
+                } rounded px-3 py-2 text-sm outline-none transition-all font-medium`}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -2136,6 +2147,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                   }
                 }}
               />
+              {isDuplicateChapterName && (
+                <p className="text-xs text-red-600 font-bold mt-2 flex items-center gap-1.5 animate-in fade-in">
+                  <span>⚠️</span>
+                  <span>Không được đặt trùng tên chương đã có! Tên chương này đã tồn tại trong kho chương.</span>
+                </p>
+              )}
               <p className="text-[10px] text-[#A1887F] mt-2 italic">
                 Chương sẽ được lưu trữ cục bộ để tích lũy. Khi cần có thể tải ZIP toàn bộ hoặc khôi phục để sửa tiếp.
               </p>
@@ -2150,7 +2167,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               </button>
               <button
                 onClick={handleConfirmSaveArchive}
-                className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm"
+                disabled={isDuplicateChapterName || !archiveChapterName.trim()}
+                className={`px-4 py-1.5 rounded text-white text-xs font-bold transition-all shadow-sm ${
+                  isDuplicateChapterName || !archiveChapterName.trim()
+                    ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                    : 'bg-[#5D4037] hover:bg-[#3E2723]'
+                }`}
               >
                 Lưu Chương
               </button>

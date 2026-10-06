@@ -42,23 +42,61 @@ export function getScopedKey(baseKey: string): string {
 export function getScopedStorageItem(baseKey: string): string | null {
   if (typeof window === 'undefined') return null;
   try {
+    const scope = getAppScope();
     const scopedKey = getScopedKey(baseKey);
+
+    // 1. Phục hồi thông minh cho Lịch Sử Dịch (app_history):
+    // Quét tìm bản ghi có dữ liệu thực sự (không lấy mảng rỗng "[]") từ cả scoped key lẫn các key lịch sử trước đó
+    if (baseKey === 'app_history') {
+      const candidates = [
+        localStorage.getItem(scopedKey),
+        localStorage.getItem(`${scope}_chiVietHistory`),
+        localStorage.getItem('app_history'),
+        localStorage.getItem('chiVietHistory')
+      ];
+      for (const cand of candidates) {
+        if (cand && cand.trim() && cand !== '[]') {
+          try {
+            const parsed = JSON.parse(cand);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return cand;
+            }
+          } catch (_) {}
+        }
+      }
+      return '[]';
+    }
+
+    // 2. Phục hồi thông minh cho Phiên Làm Việc (app_single_session):
+    // Ưu tiên tìm bản có nội dung thực sự (inputText hoặc result) từ các key trước đó
+    if (baseKey === 'app_single_session') {
+      const candidates = [
+        localStorage.getItem(scopedKey),
+        localStorage.getItem(`${scope}_chiVietSingleSession`),
+        localStorage.getItem('app_single_session'),
+        localStorage.getItem('chiVietSingleSession')
+      ];
+      for (const cand of candidates) {
+        if (cand && cand.trim()) {
+          try {
+            const parsed = JSON.parse(cand);
+            if (parsed && (parsed.inputText || parsed.result)) {
+              return cand;
+            }
+          } catch (_) {}
+        }
+      }
+      for (const cand of candidates) {
+        if (cand && cand.trim()) return cand;
+      }
+    }
+
     const val = localStorage.getItem(scopedKey);
     if (val !== null) return val;
 
     // Đọc fallback từ key chuẩn chưa prefix
     const standardVal = localStorage.getItem(baseKey);
     if (standardVal !== null) return standardVal;
-
-    // Backward compatibility: đọc từ key cũ nếu có
-    if (baseKey === 'app_single_session') {
-      const legacy = localStorage.getItem('chiVietSingleSession');
-      if (legacy !== null) return legacy;
-    }
-    if (baseKey === 'app_history') {
-      const legacy = localStorage.getItem('chiVietHistory');
-      if (legacy !== null) return legacy;
-    }
 
     return null;
   } catch (e) {

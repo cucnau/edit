@@ -1599,15 +1599,27 @@ function AppContent() {
 
   const handleSaveChapter = async (name: string) => {
     if (!session.result) return;
+    const cleanName = name.trim();
+    if (!cleanName) return;
 
-    // Reuse existing chapter ID if we are editing an active chapter, or overwrite by name
-    const existingChapter = chapters.find(c => c.id === session.currentChapterId || c.name.trim().toLowerCase() === name.trim().toLowerCase());
-    const chapterId = existingChapter?.id || `chap_${Date.now()}`;
+    const currentNovelId = session.currentNovelId;
+    // Kiểm tra xem có chương nào khác cùng tên trong cùng bộ truyện không
+    const duplicate = currentNovelChapters.find(c => 
+      c.name.trim().toLowerCase() === cleanName.toLowerCase() && 
+      c.id !== session.currentChapterId
+    );
+
+    if (duplicate) {
+      alert(`Không được đặt trùng tên! Chương "${cleanName}" đã tồn tại trong kho chương. Vui lòng đặt tên khác.`);
+      return;
+    }
+
+    const chapterId = session.currentChapterId || `chap_${Date.now()}`;
 
     const newChapter: Chapter = {
       id: chapterId,
       novelId: session.currentNovelId,
-      name,
+      name: cleanName,
       timestamp: Date.now(),
       inputText: session.inputText,
       deeplText: session.deeplText,
@@ -1618,7 +1630,7 @@ function AppContent() {
 
     await db.saveChapter(newChapter);
     await saveChapterToCloud(newChapter);
-    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.name.trim().toLowerCase() !== name.trim().toLowerCase())]);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId)]);
     updateSession({ currentChapterId: chapterId });
     pushActiveSessionToCloud({ currentChapterId: chapterId });
   };
@@ -2015,6 +2027,7 @@ function AppContent() {
                                 onDeleteSegment={handleDeleteSegment}
                                 onToggleComplete={handleToggleComplete}
                                 onSaveChapter={handleSaveChapter}
+                                existingChapterNames={currentNovelChapters.map(c => c.name)}
                                 onUndo={handleUndo}
                                 onRedo={handleRedo}
                                 canUndo={undoStack.length > 0}

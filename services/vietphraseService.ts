@@ -417,7 +417,7 @@ class VietphraseEngine {
 
           if (isLacViet) {
             // Nạp bản làm sạch ký hiệu ✚ vào từ điển Lạc Việt riêng để tra cứu
-            this.lacVietDictionary.set(key, value.replace(/^[✚\+\*\#\•\-\▪\▫\■\□\▲\▼\◆\◇\※\s]+/, ''));
+            this.lacVietDictionary.set(key, value.replace(/^[✚\+\*\#\•\-\▪\▫\■\□\▲\▼\◆\◇\※\s]+/, '').replace(/[✚➕＋]/g, ''));
             // Đồng thời đưa một bản rút gọn vào dictionary dịch nếu chưa có để làm từ đơn dự phòng
             if (!this.dictionary.has(key) && cleanVal) {
               this.dictionary.set(key, cleanVal);

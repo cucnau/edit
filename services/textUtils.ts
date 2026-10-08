@@ -148,19 +148,36 @@ export function formatDictionaryDefinition(raw: string): string {
     .replace(/\\r/g, '\n')
     .replace(/\\t/g, '\t');
 
-  // 2. Tự động xuống dòng trước các mục đánh số 1., 2., 3. hoặc a), b)... nếu đang viết liền
+  // 2. Xuống dòng trước các dấu cộng hoặc phiên âm đa âm tiếp theo nếu dính liền
+  text = text.replace(/([^\n])\s*([✚➕＋+]\s*\[)/g, '$1\n$2');
+  text = text.replace(/([^\n])\s*(\[[a-zA-ZāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛÜ\s\d,]+\]\s*Hán\s+Việt)/gi, '$1\n$2');
+
+  // 3. Ẩn hoàn toàn dấu cộng (✚, ➕, ＋) và các ký hiệu rác tương tự ở đầu dòng/trước phiên âm
+  text = text.replace(/[✚➕＋]/g, '');
+  text = text.replace(/^[+*#•\-▪▫■□▲▼◆◇※]\s*/gm, '');
+
+  // 4. Tự động xuống dòng trước các mục đánh số 1., 2., 3. hoặc a), b)... nếu đang viết liền
   text = text.replace(/([^\n])\s*(\b[0-9]+[.)]\s+)/g, '$1\n$2');
 
-  // 3. Chuẩn hóa thụt dòng cho các mục sau \n\t hoặc \n\s*
-  const lines = text.split('\n').map((line, idx) => {
-    const trimmed = line.trim();
-    if (!trimmed) return '';
-    // Nếu là dòng đánh số thứ tự từ dòng thứ 2 trở đi, thụt lề nhẹ 2 khoảng trắng
-    if (idx > 0 && /^[0-9]+[.)]/.test(trimmed)) {
-      return '  ' + trimmed;
+  // 5. Chuẩn hóa thụt dòng cho các mục sau \n\t hoặc \n\s*
+  const lines: string[] = [];
+  const rawLines = text.split('\n');
+
+  for (let idx = 0; idx < rawLines.length; idx++) {
+    const trimmed = rawLines[idx].trim();
+    if (!trimmed) continue;
+
+    // Nếu là khối phát âm mới (đa âm, ví dụ: [yìng] Hán Việt: ỨNG), thêm khoảng cách dòng cho thoáng
+    if (idx > 0 && /^\[.*?\]\s*Hán\s+Việt/i.test(trimmed)) {
+      lines.push('');
+      lines.push(trimmed);
+    } else if (idx > 0 && /^[0-9]+[.)]/.test(trimmed)) {
+      // Nếu là dòng đánh số thứ tự từ dòng thứ 2 trở đi, thụt lề nhẹ 2 khoảng trắng
+      lines.push('  ' + trimmed);
+    } else {
+      lines.push(trimmed);
     }
-    return trimmed;
-  }).filter(Boolean);
+  }
 
   return lines.join('\n');
 }
@@ -170,7 +187,11 @@ export function formatDictionaryDefinition(raw: string): string {
  */
 export function cleanMeaningForVocab(raw: string): string {
   if (!raw) return '';
-  const text = raw.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  const text = raw
+    .replace(/[✚➕＋]/g, '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t');
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const firstLine = lines[0] || '';
 

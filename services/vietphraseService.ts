@@ -348,7 +348,7 @@ class VietphraseEngine {
     if (hasAnyMeaning && charByChar.length > 0) {
       const summaryMeaning = charByChar
         .filter(c => c.meaning !== 'Chưa có trong từ điển Lạc Việt')
-        .map(c => `${c.char}: ${c.meaning.split('/')[0]}`)
+        .map(c => `${c.char}: ${c.meaning.split(/[\r\n]|\\[nrt]/)[0].split('/')[0].trim()}`)
         .join(' | ');
 
       return {

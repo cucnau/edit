@@ -5,7 +5,7 @@ import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Charact
 import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical, RefreshCw } from 'lucide-react';
 import { vietphraseEngine, LacVietLookupResult } from '../services/vietphraseService';
 import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
-import { convertToSmartQuotes, cleanTextArtifacts } from '../services/textUtils';
+import { convertToSmartQuotes, cleanTextArtifacts, formatDictionaryDefinition, cleanMeaningForVocab } from '../services/textUtils';
 // Deleted smartClassify import
 
 interface TranslationOutputProps {
@@ -2238,25 +2238,25 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       )}
                     </div>
                     {selectionPopup.lacviet?.found ? (
-                      <div className="text-xs text-[#1B5E20] bg-emerald-50/80 border border-emerald-200/80 rounded p-1.5 space-y-1">
+                      <div className="text-xs text-[#1B5E20] bg-emerald-50/80 border border-emerald-200/80 rounded p-1.5 space-y-1.5 max-h-52 overflow-y-auto">
                         {selectionPopup.lacviet.charByChar && selectionPopup.lacviet.charByChar.length > 0 ? (
-                          <div className="space-y-1">
+                          <div className="space-y-1.5">
                             {selectionPopup.lacviet.charByChar.map((cItem, cIdx) => (
                               <div 
                                 key={cIdx} 
                                 onClick={() => {
-                                  const singleMeaning = cItem.meaning.split('/')[0].split(' - ')[0].trim();
+                                  const singleMeaning = cleanMeaningForVocab(cItem.meaning);
                                   setVocabMeaning(singleMeaning);
                                   setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
                                 }}
-                                className="flex items-start gap-1.5 text-[11px] leading-snug hover:bg-emerald-100/60 p-0.5 rounded cursor-pointer transition-colors"
+                                className="flex items-start gap-1.5 text-[11px] leading-snug hover:bg-emerald-100/60 p-1 rounded cursor-pointer transition-colors"
                                 title="Bấm để dùng nghĩa này tạo từ vựng"
                               >
-                                <span className="font-bold font-serif-sc text-emerald-950 bg-emerald-200/70 px-1 py-0.2 rounded text-[11px] shrink-0">
+                                <span className="font-bold font-serif-sc text-emerald-950 bg-emerald-200/70 px-1 py-0.5 rounded text-[11px] shrink-0 mt-0.5">
                                   {cItem.char}
                                 </span>
-                                <span className="text-[#2E7D32] break-words">
-                                  {cItem.meaning}
+                                <span className="text-[#2E7D32] break-words whitespace-pre-line leading-relaxed">
+                                  {formatDictionaryDefinition(cItem.meaning)}
                                 </span>
                               </div>
                             ))}
@@ -2264,14 +2264,14 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                         ) : (
                           <div 
                             onClick={() => {
-                              const cleanMeaning = selectionPopup.lacviet?.meaning.split('/')[0].split(' - ')[0].trim() || '';
+                              const cleanMeaning = cleanMeaningForVocab(selectionPopup.lacviet?.meaning || '');
                               setVocabMeaning(cleanMeaning);
                               setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
                             }}
-                            className="font-medium text-[11.5px] break-words hover:bg-emerald-100/60 p-0.5 rounded cursor-pointer transition-colors"
+                            className="font-medium text-[11.5px] break-words hover:bg-emerald-100/60 p-1 rounded cursor-pointer transition-colors whitespace-pre-line leading-relaxed"
                             title="Bấm để dùng nghĩa này tạo từ vựng"
                           >
-                            {selectionPopup.lacviet.meaning}
+                            {formatDictionaryDefinition(selectionPopup.lacviet.meaning)}
                           </div>
                         )}
                       </div>
@@ -2287,7 +2287,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                   <button
                     onClick={() => {
                       setSelectionPopup(prev => prev ? { ...prev, type: 'vocab' } : null);
-                      const initialMeaning = selectionPopup.vietphrase || (selectionPopup.lacviet?.found ? selectionPopup.lacviet.meaning.split('/')[0].split(' - ')[0].trim() : '');
+                      const initialMeaning = selectionPopup.vietphrase || (selectionPopup.lacviet?.found ? cleanMeaningForVocab(selectionPopup.lacviet.meaning) : '');
                       setVocabMeaning(initialMeaning);
                     }}
                     className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-white border border-[#D7CCC8] hover:border-[#8D6E63] hover:bg-[#FFFDF7] text-center transition-all group/btn"
@@ -2299,7 +2299,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                   <button
                     onClick={() => {
                       setSelectionPopup(prev => prev ? { ...prev, type: 'char' } : null);
-                      const initialMeaning = selectionPopup.vietphrase || (selectionPopup.lacviet?.found ? selectionPopup.lacviet.meaning.split('/')[0].split(' - ')[0].trim() : '');
+                      const initialMeaning = selectionPopup.vietphrase || (selectionPopup.lacviet?.found ? cleanMeaningForVocab(selectionPopup.lacviet.meaning) : '');
                       setCharVietName(initialMeaning);
                     }}
                     className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-white border border-[#D7CCC8] hover:border-[#8D6E63] hover:bg-[#FFFDF7] text-center transition-all group/btn"

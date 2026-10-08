@@ -1,6 +1,7 @@
 import React from 'react';
 import { VocabItem } from '../types';
 import { BookOpen, Copy } from 'lucide-react';
+import { formatDictionaryDefinition } from '../services/textUtils';
 
 interface VocabCardProps {
   item: VocabItem;
@@ -39,8 +40,8 @@ export const VocabCard: React.FC<VocabCardProps> = ({ item }) => {
                 <span className="w-1.5 h-1.5 bg-[#FFB300] rounded-full"></span>
                 <span className="text-[10px] font-bold text-[#8D6E63] uppercase tracking-wider">Nghĩa</span>
             </div>
-            <div className="text-[#3E2723] font-medium text-[15px] pl-3 border-l-2 border-[#FFE082]">
-                {item.meaning}
+            <div className="text-[#3E2723] font-medium text-[15px] pl-3 border-l-2 border-[#FFE082] whitespace-pre-line leading-relaxed">
+                {formatDictionaryDefinition(item.meaning)}
             </div>
          </div>
 

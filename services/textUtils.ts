@@ -131,3 +131,63 @@ export function cleanTextArtifacts(text: string): string {
     .replace(/[ ]{2,}/g, ' ')
     .trim();
 }
+
+/**
+ * Định dạng nội dung tra cứu từ điển / Lạc Việt:
+ * Chuyển các ký tự escape '\n', '\t' thành xuống dòng thực sự,
+ * tự động tách các mục định nghĩa 1., 2., 3... thành từng dòng rõ ràng,
+ * thụt lề đẹp mắt để hiển thị dạng danh sách thay vì dính liền một dòng.
+ */
+export function formatDictionaryDefinition(raw: string): string {
+  if (!raw) return '';
+
+  // 1. Chuyển chuỗi escape \r, \n, \t thành ký tự xuống dòng / tab thực
+  let text = raw
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\\t/g, '\t');
+
+  // 2. Tự động xuống dòng trước các mục đánh số 1., 2., 3. hoặc a), b)... nếu đang viết liền
+  text = text.replace(/([^\n])\s*(\b[0-9]+[.)]\s+)/g, '$1\n$2');
+
+  // 3. Chuẩn hóa thụt dòng cho các mục sau \n\t hoặc \n\s*
+  const lines = text.split('\n').map((line, idx) => {
+    const trimmed = line.trim();
+    if (!trimmed) return '';
+    // Nếu là dòng đánh số thứ tự từ dòng thứ 2 trở đi, thụt lề nhẹ 2 khoảng trắng
+    if (idx > 0 && /^[0-9]+[.)]/.test(trimmed)) {
+      return '  ' + trimmed;
+    }
+    return trimmed;
+  }).filter(Boolean);
+
+  return lines.join('\n');
+}
+
+/**
+ * Trích xuất nghĩa ngắn gọn, sạch sẽ từ mục tra cứu từ điển để điền vào ô Từ Vựng
+ */
+export function cleanMeaningForVocab(raw: string): string {
+  if (!raw) return '';
+  const text = raw.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const firstLine = lines[0] || '';
+
+  // Ưu tiên trích phần âm Hán Việt nếu có (vd: "Hán Việt: ĐIỆP" -> "Điệp")
+  const hvMatch = firstLine.match(/Hán Việt:\s*([^,\n\t;]+)/i);
+  if (hvMatch && hvMatch[1]) {
+    const val = hvMatch[1].trim();
+    return val.charAt(0).toUpperCase() + val.slice(1).toLowerCase();
+  }
+
+  // Hoặc lấy nghĩa đầu tiên ở mục 1. nếu có
+  const numberedMatch = text.match(/1\.\s*([^;\n\t]+)/);
+  if (numberedMatch && numberedMatch[1]) {
+    return numberedMatch[1].trim();
+  }
+
+  let cleaned = firstLine.replace(/^\[.*?\]\s*/, '');
+  cleaned = cleaned.split('/')[0].split(' - ')[0].split(';')[0].trim();
+  return cleaned;
+}

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { quickLookup } from '../services/geminiService';
 import { CustomTerm } from '../types';
+import { formatDictionaryDefinition } from '../services/textUtils';
 
 interface SelectionDictionaryProps {
   customTerms: CustomTerm[];
@@ -175,8 +176,8 @@ export const SelectionDictionary: React.FC<SelectionDictionaryProps> = ({ custom
                  <span className="bg-[#5D4037] px-1 rounded text-[#FFECB3]">{result.pinyin}</span>
                  <span className="italic opacity-80">{result.hanViet}</span>
               </div>
-              <div className="text-sm font-bold text-[#FFECB3] pt-1 border-t border-[#5D4037] mt-1">
-                 {result.meaning}
+              <div className="text-sm font-bold text-[#FFECB3] pt-1 border-t border-[#5D4037] mt-1 whitespace-pre-line leading-relaxed">
+                 {formatDictionaryDefinition(result.meaning)}
               </div>
            </div>
         ) : null}

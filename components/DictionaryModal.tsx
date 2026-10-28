@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { CustomTerm } from '../types';
 import { X, Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code, Copy, Info } from 'lucide-react';
 import { fetchTermsFromSheet, saveTermsToSheet } from '../services/sheetService';
+import { deleteFirestoreDoc } from '../services/firestoreService';
+import { db } from '../services/db';
 
 interface DictionaryModalProps {
   isOpen: boolean;
@@ -84,6 +86,8 @@ export const DictionaryModal: React.FC<DictionaryModalProps> = ({
   };
 
   const handleDelete = (id: string) => {
+    db.deleteCustomTerm(id).catch(console.error);
+    deleteFirestoreDoc('vocab', id).catch(console.error);
     onUpdateTerms(terms.filter(t => t.id !== id));
   };
 

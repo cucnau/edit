@@ -197,7 +197,11 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   };
 
   const deleteChar = (id: string) => {
-    deleteFirestoreDoc('char', id);
+    const target = currentNovelCharacters.find(c => c.id === id);
+    if (target?.chineseName) {
+      vietphraseEngine.removeCustomTerm(target.chineseName);
+    }
+    deleteFirestoreDoc('char', id, target?.chineseName);
     const updated = currentNovelCharacters.filter(c => c.id !== id);
     onUpdateCharacters(updated);
     if (isSignedIn && currentNovelId) {

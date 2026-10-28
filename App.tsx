@@ -565,26 +565,21 @@ function AppContent() {
       }
     });
 
-    // 2. Tự động quét và phục hồi toàn bộ từ vựng người dùng đã lưu trên Cloud
+    // 2. Chỉ tự động phục hồi từ vựng từ Cloud nếu thiết bị này chưa có dữ liệu nào (thiết bị mới hoàn toàn)
     const restoreCloudTerms = async () => {
       const user = auth.currentUser;
       if (!user) return;
       try {
-        const cloudTerms = await getAllUserCustomTermsFromCloud();
-        if (cloudTerms && cloudTerms.length > 0) {
-          setSession(prev => {
-            const map = new Map<string, CustomTerm>();
-            (prev.customTerms || []).forEach(t => map.set(t.id, t));
-            cloudTerms.forEach(t => {
-              if (!map.has(t.id)) {
-                map.set(t.id, t);
-              }
-            });
-            const merged = Array.from(map.values());
-            // Lưu lại vào IndexedDB để lần sau mở ra không bao giờ bị mất
-            db.bulkSaveCustomTerms(merged).catch(console.error);
-            return { ...prev, customTerms: merged };
-          });
+        const localTerms = await db.getAllCustomTerms();
+        if (!localTerms || localTerms.length === 0) {
+          const cloudTerms = await getAllUserCustomTermsFromCloud();
+          if (cloudTerms && cloudTerms.length > 0) {
+            setSession(prev => ({
+              ...prev,
+              customTerms: cloudTerms
+            }));
+            db.bulkSaveCustomTerms(cloudTerms).catch(console.error);
+          }
         }
       } catch (e) {
         console.warn("Lỗi tự động phục hồi từ vựng từ Cloud:", e);
@@ -812,14 +807,10 @@ function AppContent() {
     try {
       const currentId = session.currentNovelId || '';
       // Giữ lại tất cả các từ của truyện khác
-      const otherTerms = (session.customTerms || []).filter(t => t.novelId ? t.novelId !== currentId : false);
-      const globalTerms = (session.customTerms || []).filter(t => !t.novelId);
+      const otherNovelsTerms = (session.customTerms || []).filter(t => t.novelId && t.novelId !== currentId);
 
-      // Cho truyện hiện tại: dùng Map theo key term.trim() để từ mới luôn ghi đè triệt để lên từ cũ
+      // Cho truyện hiện tại: dùng danh sách novelTerms truyền vào, gán chuẩn novelId
       const novelTermsMap = new Map<string, CustomTerm>();
-      globalTerms.forEach(t => {
-        if (t.term?.trim()) novelTermsMap.set(t.term.trim(), t);
-      });
       novelTerms.forEach(t => {
         if (t.term?.trim()) {
           const cleanKey = t.term.trim();
@@ -827,7 +818,7 @@ function AppContent() {
         }
       });
 
-      const merged = [...otherTerms, ...Array.from(novelTermsMap.values())];
+      const merged = [...otherNovelsTerms, ...Array.from(novelTermsMap.values())];
 
       // Tạo CustomMap chuẩn xác cho Vietphrase: nhân vật nạp trước, từ vựng nạp sau đè lên
       const currentChars = (session.characters || []).filter(c => !currentId || c.novelId === currentId);
@@ -1711,13 +1702,6 @@ function AppContent() {
       {!isFocusMode && (
       <header className="sticky top-0 bg-[#4E342E] text-[#F5E6D3] border-b border-[#3E2723] h-14 flex items-center justify-between px-2 sm:px-4 shrink-0 z-20 shadow-md overflow-x-auto no-scrollbar touch-pan-x w-full max-w-full select-none">
         <div className="flex items-center gap-1.5 sm:gap-4 shrink-0 pr-2">
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <div className="text-[#FFECB3] shrink-0">
-              <PenLine size={20} className="sm:w-6 sm:h-6" />
-            </div>
-            <h1 style={{ fontFamily: '"Nunito", sans-serif' }} className="text-xl sm:text-2xl font-extrabold tracking-wide text-[#FFECB3] pt-1 hidden sm:block">Edit</h1>
-          </div>
-
           {/* Segmented Mode Control */}
           <div className="flex bg-[#3E2723] p-0.5 rounded-lg border border-[#5D4037] shrink-0">
             <button

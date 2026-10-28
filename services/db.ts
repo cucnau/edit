@@ -160,7 +160,8 @@ export const db = {
                 tx.onerror = () => reject(tx.error);
                 tx.onabort = () => reject(tx.error);
 
-                // Lưu / cập nhật toàn bộ các từ trong danh sách
+                // Xóa toàn bộ dữ liệu cũ trong store rồi ghi lại danh sách mới để các từ bị xóa biến mất hoàn toàn
+                store.clear();
                 terms.forEach(term => {
                     store.put(term);
                 });

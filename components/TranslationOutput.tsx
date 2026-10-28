@@ -6,7 +6,8 @@ import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircl
 import { vietphraseEngine, LacVietLookupResult } from '../services/vietphraseService';
 import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
 import { convertToSmartQuotes, cleanTextArtifacts, formatDictionaryDefinition, cleanMeaningForVocab } from '../services/textUtils';
-// Deleted smartClassify import
+import { deleteFirestoreDoc } from '../services/firestoreService';
+import { db } from '../services/db';
 
 interface TranslationOutputProps {
   data: TranslationResponse;
@@ -1307,17 +1308,47 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     if (!vocab) return;
     if (vocab.type === 'custom') {
       const raw = vocab.rawItem as CustomTerm;
-      const termToMatch = raw ? raw.term : vocab.item.term;
-      const idToMatch = raw ? raw.id : undefined;
-      const updatedTerms = currentCustomTerms.filter(t => (idToMatch ? t.id !== idToMatch : t.term !== termToMatch));
+      const termToMatch = (raw?.term || vocab.item.term || '').trim();
+      const idToMatch = raw?.id;
+
+      // Xóa trực tiếp khỏi engine
+      if (termToMatch) {
+        vietphraseEngine.removeCustomTerm(termToMatch);
+      }
+
+      // Xóa trực tiếp khỏi IndexedDB và Firestore
+      if (idToMatch) {
+        db.deleteCustomTerm(idToMatch).catch(console.error);
+      }
+      deleteFirestoreDoc('vocab', idToMatch, termToMatch).catch(console.error);
+
+      const updatedTerms = currentCustomTerms.filter(t => {
+        if (idToMatch && t.id === idToMatch) return false;
+        if (termToMatch && (t.term || '').trim() === termToMatch) return false;
+        return true;
+      });
       onUpdateTerms?.(updatedTerms);
     } else if (vocab.type === 'char') {
       const raw = vocab.rawItem as Character;
-      const chineseToMatch = raw ? raw.chineseName : vocab.item.term;
-      const idToMatch = raw ? raw.id : undefined;
-      const updatedChars = currentCharacters.filter(c => (idToMatch ? c.id !== idToMatch : c.chineseName !== chineseToMatch));
+      const chineseToMatch = (raw?.chineseName || vocab.item.term || '').trim();
+      const idToMatch = raw?.id;
+
+      // Xóa trực tiếp khỏi engine
+      if (chineseToMatch) {
+        vietphraseEngine.removeCustomTerm(chineseToMatch);
+      }
+
+      // Xóa trực tiếp khỏi Firestore
+      deleteFirestoreDoc('char', idToMatch, chineseToMatch).catch(console.error);
+
+      const updatedChars = currentCharacters.filter(c => {
+        if (idToMatch && c.id === idToMatch) return false;
+        if (chineseToMatch && (c.chineseName || '').trim() === chineseToMatch) return false;
+        return true;
+      });
       onUpdateCharacters?.(updatedChars);
     }
+    setVpVersion(prev => prev + 1);
     setIsEditingVocabPopup(false);
     setActiveVocab(null);
   };
@@ -1893,6 +1924,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                     </div>
                     <div className="flex items-center gap-1">
                         {(activeVocab.type === 'custom' || activeVocab.type === 'char') && !isEditingVocabPopup && (
+                            <>
                             <button 
                                 onClick={() => setIsEditingVocabPopup(true)} 
                                 className="text-[#5D4037] hover:text-[#3E2723] px-1.5 py-0.5 rounded hover:bg-[#EFEBE9] transition-colors flex items-center gap-1 text-[10px] font-bold border border-[#D7CCC8]/60 bg-white shadow-2xs"
@@ -1901,6 +1933,15 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                 <Pencil size={11} />
                                 <span>Sửa</span>
                             </button>
+                            <button 
+                                onClick={() => handleDeleteVocabFromPopup(activeVocab)} 
+                                className="text-red-700 hover:text-red-800 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors flex items-center gap-1 text-[10px] font-bold border border-red-200 bg-white shadow-2xs"
+                                title="Xóa từ này"
+                            >
+                                <Trash2 size={11} />
+                                <span>Xóa</span>
+                            </button>
+                            </>
                         )}
                         <button 
                             onClick={() => { setActiveVocab(null); setIsEditingVocabPopup(false); }} 

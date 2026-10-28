@@ -258,6 +258,15 @@ class VietphraseEngine {
     this.notify();
   }
 
+  // Xóa từ hoặc nhân vật khỏi engine
+  removeCustomTerm(term: string): void {
+    const cleanTerm = term.trim();
+    if (!cleanTerm) return;
+    this.activeCustomMap.delete(cleanTerm);
+    this.rebuild();
+    this.notify();
+  }
+
   // Khởi tạo: Load từ DB nếu có
   async init() {
       if (this.isLoaded) return;

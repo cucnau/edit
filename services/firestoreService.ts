@@ -113,12 +113,22 @@ export const deleteNovel = async (id: string): Promise<void> => {
   }
 };
 
-export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut', id: string): Promise<void> => {
+export const deleteFirestoreDoc = async (type: 'vocab' | 'char' | 'rel' | 'chapter' | 'shortcut', id?: string, termText?: string): Promise<void> => {
   const user = auth.currentUser;
-  if (!user || !id) return;
+  if (!user) return;
   const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : type === 'shortcut' ? 'shortcuts' : 'chapters';
   try {
-    await deleteDoc(doc(db, collectionName, id));
+    if (id) {
+      await deleteDoc(doc(db, collectionName, id));
+    }
+    if (termText && (type === 'vocab' || type === 'char')) {
+      const field = type === 'vocab' ? 'term' : 'chineseName';
+      const q = query(collection(db, collectionName), where('userId', '==', user.uid), where(field, '==', termText.trim()));
+      const snap = await getDocs(q);
+      snap.forEach(d => {
+        deleteDoc(d.ref).catch(console.warn);
+      });
+    }
   } catch (error) {
     console.warn(`Lỗi xóa ${collectionName}/${id}:`, error);
   }

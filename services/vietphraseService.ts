@@ -194,6 +194,51 @@ const BUILTIN_HANVIET_FALLBACK: Record<string, string> = {
   '也': 'dã - cũng, lại, vậy (trợ từ khẳng định)'
 };
 
+export interface OmittedParticleInfo {
+  char: string;
+  pinyin: string;
+  hanViet: string;
+  note: string;
+  category: 'ket_cau' | 'thoi_thai' | 'ngu_khi';
+}
+
+export const DEFAULT_OMITTED_PARTICLES: OmittedParticleInfo[] = [
+  // 1. Nhóm trợ từ kết cấu & định ngữ / trạng ngữ / bổ ngữ (Cực kỳ phổ biến, xuất hiện nhiều nhất)
+  { char: '的', pinyin: 'de', hanViet: 'đích', note: 'Trợ từ định ngữ số 1 tiếng Trung: "xinh đẹp đích", "hắn đích", "tốt đích" -> ẩn để câu không bị dính chữ "đích"', category: 'ket_cau' },
+  { char: '地', pinyin: 'de', hanViet: 'địa', note: 'Trợ từ nối trạng từ: nhanh chóng "địa" chạy -> nhanh chóng chạy', category: 'ket_cau' },
+  { char: '得', pinyin: 'de', hanViet: 'đắc', note: 'Nối bổ ngữ: chạy "đắc" nhanh, đau "đắc" khóc -> chạy nhanh, đau đến khóc', category: 'ket_cau' },
+  { char: '之', pinyin: 'zhi', hanViet: 'chi', note: 'Trợ từ cổ tương đương "đích" trong văn ngôn, tiên hiệp: hắn "chi" tử, thiên hạ "chi" đại', category: 'ket_cau' },
+  
+  // 2. Nhóm trợ từ thời thái & tiếp diễn
+  { char: '了', pinyin: 'le', hanViet: 'liễu', note: 'Biểu thị hoàn thành: đi "liễu", chết "liễu" -> đi, chết', category: 'thoi_thai' },
+  { char: '着', pinyin: 'zhe', hanViet: 'trứ/trước', note: 'Biểu thị tiếp diễn: nhìn "trứ", cười "trứ" -> nhìn, cười', category: 'thoi_thai' },
+
+  // 3. Nhóm trợ từ ngữ khí cuối câu (từ đệm âm Hán Việt thô ở đuôi câu)
+  { char: '啦', pinyin: 'la', hanViet: 'lạp', note: 'Ngữ khí cảm thán: tới "lạp", xong "lạp" -> tới rồi, xong rồi', category: 'ngu_khi' },
+  { char: '呢', pinyin: 'ne', hanViet: 'ni', note: 'Ngữ khí cuối câu hỏi/tiếp diễn: ở đâu "ni", sao vậy "ni"', category: 'ngu_khi' },
+  { char: '吧', pinyin: 'ba', hanViet: 'ba', note: 'Ngữ khí đề nghị: đi "ba", được "ba"', category: 'ngu_khi' },
+  { char: '呀', pinyin: 'ya', hanViet: 'nha', note: 'Cảm thán cuối câu: đẹp "nha", đúng "nha"', category: 'ngu_khi' },
+  { char: '啊', pinyin: 'a', hanViet: 'a', note: 'Cảm thán cuối câu: đi "a", tốt "a"', category: 'ngu_khi' },
+  { char: '嘛', pinyin: 'ma', hanViet: 'ma', note: 'Ngữ khí hiển nhiên: vốn thế "ma"', category: 'ngu_khi' },
+  { char: '喽', pinyin: 'lou', hanViet: 'lâu', note: 'Ngữ khí: xong "lâu", đi "lâu"', category: 'ngu_khi' },
+  { char: '啰', pinyin: 'luo', hanViet: 'la', note: 'Ngữ khí: được "la", đi "la"', category: 'ngu_khi' },
+  { char: '罗', pinyin: 'luo', hanViet: 'la', note: 'Ngữ khí (dạng khác của 啰): xong "la"', category: 'ngu_khi' },
+  { char: '咧', pinyin: 'lie', hanViet: 'liệt', note: 'Ngữ khí: cười "liệt", nói "liệt"', category: 'ngu_khi' },
+  { char: '哇', pinyin: 'wa', hanViet: 'oa', note: 'Cảm thán: "oa"', category: 'ngu_khi' },
+
+  // 4. Nhóm hư từ ngữ khí cổ phong / kiếm hiệp / huyền huyễn
+  { char: '矣', pinyin: 'yi', hanViet: 'hĩ', note: 'Hư từ ngữ khí cổ khẳng định: chết "hĩ", xong "hĩ"', category: 'ngu_khi' },
+  { char: '哉', pinyin: 'zai', hanViet: 'tai', note: 'Cảm thán cổ: nguy "tai", thương "tai"', category: 'ngu_khi' },
+  { char: '乎', pinyin: 'hu', hanViet: 'hô', note: 'Nghi vấn cổ: phải chăng "hô"', category: 'ngu_khi' },
+  { char: '兮', pinyin: 'xi', hanViet: 'hề', note: 'Hư từ ngâm vịnh cổ: hồn "hề" quy lai', category: 'ngu_khi' },
+  { char: '耶', pinyin: 'ye', hanViet: 'da', note: 'Nghi vấn cổ: thật "da"', category: 'ngu_khi' },
+  { char: '耳', pinyin: 'er', hanViet: 'nhĩ', note: 'Hư từ cuối câu biểu thị "mà thôi": thế "nhĩ"', category: 'ngu_khi' },
+  { char: '焉', pinyin: 'yan', hanViet: 'yên', note: 'Hư từ cuối câu cổ phong: biết sao "yên"', category: 'ngu_khi' },
+  { char: '欤', pinyin: 'yu', hanViet: 'dư', note: 'Nghi vấn cổ phong: vậy "dư"', category: 'ngu_khi' }
+];
+
+export const DEFAULT_OMITTED_CHARS = DEFAULT_OMITTED_PARTICLES.map(p => p.char);
+
 class VietphraseEngine {
   private dictionary: Map<string, string>;
   private lacVietDictionary: Map<string, string>;
@@ -203,10 +248,101 @@ class VietphraseEngine {
   private listeners: Set<() => void> = new Set();
   private files: VietphraseFile[] = [];
 
+  private omittedParticles: Set<string> = new Set(DEFAULT_OMITTED_CHARS);
+  private enableParticleOmission: boolean = true;
+
   constructor() {
     this.dictionary = new Map();
     this.lacVietDictionary = new Map();
     this.maxKeyLength = 0;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const savedOmitted = localStorage.getItem('app_omitted_particles');
+        if (savedOmitted) {
+          const parsed = JSON.parse(savedOmitted);
+          if (Array.isArray(parsed)) {
+            // Tự động gộp trọn bộ danh sách chuẩn (đặc biệt là 的, 之...) cùng bất kỳ từ nào người dùng thêm
+            const merged = new Set([...DEFAULT_OMITTED_CHARS, ...parsed]);
+            this.omittedParticles = merged;
+            localStorage.setItem('app_omitted_particles', JSON.stringify(Array.from(merged)));
+          } else {
+            this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
+            localStorage.setItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
+          }
+        } else {
+          this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
+          localStorage.setItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
+        }
+        const savedEnabled = localStorage.getItem('app_omit_particles_enabled');
+        if (savedEnabled !== null) {
+          this.enableParticleOmission = savedEnabled === 'true';
+        }
+      }
+    } catch (e) {
+      this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
+    }
+  }
+
+  // Quản lý danh sách trợ từ ngữ pháp đơn lẻ cần ẩn
+  getOmittedParticles(): string[] {
+    return Array.from(this.omittedParticles);
+  }
+
+  getParticleInfo(char: string): OmittedParticleInfo | undefined {
+    return DEFAULT_OMITTED_PARTICLES.find(p => p.char === char);
+  }
+
+  resetToDefaultParticles(): void {
+    this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
+      }
+    } catch (e) {}
+    this.notify();
+  }
+
+  isParticleOmissionEnabled(): boolean {
+    return this.enableParticleOmission;
+  }
+
+  setParticleOmissionEnabled(enabled: boolean): void {
+    this.enableParticleOmission = enabled;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('app_omit_particles_enabled', enabled ? 'true' : 'false');
+      }
+    } catch (e) {}
+    this.notify();
+  }
+
+  setOmittedParticles(particles: string[]): void {
+    this.omittedParticles = new Set(particles.map(p => p.trim()).filter(Boolean));
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('app_omitted_particles', JSON.stringify(Array.from(this.omittedParticles)));
+      }
+    } catch (e) {}
+    this.notify();
+  }
+
+  addOmittedParticle(char: string): void {
+    const clean = char.trim();
+    if (!clean) return;
+    this.omittedParticles.add(clean);
+    this.setOmittedParticles(Array.from(this.omittedParticles));
+  }
+
+  removeOmittedParticle(char: string): void {
+    const clean = char.trim();
+    if (!clean) return;
+    this.omittedParticles.delete(clean);
+    this.setOmittedParticles(Array.from(this.omittedParticles));
+  }
+
+  isOmittedParticle(char: string): boolean {
+    if (!this.enableParticleOmission) return false;
+    return this.omittedParticles.has(char);
   }
 
   // Đăng ký nhận sự kiện thay đổi dữ liệu từ điển
@@ -507,16 +643,40 @@ class VietphraseEngine {
 
       for (let j = limit; j > i; j--) {
         const sub = text.substring(i, j);
-        if (this.dictionary.has(sub)) {
-          let meaning = this.dictionary.get(sub) || sub;
-          // Lọc sạch toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
-          meaning = cleanVietphraseMeaning(meaning);
-          if (meaning) {
-            result += " " + meaning + " ";
+
+        if (j - i > 1) {
+          // Từ ghép (2 ký tự trở lên): tra cứu từ điển bình thường (ưu tiên từ dài)
+          if (this.dictionary.has(sub)) {
+            let meaning = this.dictionary.get(sub) || sub;
+            // Lọc sạch toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
+            meaning = cleanVietphraseMeaning(meaning);
+            if (meaning) {
+              result += " " + meaning + " ";
+            }
+            i = j;
+            matched = true;
+            break;
           }
-          i = j;
-          matched = true;
-          break;
+        } else {
+          // Từ đơn lẻ (1 ký tự):
+          // Kiểm tra xem có phải trợ từ ngữ pháp kết cấu / ngữ khí cần ẩn (như 地, 了) khi đứng đơn lẻ hay không
+          if (this.isOmittedParticle(sub)) {
+            i = j; // Lược bỏ, không sinh ra âm Hán Việt thô vào chuỗi Vietphrase
+            matched = true;
+            break;
+          }
+
+          if (this.dictionary.has(sub)) {
+            let meaning = this.dictionary.get(sub) || sub;
+            // Lọc sạch toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
+            meaning = cleanVietphraseMeaning(meaning);
+            if (meaning) {
+              result += " " + meaning + " ";
+            }
+            i = j;
+            matched = true;
+            break;
+          }
         }
       }
 

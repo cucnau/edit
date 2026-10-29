@@ -5,7 +5,7 @@ import { Plus, Trash2, BookUser, Settings, Download, Upload, Loader2, Save, Code
 import { syncFirestoreData, deleteFirestoreDoc, overwriteFirestoreData } from '../services/firestoreService';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { vietphraseEngine, getQuickTransFileType } from '../services/vietphraseService';
+import { vietphraseEngine, getQuickTransFileType, DEFAULT_OMITTED_PARTICLES } from '../services/vietphraseService';
 // Deleted smartClassify import
 
 interface DictionarySidebarProps {
@@ -148,13 +148,46 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     localStorage.setItem('autoSync_vocab', String(autoSync));
   }, [autoSync]);
 
+  // Omit particles state
+  const [omitParticlesEnabled, setOmitParticlesEnabled] = useState<boolean>(() => vietphraseEngine.isParticleOmissionEnabled());
+  const [omittedList, setOmittedList] = useState<string[]>(() => vietphraseEngine.getOmittedParticles());
+  const [newParticleInput, setNewParticleInput] = useState('');
+
+  const handleToggleOmitParticles = () => {
+    const nextVal = !omitParticlesEnabled;
+    setOmitParticlesEnabled(nextVal);
+    vietphraseEngine.setParticleOmissionEnabled(nextVal);
+  };
+
+  const handleAddParticle = () => {
+    const p = newParticleInput.trim();
+    if (!p) return;
+    vietphraseEngine.addOmittedParticle(p);
+    setNewParticleInput('');
+    setOmittedList(vietphraseEngine.getOmittedParticles());
+  };
+
+  const handleRemoveParticle = (p: string) => {
+    vietphraseEngine.removeOmittedParticle(p);
+    setOmittedList(vietphraseEngine.getOmittedParticles());
+  };
+
+  const handleResetDefaultParticles = () => {
+    vietphraseEngine.resetToDefaultParticles();
+    setOmittedList(vietphraseEngine.getOmittedParticles());
+  };
+
   // Load VP size and files list on mount/render
   useEffect(() => {
      setVpCount(vietphraseEngine.getSize());
      setVpFiles(vietphraseEngine.getFiles());
+     setOmitParticlesEnabled(vietphraseEngine.isParticleOmissionEnabled());
+     setOmittedList(vietphraseEngine.getOmittedParticles());
      return vietphraseEngine.subscribe(() => {
          setVpCount(vietphraseEngine.getSize());
          setVpFiles(vietphraseEngine.getFiles());
+         setOmitParticlesEnabled(vietphraseEngine.isParticleOmissionEnabled());
+         setOmittedList(vietphraseEngine.getOmittedParticles());
      });
   }, [refreshTrigger]);
 
@@ -591,6 +624,84 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
                     multiple={true} 
                     onChange={handleFileUpload} 
                 />
+             </div>
+
+             {/* OMIT GRAMMAR PARTICLES SECTION */}
+             <div className="mb-4 bg-white border border-[#D7CCC8] rounded-lg p-3">
+                <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-[10px] font-bold text-[#5D4037] uppercase flex items-center gap-1">
+                      <SlidersHorizontal size={12}/> Ẩn trợ từ kết cấu & ngữ khí (Hư từ)
+                    </label>
+                    <button 
+                      onClick={handleToggleOmitParticles}
+                      className={`w-8 h-4 rounded-full relative transition-colors ${omitParticlesEnabled ? 'bg-green-600' : 'bg-[#D7CCC8]'}`}
+                      title={omitParticlesEnabled ? "Đang bật ẩn trợ từ đơn" : "Đang tắt ẩn trợ từ"}
+                    >
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all`} style={{left: omitParticlesEnabled ? '18px' : '2px'}} />
+                    </button>
+                </div>
+                <p className="text-[10px] text-[#8D6E63] leading-relaxed mb-2">
+                  Tự động bỏ qua các trợ từ nối/ngữ khí khi đứng đơn lẻ (như <span className="font-bold text-[#3E2723]">地</span> thành "địa", <span className="font-bold text-[#3E2723]">了</span> thành "liễu"), giúp câu văn Vietphrase mượt mà, không bị chèn âm Hán Việt thô. Từ ghép như <em>địa cầu</em>, <em>tìm hiểu</em> vẫn dịch bình thường.
+                </p>
+
+                {omitParticlesEnabled && (
+                  <div className="space-y-2 pt-1 border-t border-[#D7CCC8]/30">
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      {omittedList.map(particle => {
+                        const info = DEFAULT_OMITTED_PARTICLES.find(p => p.char === particle);
+                        return (
+                          <span 
+                            key={particle} 
+                            title={info ? info.note : particle}
+                            className="inline-flex items-center gap-1 bg-[#FFF8E1] border border-[#FFE082] px-1.5 py-0.5 rounded text-[11px] text-[#3E2723] shadow-2xs hover:bg-[#FFECB3] transition-colors"
+                          >
+                            <span className="font-serif-sc font-bold text-xs">{particle}</span>
+                            {info && <span className="text-[9px] text-[#8D6E63] font-medium">({info.hanViet})</span>}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveParticle(particle)}
+                              className="text-[#8D6E63] hover:text-red-600 font-bold ml-0.5 leading-none px-0.5"
+                              title={`Bỏ ẩn từ ${particle}`}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[9px] text-[#8D6E63] italic">Đã cài sẵn trọn bộ {DEFAULT_OMITTED_PARTICLES.length} hư từ chuẩn (có 的, 之, 地, 了, 着...)</span>
+                      <button
+                        type="button"
+                        onClick={handleResetDefaultParticles}
+                        className="text-[9.5px] text-[#5D4037] hover:text-[#3E2723] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                        title={`Khôi phục lại danh sách ${DEFAULT_OMITTED_PARTICLES.length} trợ từ chuẩn`}
+                      >
+                        <RefreshCw size={10} /> Khôi phục danh sách chuẩn
+                      </button>
+                    </div>
+
+                    <div className="flex gap-1.5 items-center pt-1">
+                      <input
+                        type="text"
+                        value={newParticleInput}
+                        onChange={(e) => setNewParticleInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddParticle(); }}
+                        placeholder="Thêm trợ từ muốn ẩn nếu có..."
+                        className="flex-1 bg-[#FFFDF7] border border-[#D7CCC8] rounded px-2 py-1 text-xs text-[#3E2723] outline-none focus:border-[#8D6E63] font-serif-sc"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddParticle}
+                        disabled={!newParticleInput.trim()}
+                        className="px-2.5 py-1 bg-[#5D4037] hover:bg-[#3E2723] disabled:opacity-40 text-white rounded text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        + Thêm
+                      </button>
+                    </div>
+                  </div>
+                )}
              </div>
 
              {/* CLOUD SYNC SECTION */}

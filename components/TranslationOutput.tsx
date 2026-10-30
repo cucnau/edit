@@ -1120,7 +1120,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       const cleanSource = (seg.source || '').trim();
       const cleanNatural = (seg.natural || '').trim();
       const cleanDeepl = (seg.deepl || '').trim();
-      const cleanQuick = cleanTextArtifacts(cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || ''));
+      const rawQuick = cleanSource ? vietphraseEngine.translate(cleanSource, customMap) : (seg.quick || '');
+      const cleanQuick = vietphraseEngine.cleanOmittedParticleArtifacts(cleanTextArtifacts(rawQuick));
 
       if (!cleanSource && !cleanNatural) return;
 
@@ -1692,7 +1693,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                       const cleanSource = (seg.source || '').trim();
                       const cleanNatural = (seg.natural || '').trim();
                       const cleanDeepl = (seg.deepl || '').trim();
-                      const cleanQuick = cleanTextArtifacts(cleanSource ? (vietphraseEngine.translate(cleanSource, customMap) || seg.quick || '') : (seg.quick || ''));
+                      const rawQuick = cleanSource ? vietphraseEngine.translate(cleanSource, customMap) : (seg.quick || '');
+                      const cleanQuick = vietphraseEngine.cleanOmittedParticleArtifacts(cleanTextArtifacts(rawQuick));
 
                       if (!cleanSource && !cleanNatural && !cleanQuick && !cleanDeepl) return null;
 
@@ -2755,7 +2757,8 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               type="button"
               onClick={() => {
                 const seg = data.segments[rowMenu.index];
-                const quick = (seg?.source ? (vietphraseEngine.translate(seg.source || '', customMap) || seg?.quick || '') : (seg?.quick || ''));
+                const rawQuick = seg?.source ? vietphraseEngine.translate(seg.source || '', customMap) : (seg?.quick || '');
+                const quick = vietphraseEngine.cleanOmittedParticleArtifacts(cleanTextArtifacts(rawQuick));
                 setModalEditRow({
                   index: rowMenu.index,
                   source: seg?.source || '',

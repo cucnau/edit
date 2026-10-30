@@ -1513,7 +1513,7 @@ function AppContent() {
          const deeplLines = await alignTextWithAI(inputLines, session.deeplText || "");
          mergedSegments = data.segments.map((seg, i) => ({
             ...seg,
-            quick: vpSegments[i]?.quick || seg.quick, // Prefer local Vietphrase
+            quick: vpSegments[i]?.quick !== undefined ? vpSegments[i].quick : (seg.quick || ''), // Prefer local Vietphrase
             deepl: deeplLines[i] || "" // Set DeepL reference
          }));
       }

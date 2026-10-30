@@ -281,6 +281,7 @@ class VietphraseEngine {
     } catch (e) {
       this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
     }
+    this.rebuild();
   }
 
   // Quản lý danh sách trợ từ ngữ pháp đơn lẻ cần ẩn
@@ -515,9 +516,16 @@ class VietphraseEngine {
     this.lacVietDictionary.clear();
     this.maxKeyLength = 0;
 
-    // Nạp trước bộ từ điển Hán Việt nền tảng vào LacVietDictionary
+    // Nạp trước bộ từ điển Hán Việt nền tảng vào LacVietDictionary và dictionary dự phòng
     for (const [key, val] of Object.entries(BUILTIN_HANVIET_FALLBACK)) {
       this.lacVietDictionary.set(key, val);
+      const cleanVal = cleanVietphraseMeaning(val);
+      if (cleanVal) {
+        this.dictionary.set(key, cleanVal);
+        if (key.length > this.maxKeyLength) {
+          this.maxKeyLength = key.length;
+        }
+      }
     }
 
     // Sắp xếp các file theo thứ tự độ ưu tiên từ THẤP lên CAO:
@@ -630,6 +638,80 @@ class VietphraseEngine {
     return this.dictionary.size;
   }
 
+  // Lọc sạch triệt để các trợ từ / hư từ Hán Việt bị rò rỉ từ các từ ghép trong từ điển hoặc bản dịch thô
+  cleanOmittedParticleArtifacts(text: string): string {
+    if (!text || !this.enableParticleOmission) return text;
+    let res = text;
+
+    // 1. Quét sạch tất cả ký tự chữ Hán hư từ còn sót lại trong chuỗi
+    const omittedCharsArr = Array.from(this.omittedParticles);
+    if (omittedCharsArr.length > 0) {
+      const charRegex = new RegExp('[' + omittedCharsArr.join('') + ']', 'g');
+      res = res.replace(charRegex, '');
+    }
+
+    // 2. Trợ từ 的 (đích):
+    // Cắt bỏ đuôi "đích" ở các từ tính từ / sở hữu / trợ từ (như "hắn đích", "xinh đẹp đích", "tốt đích", "màu đỏ đích"...)
+    // Bảo toàn từ vựng thực sự: mục đích, đích thực, đích thân, đích thị, đích xác, đích danh, đích tử, đích tôn, đích hệ, đích truyền, đích xuất
+    if (this.omittedParticles.has('的')) {
+      res = res.replace(/(?<!\bmục\s+|\bvương\s+)\b(?:đích|ĐÍCH)\b(?!\s+(?:thực|thân|thị|xác|danh|tử|tôn|hệ|truyền|xuất)\b)/g, '');
+    }
+
+    // 3. Trợ từ 了 (liễu):
+    // Cắt bỏ "liễu" ở các động từ hoàn thành (như "đi liễu", "chết liễu", "tới liễu", "xong liễu", "biến liễu"...)
+    // Bảo toàn: liễu giải, liễu kết, liễu nguyện, liễu sự
+    if (this.omittedParticles.has('了')) {
+      res = res.replace(/(?<!\btai\s+)\b(?:liễu|LIỄU)\b(?!\s+(?:giải|kết|nguyện|sự)\b)/g, '');
+    }
+
+    // 4. Trợ từ 地 (địa):
+    // Cắt bỏ "địa" nối trạng từ (như "từ từ địa", "lẳng lặng địa", "phi khoái địa", "lạnh lùng địa"...)
+    // Bảo toàn danh từ: địa cầu, địa phương, địa điểm, địa bàn, địa ngục, địa lý, địa đồ, địa chấn, địa thế, địa vị, địa hình, địa chỉ, đại địa, thổ địa, thánh địa, bảo địa, tâm địa
+    if (this.omittedParticles.has('地')) {
+      res = res.replace(/(?<=\S+\s+)\b(?:địa|ĐỊA)\b(?!\s+(?:cầu|phương|điểm|bàn|ngục|lý|chất|đồ|chấn|thế|chỉ|hạ|vị|chủ|hình|thần|khí|mạch|la)\b)/g, '');
+    }
+
+    // 5. Trợ từ 着 (trứ / trước):
+    // Cắt bỏ "trứ" tiếp diễn: nhìn trứ, cười trứ, khóc trứ, đợi trứ
+    if (this.omittedParticles.has('着')) {
+      res = res.replace(/\b(?:trứ|TRỨ)\b/g, '');
+    }
+
+    // 6. Trợ từ Chi 之 (chi):
+    if (this.omittedParticles.has('之')) {
+      res = res.replace(/(?<=\S+\s+)\b(?:chi|CHI)\b(?=\s*[,.!?;:\n]|\s+[a-zà-ỹA-ZÀ-Ỹ]+)/g, '');
+    }
+
+    // 7. Nhóm trợ từ ngữ khí cuối câu: 啦 (lạp), 呢 (ni), 吧 (ba), 呀 (nha), 啊 (a), 嘛 (ma), 喽 (lâu), 啰/罗 (la), 咧 (liệt), 矣 (hĩ), 哉 (tai), 乎 (hô), 兮 (hề), 耶 (da), 耳 (nhĩ), 焉 (yên), 欤 (dư)
+    const modalParticles: Record<string, string[]> = {
+      '啦': ['lạp', 'LẠP'],
+      '呢': ['ni', 'NI'],
+      '吧': ['ba', 'BA'],
+      '呀': ['nha', 'NHA'],
+      '嘛': ['ma', 'MA'],
+      '喽': ['lâu', 'LÂU'],
+      '咧': ['liệt', 'LIỆT'],
+      '矣': ['hĩ', 'HĨ'],
+      '哉': ['tai', 'TAI'],
+      '乎': ['hô', 'HÔ'],
+      '兮': ['hề', 'HỀ'],
+      '耶': ['da', 'DA'],
+      '耳': ['nhĩ', 'NHĨ'],
+      '焉': ['yên', 'YÊN'],
+      '欤': ['dư', 'DƯ']
+    };
+
+    for (const [char, sounds] of Object.entries(modalParticles)) {
+      if (this.omittedParticles.has(char)) {
+        const pattern = new RegExp(`(?<=\\S+\\s+)\\b(?:${sounds.join('|')})\\b(?=\\s*[,.!?;:\\n]|$)`, 'g');
+        res = res.replace(pattern, '');
+      }
+    }
+
+    // Chuẩn hóa khoảng trắng
+    return res.replace(/[ ]{2,}/g, ' ').trim();
+  }
+
   // Thuật toán FMM dịch bằng từ điển nền tảng Vietphrase cho các đoạn văn bản
   private translateWithFMM(text: string): string {
     if (!text) return "";
@@ -639,7 +721,7 @@ class VietphraseEngine {
 
     while (i < n) {
       let matched = false;
-      const limit = Math.min(n, i + this.maxKeyLength);
+      const limit = Math.max(i + 1, Math.min(n, i + Math.max(1, this.maxKeyLength)));
 
       for (let j = limit; j > i; j--) {
         const sub = text.substring(i, j);
@@ -650,6 +732,30 @@ class VietphraseEngine {
             let meaning = this.dictionary.get(sub) || sub;
             // Lọc sạch toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
             meaning = cleanVietphraseMeaning(meaning);
+
+            // Nếu từ ghép kết thúc hoặc bắt đầu bằng một trợ từ bị ẩn:
+            if (this.enableParticleOmission && sub.length >= 2) {
+              const lastChar = sub[sub.length - 1];
+              if (this.isOmittedParticle(lastChar)) {
+                if (lastChar === '的') {
+                  meaning = meaning.replace(/(?<!\bmục\s+|\bvương\s+)\b(?:đích|ĐÍCH|của)\b(?!\s+(?:thực|thân|thị|xác|danh|tử|tôn|hệ|truyền|xuất)\b)/g, '').trim();
+                } else if (lastChar === '了') {
+                  meaning = meaning.replace(/(?<!\btai\s+)\b(?:liễu|LIỄU|rồi)\b(?!\s+(?:giải|kết|nguyện|sự)\b)/g, '').trim();
+                } else if (lastChar === '地') {
+                  meaning = meaning.replace(/\b(?:địa|ĐỊA)\b(?!\s+(?:cầu|phương|điểm|bàn|ngục|lý|chất|đồ|chấn|thế|chỉ|hạ|vị|chủ|hình)\b)/g, '').trim();
+                } else if (lastChar === '着') {
+                  meaning = meaning.replace(/\b(?:trứ|TRỨ|trước|TRƯỚC|đang)\b/g, '').trim();
+                } else if (lastChar === '之') {
+                  meaning = meaning.replace(/\b(?:chi|CHI|của)\b/g, '').trim();
+                }
+              }
+
+              const firstChar = sub[0];
+              if (this.isOmittedParticle(firstChar) && firstChar === '的') {
+                meaning = meaning.replace(/^(?:đích|ĐÍCH)\s+/i, '').trim();
+              }
+            }
+
             if (meaning) {
               result += " " + meaning + " ";
             }
@@ -659,9 +765,9 @@ class VietphraseEngine {
           }
         } else {
           // Từ đơn lẻ (1 ký tự):
-          // Kiểm tra xem có phải trợ từ ngữ pháp kết cấu / ngữ khí cần ẩn (như 地, 了) khi đứng đơn lẻ hay không
+          // Kiểm tra xem có phải trợ từ ngữ pháp kết cấu / ngữ khí cần ẩn (như 的, 地, 了, 着) hay không
           if (this.isOmittedParticle(sub)) {
-            i = j; // Lược bỏ, không sinh ra âm Hán Việt thô vào chuỗi Vietphrase
+            i = j; // Lược bỏ hoàn toàn, không sinh ra âm Hán Việt thô vào chuỗi Vietphrase
             matched = true;
             break;
           }
@@ -681,6 +787,11 @@ class VietphraseEngine {
       }
 
       if (!matched) {
+        // Nếu không khớp từ điển: kiểm tra nếu là trợ từ bị ẩn thì lập tức bỏ qua, không in ký tự chữ Hán thô ra
+        if (this.isOmittedParticle(text[i])) {
+          i++;
+          continue;
+        }
         result += text[i];
         i++;
       }
@@ -707,14 +818,21 @@ class VietphraseEngine {
       }
     }
 
-    if (this.dictionary.size === 0 && combinedCustomMap.size === 0) return text;
+    if (this.dictionary.size === 0 && combinedCustomMap.size === 0) {
+      return this.enableParticleOmission ? this.cleanOmittedParticleArtifacts(text) : text;
+    }
 
     // Nếu không có custom terms nào, dịch toàn bộ bằng Vietphrase FMM
     if (combinedCustomMap.size === 0) {
-      return this.translateWithFMM(text)
+      const rawFmm = this.translateWithFMM(text)
         .replace(/\{\d+\}/g, '')
         .replace(/\s+/g, ' ')
         .trim();
+      let cleaned = cleanTextArtifacts(rawFmm);
+      if (this.enableParticleOmission) {
+        cleaned = this.cleanOmittedParticleArtifacts(cleaned);
+      }
+      return cleaned;
     }
 
     // 2. Tìm tất cả vị trí xuất hiện của Custom Terms (Ưu tiên từ dài hơn trước)
@@ -783,7 +901,11 @@ class VietphraseEngine {
     }
 
     // Chuẩn hóa và quét dọn triệt để toàn bộ rác từ điển (✚, [pinyin], Hán Việt, {0}...)
-    return cleanTextArtifacts(result);
+    let cleaned = cleanTextArtifacts(result);
+    if (this.enableParticleOmission) {
+      cleaned = this.cleanOmittedParticleArtifacts(cleaned);
+    }
+    return cleaned;
   }
 }
 

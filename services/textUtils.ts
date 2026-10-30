@@ -123,8 +123,7 @@ export function cleanTextArtifacts(text: string): string {
     .replace(/\[[a-zA-ZāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛÜ\s\d,]+\]/g, '')
     // Xóa nhãn Hán Việt: đứng đơn độc
     .replace(/\bHán\s+Việt\s*:\s*/gi, '')
-    // Chuyển đổi các từ viết HOA Hán Việt thông dụng nếu bị lọt vào câu
-    .replace(/\bĐÍCH\b/g, 'đích')
+    // Chuyển đổi các từ viết HOA Hán Việt thông dụng nếu bị lọt vào câu (không giữ lại ĐÍCH vì là hư từ cần ẩn)
     .replace(/\bTRƯỚC\b/g, 'trước')
     .replace(/\bCHIÊU\b/g, 'chiêu')
     // Chuẩn hóa khoảng trắng

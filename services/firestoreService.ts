@@ -334,12 +334,34 @@ export const getAllUserCustomTermsFromCloud = async (): Promise<CustomTerm[]> =>
   }
 };
 
+export const getAllUserChaptersFromCloud = async (): Promise<Chapter[]> => {
+  const user = auth.currentUser;
+  if (!user) return [];
+  try {
+    const q = query(collection(db, 'chapters'), where('userId', '==', user.uid));
+    const snap = await getDocs(q);
+    const chapters: Chapter[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const { userId, ...rest } = data;
+      chapters.push({ id: d.id, ...rest } as Chapter);
+    });
+    chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return chapters;
+  } catch (error) {
+    console.warn("Không thể tải toàn bộ kho chương từ đám mây:", error);
+    return [];
+  }
+};
+
 export const getChaptersFromCloud = async (novelId: string, retryCount = 1): Promise<Chapter[]> => {
   const user = auth.currentUser;
-  if (!user || !novelId) return [];
+  if (!user) return [];
   const path = 'chapters';
   try {
-    const q = query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId));
+    const q = novelId 
+      ? query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId))
+      : query(collection(db, path), where('userId', '==', user.uid));
     const snap = await getDocs(q);
     const chapters: Chapter[] = [];
     snap.forEach(d => {
@@ -362,11 +384,11 @@ export const getChaptersFromCloud = async (novelId: string, retryCount = 1): Pro
 export const saveChapterToCloud = async (chapter: Chapter): Promise<void> => {
   const user = auth.currentUser;
   if (!user) return; // Silent return if not logged in
-  if (!chapter.novelId) return;
   const path = `chapters/${chapter.id}`;
   try {
     const rawData = {
       ...chapter,
+      novelId: chapter.novelId || 'default',
       userId: user.uid,
       createdAt: Timestamp.now()
     };

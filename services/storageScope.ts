@@ -110,8 +110,25 @@ export function setScopedStorageItem(baseKey: string, value: string): void {
   try {
     const scopedKey = getScopedKey(baseKey);
     localStorage.setItem(scopedKey, value);
-  } catch (e) {
-    console.error(`Lỗi ghi scoped storage cho key: ${baseKey}`, e);
+  } catch (e: any) {
+    console.warn(`Lỗi ghi scoped storage cho key: ${baseKey}`, e);
+    // Nếu bộ nhớ localStorage bị đầy (QuotaExceededError):
+    if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
+      try {
+        // Xóa bớt các key nháp/lịch sử cũ để nhường chỗ cho phiên hiện tại
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.includes('History') || k.includes('history') || k.includes('draft'))) {
+            localStorage.removeItem(k);
+            break;
+          }
+        }
+        const scopedKey = getScopedKey(baseKey);
+        localStorage.setItem(scopedKey, value);
+        return;
+      } catch (_) {}
+    }
+    throw e;
   }
 }
 

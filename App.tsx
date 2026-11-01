@@ -230,8 +230,15 @@ function AppContent() {
       const savedSingle = getScopedStorageItem('app_single_session');
       if (savedSingle) {
           const parsed = JSON.parse(savedSingle);
-          // Force customTerms empty to load from DB instead (avoid localStorage quota)
-          return { ...createNewSession(), ...parsed, customTerms: [], result: sanitizeResult(parsed.result) };
+          const sanitizedRes = sanitizeResult(parsed.result);
+          const hasSegments = Boolean(sanitizedRes?.segments && sanitizedRes.segments.length > 0);
+          return { 
+            ...createNewSession(), 
+            ...parsed, 
+            status: hasSegments ? AppStatus.SUCCESS : (parsed.status || AppStatus.IDLE),
+            customTerms: [], 
+            result: sanitizedRes 
+          };
       }
       return createNewSession();
     } catch (e) {
@@ -538,6 +545,24 @@ function AppContent() {
     return chapters.filter(c => c.novelId === session.currentNovelId);
   }, [chapters, session.currentNovelId]);
 
+  const matchedDraft = useMemo(() => {
+    if (session.result?.segments && session.result.segments.length > 0) return null;
+    const inputTrim = session.inputText.trim();
+    if (!inputTrim) return null;
+
+    const matchedChapter = chapters.find(c => c.inputText && c.inputText.trim() === inputTrim && c.result?.segments && c.result.segments.length > 0);
+    if (matchedChapter) {
+      return { type: 'chapter' as const, name: matchedChapter.name, data: matchedChapter };
+    }
+
+    const matchedHistory = history.find(h => h.sourceText && h.sourceText.trim() === inputTrim && h.result?.segments && h.result.segments.length > 0);
+    if (matchedHistory) {
+      return { type: 'history' as const, name: new Date(matchedHistory.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), data: matchedHistory };
+    }
+
+    return null;
+  }, [session.inputText, session.result, chapters, history]);
+
   // --- EFFECTS ---
   // Khởi tạo Vietphrase Engine & Tự động phục hồi toàn diện Từ vựng từ IndexedDB và Cloud Firestore
   useEffect(() => {
@@ -562,6 +587,38 @@ function AppContent() {
     db.getAllChapters().then(savedChapters => {
       if (savedChapters) {
         setChapters(savedChapters);
+      }
+    });
+
+    // Tải phiên làm việc & lịch sử từ IndexedDB để phục hồi 100% dữ liệu không bao giờ bị cắt do QuotaExceededError
+    db.getActiveSession().then(savedDbSession => {
+      if (savedDbSession && savedDbSession.inputText) {
+        setSession(prev => {
+          const prevHasSegs = Boolean(prev.result?.segments && prev.result.segments.length > 0);
+          const dbHasSegs = Boolean(savedDbSession.result?.segments && savedDbSession.result.segments.length > 0);
+          if (dbHasSegs || (!prevHasSegs && savedDbSession.inputText)) {
+            const sanitized = sanitizeResult(savedDbSession.result);
+            return {
+              ...createNewSession(),
+              ...savedDbSession,
+              status: dbHasSegs ? AppStatus.SUCCESS : (savedDbSession.status || AppStatus.IDLE),
+              customTerms: prev.customTerms || [],
+              result: sanitized
+            };
+          }
+          return prev;
+        });
+      }
+    });
+
+    db.getHistory().then(savedDbHistory => {
+      if (savedDbHistory && Array.isArray(savedDbHistory) && savedDbHistory.length > 0) {
+        setHistory(prev => {
+          const combinedMap = new Map<string, HistoryItem>();
+          savedDbHistory.forEach(item => { if (item?.id) combinedMap.set(item.id, item); });
+          prev.forEach(item => { if (item?.id && !combinedMap.has(item.id)) combinedMap.set(item.id, item); });
+          return Array.from(combinedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        });
       }
     });
 
@@ -646,38 +703,44 @@ function AppContent() {
     };
   }, [session.currentNovelId]);
 
-  // Fix lỗi QuotaExceededError khi lưu Session
+  // Lưu Session song song vào IndexedDB (dung lượng cực lớn, không mất segments) & localStorage
   useEffect(() => {
+    const sessionToSave = { ...session, customTerms: [] };
+    
+    // 1. Luôn bảo lưu trọn vẹn 100% segments và nội dung vào IndexedDB
+    db.saveActiveSession(sessionToSave).catch(console.warn);
+
+    // 2. Đồng thời lưu vào localStorage
     try {
-        // Exclude customTerms from localStorage to save space
-        const sessionToSave = { ...session, customTerms: [] };
         setScopedStorageItem('app_single_session', JSON.stringify(sessionToSave));
     } catch (e) {
         if (session.result) {
             try {
-                // Thử lưu bản rút gọn (bỏ bớt segments nặng)
                 const leanResult = { ...session.result, segments: [] };
                 const leanSession = { ...session, customTerms: [], result: leanResult };
                 setScopedStorageItem('app_single_session', JSON.stringify(leanSession));
             } catch (innerE) {
                 try {
-                    // Thử lưu không có result để cứu inputText
                     const ultraLeanSession = { ...session, customTerms: [], result: null };
                     setScopedStorageItem('app_single_session', JSON.stringify(ultraLeanSession));
                 } catch (lastE) {
-                    console.warn("Storage Quota Exceeded for Session");
+                    console.warn("Storage Quota Exceeded for Session in LocalStorage");
                 }
             }
         }
     }
   }, [session]);
 
-  // Fix lỗi QuotaExceededError khi lưu History
+  // Lưu History song song vào IndexedDB & localStorage
   useEffect(() => {
+    if (history.length > 0) {
+      // 1. Luôn lưu trọn vẹn history vào IndexedDB
+      db.saveHistory(history).catch(console.warn);
+    }
+
     try {
         setScopedStorageItem('app_history', JSON.stringify(history));
     } catch (e) {
-        // Nếu bộ nhớ đầy, nén bớt history bằng cách lược bỏ segments của các bản ghi cũ
         try {
             const leanHistory = history.slice(0, 15).map((item, idx) => {
                 if (idx >= 2 && item.result) {
@@ -694,7 +757,6 @@ function AppContent() {
             setScopedStorageItem('app_history', JSON.stringify(leanHistory));
         } catch (innerE) {
             try {
-                // Nếu vẫn đầy, chỉ giữ 5 bản ghi và bỏ hết segments
                 const superLeanHistory = history.slice(0, 5).map(item => ({
                     ...item,
                     result: item.result ? {
@@ -704,11 +766,77 @@ function AppContent() {
                 }));
                 setScopedStorageItem('app_history', JSON.stringify(superLeanHistory));
             } catch (lastE) {
-                console.warn("Storage Quota Exceeded for History");
+                console.warn("Storage Quota Exceeded for History in LocalStorage");
             }
         }
     }
   }, [history]);
+
+  // TỰ ĐỘNG TẠO / CẬP NHẬT BẢN NHÁP TRONG KHO CHƯƠNG KHI CÓ KẾT QUẢ VÀ SỬA ĐỔI
+  useEffect(() => {
+    if (!session.result || !session.result.segments || session.result.segments.length === 0 || !session.inputText.trim()) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        let autoName = "";
+        if (session.currentChapterId) {
+          const existing = chapters.find(c => c.id === session.currentChapterId);
+          if (existing) autoName = existing.name;
+        }
+
+        if (!autoName) {
+          const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
+          for (const line of lines.slice(0, 5)) {
+            if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
+              const customMap = vietphraseEngine.getCustomMap();
+              autoName = vietphraseEngine.translate(line, customMap);
+              break;
+            }
+          }
+          if (!autoName && session.result.segments[0]?.natural) {
+            autoName = session.result.segments[0].natural.trim().slice(0, 40);
+          }
+          if (!autoName) autoName = "Chương nháp tự động";
+          if (!autoName.includes("[Lưu nháp]")) {
+            autoName = `[Lưu nháp] ${autoName}`;
+          }
+        }
+
+        const chapterId = session.currentChapterId || `auto_draft_${session.currentNovelId || 'default'}`;
+        const draftChapter: Chapter = {
+          id: chapterId,
+          novelId: session.currentNovelId,
+          name: autoName,
+          timestamp: Date.now(),
+          inputText: session.inputText,
+          deeplText: session.deeplText,
+          preEditedText: session.preEditedText,
+          result: session.result,
+          completedSegments: session.completedSegments || []
+        };
+
+        await db.saveChapter(draftChapter);
+        saveChapterToCloud(draftChapter).catch(console.warn);
+
+        setChapters(prev => {
+          const exists = prev.some(c => c.id === chapterId);
+          if (exists) {
+            return prev.map(c => c.id === chapterId ? draftChapter : c);
+          } else {
+            return [draftChapter, ...prev];
+          }
+        });
+
+        if (!session.currentChapterId) {
+          setSession(prev => ({ ...prev, currentChapterId: chapterId }));
+        }
+      } catch (err) {
+        console.warn("Auto save draft chapter failed:", err);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [session.inputText, session.result, session.completedSegments, session.currentNovelId]);
 
   // Reset undo/redo stacks when loading a new chapter or starting a new translation
   useEffect(() => {
@@ -1970,6 +2098,28 @@ function AppContent() {
                               </div>
                           )}
                       </div>
+
+                      {matchedDraft && (
+                          <div className="mx-2 my-1.5 p-2.5 bg-amber-50 border border-amber-300 rounded-lg flex items-center justify-between text-xs text-amber-950 shadow-2xs animate-in fade-in">
+                              <div className="flex items-center gap-2 min-w-0">
+                                  <BookOpen size={16} className="text-amber-700 shrink-0" />
+                                  <span className="truncate">Phát hiện bản dịch/nháp của chương này trong {matchedDraft.type === 'chapter' ? 'Kho chương' : 'Lịch sử'}: <strong>{matchedDraft.name}</strong></span>
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                      if (matchedDraft.type === 'chapter') {
+                                          handleRestoreChapter(matchedDraft.data as Chapter);
+                                      } else {
+                                          handleRestoreHistory(matchedDraft.data as HistoryItem);
+                                      }
+                                  }}
+                                  className="ml-2 px-3 py-1 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded text-xs shadow-2xs transition-colors shrink-0 cursor-pointer flex items-center gap-1.5"
+                              >
+                                  <RotateCcw size={13} /> Khôi phục ngay
+                              </button>
+                          </div>
+                      )}
 
                       <div className="flex justify-between items-center p-2 border-t border-[#EFEBE9] bg-[#FAFAFA]">
                           <div className="flex items-center gap-4">

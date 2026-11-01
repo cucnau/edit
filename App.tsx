@@ -452,8 +452,8 @@ function AppContent() {
       // 1. Lắng nghe active session realtime theo tài khoản người dùng
       unsubscribeSession = listenToActiveSession(deviceId, (cloudData) => {
         if (!cloudData) return;
-        // Kiểm tra xem dữ liệu từ thiết bị khác có mới hơn không
-        if (cloudData.updatedAt && cloudData.updatedAt > (lastLocalUpdateTimestampRef.current - 500)) {
+        // Bỏ qua nếu dữ liệu từ thiết bị khác không mới hơn thời điểm cập nhật cục bộ gần nhất
+        if (cloudData.updatedAt && cloudData.updatedAt > lastLocalUpdateTimestampRef.current) {
           lastLocalUpdateTimestampRef.current = cloudData.updatedAt;
           
           setSession(prev => {
@@ -496,25 +496,12 @@ function AppContent() {
         }
       });
 
-      // 2. Lắng nghe kho chương realtime
+      // 2. Lắng nghe kho chương realtime (chỉ cập nhật danh sách chương trong kho, không ghi đè lên phiên làm việc đang gõ)
       unsubscribeChapters = listenToChaptersRealtime(session.currentNovelId, (cloudChapters) => {
         setChapters(prev => {
           const other = prev.filter(c => c.novelId && c.novelId !== session.currentNovelId);
           return [...cloudChapters, ...other];
         });
-
-        // Nếu đang mở một chapter, cập nhật tiến độ nếu chapter đó vừa được sửa trên máy khác
-        const curChapId = sessionRef.current.currentChapterId;
-        if (curChapId) {
-          const matched = cloudChapters.find(c => c.id === curChapId);
-          if (matched && matched.timestamp && matched.timestamp > (lastLocalUpdateTimestampRef.current - 500)) {
-            setSession(prev => ({
-              ...prev,
-              completedSegments: matched.completedSegments || [],
-              result: sanitizeResult(matched.result) || prev.result
-            }));
-          }
-        }
       });
     };
 
@@ -924,6 +911,7 @@ function AppContent() {
   // --- ACTIONS ---
 
   const updateSession = (updates: Partial<TranslationSession>, syncToCloud = true) => {
+    lastLocalUpdateTimestampRef.current = Date.now();
     setSession(prev => ({ ...prev, ...updates }));
     if (syncToCloud) {
       debouncedPushSession(updates);

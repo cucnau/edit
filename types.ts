@@ -95,6 +95,7 @@ export interface Chapter {
   preEditedText?: string;
   result: TranslationResponse;
   completedSegments?: number[];
+  deletedAt?: number; // Mốc thời gian khi đưa vào thùng rác (xóa vĩnh viễn sau 30 ngày)
 }
 
 export enum AppStatus {

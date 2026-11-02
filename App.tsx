@@ -528,8 +528,16 @@ function AppContent() {
   // --- COMPUTED ---
   const segmentCount = session.inputText.trim() ? session.inputText.split(/\n/).length : 0;
 
+  const novelArchiveChapters = useMemo(() => {
+    return chapters.filter(c => !session.currentNovelId || c.novelId === session.currentNovelId || !c.novelId);
+  }, [chapters, session.currentNovelId]);
+
+  const activeNovelChaptersCount = useMemo(() => {
+    return novelArchiveChapters.filter(c => !c.deletedAt).length;
+  }, [novelArchiveChapters]);
+
   const currentNovelChapters = useMemo(() => {
-    return chapters.filter(c => c.novelId === session.currentNovelId);
+    return chapters.filter(c => !c.deletedAt && (!session.currentNovelId || c.novelId === session.currentNovelId || !c.novelId));
   }, [chapters, session.currentNovelId]);
 
   const matchedDraft = useMemo(() => {
@@ -537,7 +545,7 @@ function AppContent() {
     const inputTrim = session.inputText.trim();
     if (!inputTrim) return null;
 
-    const matchedChapter = chapters.find(c => c.inputText && c.inputText.trim() === inputTrim && c.result?.segments && c.result.segments.length > 0);
+    const matchedChapter = chapters.find(c => !c.deletedAt && c.inputText && c.inputText.trim() === inputTrim && c.result?.segments && c.result.segments.length > 0);
     if (matchedChapter) {
       return { type: 'chapter' as const, name: matchedChapter.name, data: matchedChapter };
     }
@@ -758,121 +766,6 @@ function AppContent() {
         }
     }
   }, [history]);
-
-  // TỰ ĐỘNG KHÔI PHỤC VÀ TỰ ĐỘNG TẠO LẠI CÁC CHƯƠNG MẤT TỪ LỊCH SỬ NẾU BỊ XUNG ĐỘT ID
-  useEffect(() => {
-    if (history.length > 0 && Array.isArray(history)) {
-      const missingChapters: Chapter[] = [];
-      history.forEach(histItem => {
-        if (!histItem.sourceText || !histItem.sourceText.trim() || !histItem.result?.segments || histItem.result.segments.length === 0) return;
-        
-        const cleanInput = histItem.sourceText.trim();
-        const exists = chapters.some(c => c.inputText && c.inputText.trim() === cleanInput);
-        if (!exists) {
-          let name = "";
-          const lines = cleanInput.split('\n').map(l => l.trim()).filter(Boolean);
-          for (const line of lines.slice(0, 5)) {
-            if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
-              name = vietphraseEngine.translate(line, vietphraseEngine.getCustomMap());
-              break;
-            }
-          }
-          if (!name && histItem.result.segments[0]?.natural) {
-            name = histItem.result.segments[0].natural.trim().slice(0, 40);
-          }
-          if (!name) {
-            name = `Chương khôi phục (${new Date(histItem.timestamp || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
-          }
-
-          const recoveredChap: Chapter = {
-            id: `rec_${histItem.id}_${Math.random().toString(36).substring(2, 6)}`,
-            novelId: session.currentNovelId,
-            name: name,
-            timestamp: histItem.timestamp || Date.now(),
-            inputText: histItem.sourceText,
-            deeplText: histItem.result.deeplTranslation || '',
-            preEditedText: histItem.result.naturalTranslation || '',
-            result: histItem.result,
-            completedSegments: histItem.completedSegments || []
-          };
-          missingChapters.push(recoveredChap);
-          db.saveChapter(recoveredChap).catch(console.warn);
-          saveChapterToCloud(recoveredChap).catch(console.warn);
-        }
-      });
-
-      if (missingChapters.length > 0) {
-        setChapters(prev => [...missingChapters, ...prev]);
-      }
-    }
-  }, [history]);
-
-  // TỰ ĐỘNG TẠO / CẬP NHẬT BẢN NHÁP TRONG KHO CHƯƠNG KHI CÓ KẾT QUẢ VÀ SỬA ĐỔI
-  useEffect(() => {
-    if (!session.result || !session.result.segments || session.result.segments.length === 0 || !session.inputText.trim()) return;
-
-    const timer = setTimeout(async () => {
-      try {
-        let autoName = "";
-        if (session.currentChapterId) {
-          const existing = chapters.find(c => c.id === session.currentChapterId);
-          if (existing) autoName = existing.name;
-        }
-
-        if (!autoName) {
-          const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
-          for (const line of lines.slice(0, 5)) {
-            if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
-              const customMap = vietphraseEngine.getCustomMap();
-              autoName = vietphraseEngine.translate(line, customMap);
-              break;
-            }
-          }
-          if (!autoName && session.result.segments[0]?.natural) {
-            autoName = session.result.segments[0].natural.trim().slice(0, 40);
-          }
-          if (!autoName) autoName = "Chương nháp tự động";
-          if (!autoName.includes("[Lưu nháp]")) {
-            autoName = `[Lưu nháp] ${autoName}`;
-          }
-        }
-
-        // Dùng ID duy nhất cho draft, tránh mọi xung đột đè ID lên chương khác
-        const chapterId = session.currentChapterId || `auto_draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-        const draftChapter: Chapter = {
-          id: chapterId,
-          novelId: session.currentNovelId,
-          name: autoName,
-          timestamp: Date.now(),
-          inputText: session.inputText,
-          deeplText: session.deeplText,
-          preEditedText: session.preEditedText,
-          result: session.result,
-          completedSegments: session.completedSegments || []
-        };
-
-        await db.saveChapter(draftChapter);
-        saveChapterToCloud(draftChapter).catch(console.warn);
-
-        setChapters(prev => {
-          const exists = prev.some(c => c.id === chapterId);
-          if (exists) {
-            return prev.map(c => c.id === chapterId ? draftChapter : c);
-          } else {
-            return [draftChapter, ...prev];
-          }
-        });
-
-        if (!session.currentChapterId) {
-          setSession(prev => ({ ...prev, currentChapterId: chapterId }));
-        }
-      } catch (err) {
-        console.warn("Auto save draft chapter failed:", err);
-      }
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, [session.inputText, session.result, session.completedSegments, session.currentNovelId]);
 
   // Reset undo/redo stacks when loading a new chapter or starting a new translation
   useEffect(() => {
@@ -1152,6 +1045,26 @@ function AppContent() {
     pushActiveSessionToCloud({ novelId: id });
   };
 
+  // Đồng bộ nhanh tiến độ sửa segment vào chương đang mở trong kho
+  const syncCurrentChapterProgress = (newResult: TranslationResponse, newCompleted?: number[]) => {
+    if (!session.currentChapterId) return;
+    const chapId = session.currentChapterId;
+    setChapters(prev => prev.map(c => {
+      if (c.id === chapId) {
+        const updated = {
+          ...c,
+          result: newResult,
+          completedSegments: newCompleted !== undefined ? newCompleted : session.completedSegments,
+          timestamp: Date.now()
+        };
+        db.saveChapter(updated).catch(console.warn);
+        saveChapterToCloud(updated).catch(console.warn);
+        return updated;
+      }
+      return c;
+    }));
+  };
+
   const handleUpdateSegment = (index: number, newNatural: string) => {
     if (!session.result) return;
 
@@ -1176,6 +1089,7 @@ function AppContent() {
     
     updateSession({ result: newResult });
     debouncedPushSession({ result: newResult });
+    syncCurrentChapterProgress(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1210,6 +1124,7 @@ function AppContent() {
 
     updateSession({ result: newResult });
     debouncedPushSession({ result: newResult });
+    syncCurrentChapterProgress(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1247,6 +1162,7 @@ function AppContent() {
 
     updateSession({ result: newResult, completedSegments: newCompleted });
     pushActiveSessionToCloud({ result: newResult, completedSegments: newCompleted });
+    syncCurrentChapterProgress(newResult, newCompleted);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1291,6 +1207,7 @@ function AppContent() {
     
     updateSession({ result: newResult });
     pushActiveSessionToCloud({ result: newResult });
+    syncCurrentChapterProgress(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1323,6 +1240,7 @@ function AppContent() {
     
     updateSession({ result: newResult });
     pushActiveSessionToCloud({ result: newResult });
+    syncCurrentChapterProgress(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1355,6 +1273,7 @@ function AppContent() {
     
     updateSession({ result: newResult });
     pushActiveSessionToCloud({ result: newResult });
+    syncCurrentChapterProgress(newResult);
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1375,6 +1294,9 @@ function AppContent() {
     updateSession({ completedSegments: newCompleted });
     // Đẩy đồng bộ thời gian thực tức thì sang Điện thoại / Laptop
     pushActiveSessionToCloud({ completedSegments: newCompleted });
+    if (session.result) {
+      syncCurrentChapterProgress(session.result, newCompleted);
+    }
 
     if (session.currentHistoryId) {
       setHistory(prev => prev.map(item => 
@@ -1385,66 +1307,80 @@ function AppContent() {
     }
   };
 
+  // Tự động dọn dẹp các chương trong thùng rác đã quá hạn 30 ngày
+  useEffect(() => {
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const expiredChapters = chapters.filter(c => c.deletedAt && (now - c.deletedAt > THIRTY_DAYS_MS));
+    if (expiredChapters.length > 0) {
+      expiredChapters.forEach(c => {
+        db.deleteChapter(c.id).catch(console.warn);
+        deleteChapterFromCloud(c.id).catch(console.warn);
+      });
+      setChapters(prev => prev.filter(c => !expiredChapters.some(e => e.id === c.id)));
+    }
+  }, [chapters]);
+
+  // Kiểm tra và tự động lưu kho khi người dùng quên lưu (trước khi phân tích mới hoặc xóa)
+  // Chỉ tự động lưu nếu trong kho CHƯA CÓ, còn nếu đã có thì cập nhật đúng chương đó
+  const autoSaveIfUnsaved = async (currentSession: TranslationSession) => {
+    if (!currentSession.result?.segments || currentSession.result.segments.length === 0) return;
+    const inputTrim = currentSession.inputText.trim();
+    if (!inputTrim) return;
+
+    // Kiểm tra xem trong kho đã có hay chưa (chỉ xét các chương chưa bị chuyển vào thùng rác)
+    const existingChapter = chapters.find(c => 
+      !c.deletedAt && (
+        (currentSession.currentChapterId && c.id === currentSession.currentChapterId) || 
+        (c.inputText && c.inputText.trim() === inputTrim)
+      )
+    );
+
+    if (existingChapter) {
+      // ĐÃ CÓ TRONG KHO: Cập nhật đúng chương đó, tuyệt đối KHÔNG tạo bản nháp hay bản sao trùng lặp!
+      const updatedChapter: Chapter = {
+        ...existingChapter,
+        result: currentSession.result,
+        completedSegments: currentSession.completedSegments || [],
+        preEditedText: currentSession.preEditedText || '',
+        deeplText: currentSession.deeplText || '',
+        timestamp: Date.now()
+      };
+      await db.saveChapter(updatedChapter);
+      await saveChapterToCloud(updatedChapter);
+      setChapters(prev => prev.map(c => c.id === existingChapter.id ? updatedChapter : c));
+    } else {
+      // CHƯA CÓ TRONG KHO: Người dùng quên lưu nên tự động lưu kho
+      const firstLine = inputTrim.split('\n')[0].trim();
+      const firstDeepl = (currentSession.deeplText || '').trim().split('\n')[0].trim();
+      let chapName = firstDeepl || firstLine;
+      if (chapName.length > 50) chapName = chapName.substring(0, 50) + '...';
+      if (!chapName) chapName = `Chương lưu ngày ${new Date().toLocaleDateString('vi-VN')}`;
+
+      const newChapId = `chap_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const newChapter: Chapter = {
+        id: newChapId,
+        novelId: currentSession.currentNovelId,
+        name: chapName,
+        timestamp: Date.now(),
+        inputText: currentSession.inputText,
+        deeplText: currentSession.deeplText,
+        preEditedText: currentSession.preEditedText,
+        result: currentSession.result,
+        completedSegments: currentSession.completedSegments || []
+      };
+
+      await db.saveChapter(newChapter);
+      await saveChapterToCloud(newChapter);
+      setChapters(prev => [newChapter, ...prev]);
+    }
+  };
+
   const handleClearSession = async () => {
     if (!session.inputText.trim()) return;
 
-    // --- TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU TRƯỚC KHI XÓA ---
-    if (session.result && session.inputText.trim()) {
-      const alreadySaved = chapters.some(c => c.inputText.trim() === session.inputText.trim());
-      if (!alreadySaved) {
-        let autoName = "";
-        const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
-        
-        for (const line of lines.slice(0, 5)) {
-          if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
-            const customMap = new Map<string, string>();
-            const currentId = session.currentNovelId;
-            (session.characters || []).filter(c => !currentId || c.novelId === currentId).forEach(c => {
-                if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
-            });
-            (session.customTerms || []).filter(t => !currentId || t.novelId === currentId).forEach(t => {
-                if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
-            });
-            autoName = vietphraseEngine.translate(line, customMap);
-            break;
-          }
-        }
-        
-        if (!autoName && session.result.segments && session.result.segments.length > 0) {
-          const firstEditLine = session.result.segments[0].natural.trim();
-          if (firstEditLine) {
-            autoName = firstEditLine.slice(0, 50);
-          }
-        }
-        
-        if (!autoName) {
-          autoName = `Chương tự động (${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
-        } else {
-          autoName = `[Tự động - Xóa] ${autoName}`;
-        }
-        
-        const autoChapter: Chapter = {
-          id: `auto_${Date.now()}`,
-          novelId: session.currentNovelId,
-          name: autoName,
-          timestamp: Date.now(),
-          inputText: session.inputText,
-          deeplText: session.deeplText,
-          preEditedText: session.preEditedText,
-          result: session.result,
-          completedSegments: session.completedSegments
-        };
-        
-        try {
-          await db.saveChapter(autoChapter);
-          await saveChapterToCloud(autoChapter);
-          setChapters(prev => [autoChapter, ...prev]);
-          console.log("Auto-saved draft on clear:", autoName);
-        } catch (e) {
-          console.error("Auto save on clear failed", e);
-        }
-      }
-    }
+    // Tự động bảo vệ dữ liệu nếu người dùng quên lưu
+    await autoSaveIfUnsaved(session);
 
     // Tiến hành xóa session
     updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
@@ -1525,63 +1461,10 @@ function AppContent() {
 
   const handleTranslate = async (forceFastAlign = false) => {
     if (!session.inputText.trim()) return;
-    
-    // --- BƯỚC TỰ ĐỘNG LƯU TRỮ CHƯƠNG ĐANG EDIT NẾU QUÊN CHƯA LƯU ---
-    if (session.result && session.inputText.trim()) {
-      const alreadySaved = chapters.some(c => c.inputText.trim() === session.inputText.trim());
-      if (!alreadySaved) {
-        let autoName = "";
-        const lines = session.inputText.split('\n').map(l => l.trim()).filter(Boolean);
-        
-        for (const line of lines.slice(0, 5)) {
-          if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
-            const customMap = new Map<string, string>();
-            const currentId = session.currentNovelId;
-            (session.characters || []).filter(c => !currentId || c.novelId === currentId).forEach(c => {
-                if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
-            });
-            (session.customTerms || []).filter(t => !currentId || t.novelId === currentId).forEach(t => {
-                if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
-            });
-            autoName = vietphraseEngine.translate(line, customMap);
-            break;
-          }
-        }
-        
-        if (!autoName && session.result.segments && session.result.segments.length > 0) {
-          const firstEditLine = session.result.segments[0].natural.trim();
-          if (firstEditLine) {
-            autoName = firstEditLine.slice(0, 50);
-          }
-        }
-        
-        if (!autoName) {
-          autoName = `Chương tự động (${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
-        } else {
-          autoName = `[Tự động] ${autoName}`;
-        }
-        
-        const autoChapter: Chapter = {
-          id: `auto_${Date.now()}`,
-          novelId: session.currentNovelId,
-          name: autoName,
-          timestamp: Date.now(),
-          inputText: session.inputText,
-          deeplText: session.deeplText,
-          preEditedText: session.preEditedText,
-          result: session.result,
-          completedSegments: session.completedSegments
-        };
-        
-        try {
-          await db.saveChapter(autoChapter);
-          await saveChapterToCloud(autoChapter);
-          setChapters(prev => [autoChapter, ...prev]);
-          console.log("Auto-saved previous chapter draft before new translation:", autoName);
-        } catch (e) {
-          console.error("Auto save failed", e);
-        }
-      }
+
+    // Trước khi phân tích văn bản mới, nếu phiên hiện tại có kết quả chưa lưu thì tự động bảo vệ vào kho
+    if (session.result?.segments && session.result.segments.length > 0) {
+      await autoSaveIfUnsaved(session);
     }
     
     // --- BƯỚC 1: TÍNH TOÁN VIETPHRASE (LÀM TRƯỚC HOẶC SONG SONG VỚI GỌI API) ---
@@ -1761,8 +1644,7 @@ function AppContent() {
     const cleanName = name.trim();
     if (!cleanName) return;
 
-    const currentNovelId = session.currentNovelId;
-    // Kiểm tra xem có chương nào khác cùng tên trong cùng bộ truyện không
+    // Kiểm tra xem có chương nào khác cùng tên trong cùng bộ truyện không (chỉ xét chương chưa bị xóa)
     const duplicate = currentNovelChapters.find(c => 
       c.name.trim().toLowerCase() === cleanName.toLowerCase() && 
       c.id !== session.currentChapterId
@@ -1773,17 +1655,12 @@ function AppContent() {
       return;
     }
 
-    const isDraft = session.currentChapterId?.startsWith('auto_draft_');
-    const oldDraftId = isDraft ? session.currentChapterId : null;
-    const chapterId = (session.currentChapterId && !isDraft) 
-      ? session.currentChapterId 
+    const existingChap = session.currentChapterId ? chapters.find(c => c.id === session.currentChapterId && !c.deletedAt) : null;
+    // BẢO VỆ CHƯƠNG KHÔNG BỊ GHI ĐÈ: Chỉ dùng lại ID khi tên trùng với chương đang mở
+    const isSameChapter = existingChap && existingChap.name.trim().toLowerCase() === cleanName.toLowerCase();
+    const chapterId = isSameChapter 
+      ? session.currentChapterId! 
       : `chap_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-
-    // Nếu chuyển từ bản nháp sang chương chính thức, dọn dẹp bản nháp cũ
-    if (oldDraftId) {
-      db.deleteChapter(oldDraftId).catch(console.warn);
-      deleteChapterFromCloud(oldDraftId).catch(console.warn);
-    }
 
     const newChapter: Chapter = {
       id: chapterId,
@@ -1799,7 +1676,7 @@ function AppContent() {
 
     await db.saveChapter(newChapter);
     await saveChapterToCloud(newChapter);
-    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.id !== oldDraftId)]);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId)]);
     updateSession({ currentChapterId: chapterId });
     pushActiveSessionToCloud({ currentChapterId: chapterId });
   };
@@ -1830,10 +1707,50 @@ function AppContent() {
     setShowChapters(false);
   };
 
-  const handleDeleteChapter = async (id: string) => {
+  // 1. Chuyển chương vào Thùng rác (hạn 30 ngày)
+  const handleMoveToTrash = async (id: string) => {
+    const chapter = chapters.find(c => c.id === id);
+    if (!chapter) return;
+    const updated: Chapter = { ...chapter, deletedAt: Date.now() };
+    await db.saveChapter(updated);
+    await saveChapterToCloud(updated);
+    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+    if (session.currentChapterId === id) {
+      updateSession({ currentChapterId: undefined });
+    }
+  };
+
+  // 2. Khôi phục chương từ Thùng rác về kho lưu trữ
+  const handleRestoreFromTrash = async (id: string) => {
+    const chapter = chapters.find(c => c.id === id);
+    if (!chapter) return;
+    const { deletedAt, ...rest } = chapter;
+    const updated: Chapter = { ...rest, timestamp: Date.now() };
+    await db.saveChapter(updated);
+    await saveChapterToCloud(updated);
+    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+  };
+
+  // 3. Xóa vĩnh viễn 1 chương khỏi Thùng rác
+  const handlePermanentDeleteChapter = async (id: string) => {
     await db.deleteChapter(id);
     await deleteChapterFromCloud(id);
     setChapters(prev => prev.filter(c => c.id !== id));
+    if (session.currentChapterId === id) {
+      updateSession({ currentChapterId: undefined });
+    }
+  };
+
+  // 4. Dọn sạch toàn bộ Thùng rác
+  const handleEmptyTrash = async () => {
+    const trashItems = novelArchiveChapters.filter(c => !!c.deletedAt);
+    if (trashItems.length === 0) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn dọn sạch vĩnh viễn ${trashItems.length} chương trong thùng rác? Thao tác này không thể hoàn tác.`)) return;
+    for (const c of trashItems) {
+      await db.deleteChapter(c.id).catch(console.warn);
+      await deleteChapterFromCloud(c.id).catch(console.warn);
+    }
+    setChapters(prev => prev.filter(c => !trashItems.some(t => t.id === c.id)));
   };
 
   const handleRenameChapter = async (id: string, newName: string) => {
@@ -1845,12 +1762,24 @@ function AppContent() {
     setChapters(prev => prev.map(c => c.id === id ? updated : c));
   };
 
+  // Chuyển toàn bộ chương đang hoạt động vào thùng rác (an toàn hơn là xóa hẳn)
   const handleClearAllChapters = async () => {
-    await db.clearAllChapters();
-    if (session.currentNovelId) {
-      await clearNovelChaptersFromCloud(session.currentNovelId);
+    const activeItems = novelArchiveChapters.filter(c => !c.deletedAt);
+    if (activeItems.length === 0) return;
+    if (!window.confirm(`Chuyển tất cả ${activeItems.length} chương vào thùng rác? Bạn có thể khôi phục bất cứ lúc nào trong 30 ngày.`)) return;
+    const now = Date.now();
+    const toTrash = activeItems.map(c => ({ ...c, deletedAt: now }));
+    for (const c of toTrash) {
+      await db.saveChapter(c);
+      await saveChapterToCloud(c);
     }
-    setChapters([]);
+    setChapters(prev => prev.map(c => {
+      const found = toTrash.find(t => t.id === c.id);
+      return found || c;
+    }));
+    if (session.currentChapterId) {
+      updateSession({ currentChapterId: undefined });
+    }
   };
 
   const handleExportExcel = async () => {
@@ -1963,7 +1892,7 @@ function AppContent() {
             <button onClick={() => setShowChapters(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#FFECB3] hover:text-white hover:bg-[#5D4037] bg-[#5D4037]/30 h-8 px-2 sm:px-2.5 rounded-full border border-[#FFECB3]/20 transition-colors shrink-0">
                <FolderOpen size={12} />
                <span className="hidden sm:inline">Kho chương</span>
-               <span className="font-mono text-[9px] font-bold">({currentNovelChapters.length})</span>
+               <span className="font-mono text-[9px] font-bold">({activeNovelChaptersCount})</span>
             </button>
             <button onClick={() => setShowHistory(true)} className="flex items-center justify-center gap-1 text-[10px] font-medium text-[#D7CCC8] hover:text-white hover:bg-[#5D4037] h-8 px-2 sm:px-2.5 rounded-full border border-[#5D4037] transition-colors shrink-0">
                <History size={12} />
@@ -2315,12 +2244,15 @@ function AppContent() {
       <ChapterArchiveModal 
         isOpen={showChapters} 
         onClose={() => setShowChapters(false)} 
-        chapters={currentNovelChapters} 
+        chapters={novelArchiveChapters} 
         customTerms={(session.customTerms || []).filter(t => !session.currentNovelId || t.novelId === session.currentNovelId)} 
         onSelectChapter={handleRestoreChapter} 
-        onDeleteChapter={handleDeleteChapter} 
+        onMoveToTrash={handleMoveToTrash}
+        onRestoreFromTrash={handleRestoreFromTrash}
+        onPermanentDeleteChapter={handlePermanentDeleteChapter}
         onRenameChapter={handleRenameChapter} 
         onClearAll={handleClearAllChapters} 
+        onEmptyTrash={handleEmptyTrash}
       />
 
       <ShortcutModal 

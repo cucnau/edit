@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Chapter, CustomTerm } from '../types';
-import { X, Search, BookOpen, Trash2, RotateCcw, Calendar, CheckSquare, Square, FolderDown, Edit2, Check, AlertCircle } from 'lucide-react';
+import { X, Search, BookOpen, Trash2, RotateCcw, Calendar, CheckSquare, Square, FolderDown, Edit2, Check, AlertCircle, Clock, Archive } from 'lucide-react';
 import { vietphraseEngine } from '../services/vietphraseService';
 import JSZip from 'jszip';
 
@@ -10,9 +10,12 @@ interface ChapterArchiveModalProps {
   chapters: Chapter[];
   customTerms: CustomTerm[];
   onSelectChapter: (chapter: Chapter) => void;
-  onDeleteChapter: (id: string) => void;
+  onMoveToTrash: (id: string) => void;
+  onRestoreFromTrash: (id: string) => void;
+  onPermanentDeleteChapter: (id: string) => void;
   onRenameChapter: (id: string, newName: string) => void;
   onClearAll: () => void;
+  onEmptyTrash: () => void;
 }
 
 export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
@@ -21,10 +24,14 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
   chapters,
   customTerms,
   onSelectChapter,
-  onDeleteChapter,
+  onMoveToTrash,
+  onRestoreFromTrash,
+  onPermanentDeleteChapter,
   onRenameChapter,
-  onClearAll
+  onClearAll,
+  onEmptyTrash
 }) => {
+  const [activeTab, setActiveTab] = useState<'active' | 'trash'>('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -35,27 +42,38 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
   const [optExportParallel, setOptExportParallel] = useState(false);
   const [optExportEdit, setOptExportEdit] = useState(false);
 
-  // Initialize selected IDs to all chapters when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedIds(new Set(chapters.map(c => c.id)));
-    }
-  }, [isOpen, chapters.length]);
+  // Tách biệt chương hoạt động và chương trong thùng rác
+  const activeChapters = useMemo(() => {
+    return (chapters || []).filter(c => !c.deletedAt);
+  }, [chapters]);
 
-  // Filtered Chapters
+  const trashChapters = useMemo(() => {
+    return (chapters || []).filter(c => !!c.deletedAt);
+  }, [chapters]);
+
+  // Khởi tạo chọn tất cả theo tab hoạt động
+  useEffect(() => {
+    if (isOpen && activeTab === 'active') {
+      setSelectedIds(new Set(activeChapters.map(c => c.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  }, [isOpen, activeTab, activeChapters.length]);
+
+  // Lọc theo tìm kiếm và tab hiện tại
   const filteredChapters = useMemo(() => {
-    if (!chapters || !Array.isArray(chapters)) return [];
-    return chapters.filter(c => {
+    const list = activeTab === 'active' ? activeChapters : trashChapters;
+    return list.filter(c => {
       const name = (c.name || '').toLowerCase();
       const source = (c.inputText || '').toLowerCase();
       const natural = (c.result?.naturalTranslation || '').toLowerCase();
       return name.includes(searchTerm.toLowerCase()) || 
              source.includes(searchTerm.toLowerCase()) || 
              natural.includes(searchTerm.toLowerCase());
-    }).sort((a, b) => b.timestamp - a.timestamp);
-  }, [chapters, searchTerm]);
+    }).sort((a, b) => (b.deletedAt || b.timestamp) - (a.deletedAt || a.timestamp));
+  }, [activeTab, activeChapters, trashChapters, searchTerm]);
 
-  // Toggle Single Selection
+  // Toggle chọn 1 chương
   const toggleSelect = (id: string) => {
     const next = new Set(selectedIds);
     if (next.has(id)) {
@@ -66,10 +84,10 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
     setSelectedIds(next);
   };
 
-  // Toggle All Visible
+  // Toggle chọn tất cả
   const toggleSelectAll = () => {
     const visibleIds = filteredChapters.map(c => c.id);
-    const allSelected = visibleIds.every(id => selectedIds.has(id));
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
     
     const next = new Set(selectedIds);
     if (allSelected) {
@@ -80,7 +98,7 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
     setSelectedIds(next);
   };
 
-  // Handle Edit Name Click
+  // Sửa tên
   const startEditing = (c: Chapter) => {
     setEditingId(c.id);
     setEditingName(c.name);
@@ -95,14 +113,14 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
   };
 
   const handleExportZipClick = () => {
-    const selectedChapters = chapters.filter(c => selectedIds.has(c.id));
+    const selectedChapters = activeChapters.filter(c => selectedIds.has(c.id));
     if (selectedChapters.length === 0) return;
     setShowZipOptions(true);
   };
 
-  // Export Selected to ZIP
+  // Xuất file ZIP
   const performExportZip = async () => {
-    const selectedChapters = chapters.filter(c => selectedIds.has(c.id));
+    const selectedChapters = activeChapters.filter(c => selectedIds.has(c.id));
     if (selectedChapters.length === 0) return;
 
     if (!optExportTable && !optExportParallel && !optExportEdit) {
@@ -116,7 +134,6 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
     try {
       const zip = new JSZip();
 
-      // Optimize custom terms map
       const customMap = new Map<string, string>();
       customTerms.forEach(t => {
         if (t.term && t.meaning) {
@@ -132,7 +149,7 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
           fileWithExt += '.doc';
         }
 
-        // Option 1: Table view
+        // 1. Dạng bảng
         if (optExportTable) {
           let tableRowsHtml = "";
           chapter.result.segments.forEach(seg => {
@@ -186,7 +203,7 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
           zip.file(`Bản đối chiếu dạng bảng/${fileWithExt}`, content);
         }
 
-        // Option 2: Edit & Raw
+        // 2. Song ngữ
         if (optExportParallel) {
           const parallelHtmlContent = `
             <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -212,7 +229,7 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
           zip.file(`Song ngữ (Edit & Raw)/${fileWithExt}`, '\ufeff' + parallelHtmlContent);
         }
 
-        // Option 3: Only Edit
+        // 3. Chỉ Edit
         if (optExportEdit) {
           const editHtmlContent = `
             <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -264,94 +281,150 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
       <div className="bg-[#FFFDF7] rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh] border border-[#D7CCC8]">
         
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[#D7CCC8] flex justify-between items-center bg-[#EFE5D9]">
-          <div className="flex items-center gap-2 text-[#3E2723]">
-            <BookOpen size={20} className="text-[#5D4037]" />
-            <h2 className="text-lg font-bold">Kho Lưu Trữ Chương</h2>
+        <div className="px-6 py-3.5 border-b border-[#D7CCC8] flex justify-between items-center bg-[#EFE5D9]">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-[#3E2723]">
+              <Archive size={20} className="text-[#5D4037]" />
+              <h2 className="text-base font-bold">Quản Lý Kho Chương</h2>
+            </div>
+
+            {/* Tab chuyển đổi giữa Kho chương và Thùng rác */}
+            <div className="flex bg-[#D7CCC8]/60 p-0.5 rounded-lg border border-[#BCAAA4]/40">
+              <button
+                onClick={() => { setActiveTab('active'); setSearchTerm(''); }}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'active' 
+                    ? 'bg-[#5D4037] text-white shadow-xs' 
+                    : 'text-[#5D4037] hover:bg-[#D7CCC8]/60'
+                }`}
+              >
+                <BookOpen size={13} />
+                <span>Kho lưu trữ ({activeChapters.length})</span>
+              </button>
+              <button
+                onClick={() => { setActiveTab('trash'); setSearchTerm(''); }}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'trash' 
+                    ? 'bg-amber-900 text-white shadow-xs' 
+                    : 'text-[#5D4037] hover:bg-[#D7CCC8]/60'
+                }`}
+              >
+                <Trash2 size={13} />
+                <span>Thùng rác ({trashChapters.length})</span>
+              </button>
+            </div>
           </div>
+
           <button 
             onClick={onClose}
-            className="text-[#A1887F] hover:text-[#3E2723] hover:bg-[#D7CCC8] p-1.5 rounded-full transition-colors"
+            className="text-[#A1887F] hover:text-[#3E2723] hover:bg-[#D7CCC8] p-1.5 rounded-full transition-colors cursor-pointer"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Toolbar */}
-        <div className="p-4 border-b border-[#D7CCC8] bg-white flex flex-col sm:flex-row gap-3 items-center justify-between">
+        <div className="p-3.5 border-b border-[#D7CCC8] bg-white flex flex-col sm:flex-row gap-3 items-center justify-between">
           <div className="relative w-full sm:max-w-xs">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A1887F]" />
             <input 
               type="text" 
-              placeholder="Tìm chương..." 
+              placeholder={activeTab === 'active' ? "Tìm trong kho lưu trữ..." : "Tìm trong thùng rác..."} 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 text-xs bg-[#EFE5D9]/50 border border-[#D7CCC8] rounded focus:ring-1 focus:ring-[#8D6E63] outline-none transition-all text-[#3E2723] placeholder:text-[#BCAAA4]"
             />
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-            <button
-              onClick={toggleSelectAll}
-              className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037] hover:text-[#3E2723] bg-[#EFEBE9]/40 border border-[#D7CCC8] px-3 py-1.5 rounded transition-all"
-            >
-              {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
-              <span>Chọn tất cả ({selectedIds.size}/{chapters.length})</span>
-            </button>
-            
-            <button
-              onClick={handleExportZipClick}
-              disabled={selectedIds.size === 0 || isExporting}
-              className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded transition-all shadow-sm ${
-                selectedIds.size > 0 && !isExporting
-                  ? 'bg-[#5D4037] text-white hover:bg-[#3E2723] cursor-pointer'
-                  : 'bg-[#EFEBE9] text-[#BCAAA4] border border-[#D7CCC8] cursor-not-allowed'
-              }`}
-            >
-              <FolderDown size={14} />
-              <span>{isExporting ? 'Đang tạo ZIP...' : `Tải ZIP (${selectedIds.size} file)`}</span>
-            </button>
-          </div>
+          {activeTab === 'active' ? (
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#5D4037] hover:text-[#3E2723] bg-[#EFEBE9]/40 border border-[#D7CCC8] px-3 py-1.5 rounded transition-all cursor-pointer"
+              >
+                {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                <span>Chọn tất cả ({selectedIds.size}/{activeChapters.length})</span>
+              </button>
+              
+              <button
+                onClick={handleExportZipClick}
+                disabled={selectedIds.size === 0 || isExporting}
+                className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded transition-all shadow-sm ${
+                  selectedIds.size > 0 && !isExporting
+                    ? 'bg-[#5D4037] text-white hover:bg-[#3E2723] cursor-pointer'
+                    : 'bg-[#EFEBE9] text-[#BCAAA4] border border-[#D7CCC8] cursor-not-allowed'
+                }`}
+              >
+                <FolderDown size={14} />
+                <span>{isExporting ? 'Đang tạo ZIP...' : `Tải ZIP (${selectedIds.size} file)`}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <span className="text-[11px] text-[#8D6E63] italic">
+                Tự động xóa vĩnh viễn sau 30 ngày
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Info Tip */}
-        <div className="bg-[#FFF8E1] px-6 py-2 border-b border-[#FFE082] flex items-center gap-2 text-xs text-[#795548]">
-          <AlertCircle size={14} className="text-[#FFB300]" />
-          <span>Lưu trữ cục bộ không giới hạn dung lượng trên máy tính của bạn. Hãy tích lũy nhiều chương rồi bấm <strong>Tải ZIP</strong> để lấy toàn bộ folder file Word đối chiếu sạch đẹp!</span>
-        </div>
+        {activeTab === 'active' ? (
+          <div className="bg-[#FFF8E1] px-6 py-2 border-b border-[#FFE082] flex items-center gap-2 text-xs text-[#795548]">
+            <AlertCircle size={14} className="text-[#FFB300] shrink-0" />
+            <span>Lưu trữ vĩnh viễn trên máy và Cloud. Khi xóa, chương sẽ được chuyển vào <strong>Thùng rác</strong> trong 30 ngày để bạn có thể khôi phục bất cứ lúc nào.</span>
+          </div>
+        ) : (
+          <div className="bg-amber-50 px-6 py-2 border-b border-amber-200 flex items-center gap-2 text-xs text-amber-900">
+            <Clock size={14} className="text-amber-700 shrink-0" />
+            <span>Các chương trong thùng rác sẽ được lưu giữ tối đa <strong>30 ngày</strong>. Bạn có thể bấm "Khôi phục" để đưa chương trở lại kho lưu trữ.</span>
+          </div>
+        )}
 
         {/* Chapter List */}
         <div className="flex-1 overflow-y-auto p-4 bg-[#F5E6D3]/50 space-y-2">
           {filteredChapters.length === 0 ? (
             <div className="text-center py-16 text-[#BCAAA4] italic text-xs">
-              {searchTerm ? 'Không tìm thấy chương nào phù hợp.' : 'Kho chương trống. Hãy lưu chương từ phần kết quả dịch!'}
+              {activeTab === 'active' 
+                ? (searchTerm ? 'Không tìm thấy chương nào phù hợp.' : 'Kho chương trống. Hãy lưu chương từ phần kết quả dịch!')
+                : (searchTerm ? 'Không có chương phù hợp trong thùng rác.' : 'Thùng rác đang trống.')
+              }
             </div>
           ) : (
             filteredChapters.map(c => {
               const isSelected = selectedIds.has(c.id);
               const isEditing = editingId === c.id;
 
+              // Tính số ngày còn lại trong thùng rác
+              const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+              const elapsed = Date.now() - (c.deletedAt || Date.now());
+              const daysLeft = Math.max(0, Math.ceil((THIRTY_DAYS_MS - elapsed) / (24 * 60 * 60 * 1000)));
+
               return (
                 <div 
                   key={c.id} 
                   className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                    isSelected 
-                      ? 'bg-white border-[#8D6E63] shadow-md ring-1 ring-[#8D6E63]/20' 
-                      : 'bg-white border-[#D7CCC8] hover:border-[#8D6E63]/60 hover:shadow-sm'
+                    activeTab === 'trash'
+                      ? 'bg-amber-50/60 border-amber-200 hover:border-amber-400'
+                      : isSelected 
+                        ? 'bg-white border-[#8D6E63] shadow-md ring-1 ring-[#8D6E63]/20' 
+                        : 'bg-white border-[#D7CCC8] hover:border-[#8D6E63]/60 hover:shadow-sm'
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0 pr-4">
-                    {/* Checkbox */}
-                    <button 
-                      onClick={() => toggleSelect(c.id)}
-                      className="text-[#5D4037] hover:scale-105 transition-transform shrink-0"
-                    >
-                      {isSelected ? <CheckSquare size={18} /> : <Square size={18} className="text-[#BCAAA4]" />}
-                    </button>
+                    {/* Checkbox (Chỉ hiện trong tab Kho lưu trữ) */}
+                    {activeTab === 'active' && (
+                      <button 
+                        onClick={() => toggleSelect(c.id)}
+                        className="text-[#5D4037] hover:scale-105 transition-transform shrink-0 cursor-pointer"
+                      >
+                        {isSelected ? <CheckSquare size={18} /> : <Square size={18} className="text-[#BCAAA4]" />}
+                      </button>
+                    )}
 
                     {/* Content info */}
                     <div className="flex-1 min-w-0">
-                      {isEditing ? (
+                      {isEditing && activeTab === 'active' ? (
                         <div className="flex items-center gap-1.5">
                           <input 
                             type="text"
@@ -366,28 +439,45 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
                           />
                           <button 
                             onClick={() => saveNameEdit(c.id)}
-                            className="bg-[#5D4037] text-white p-1 rounded hover:bg-[#3E2723] transition-colors"
+                            className="bg-[#5D4037] text-white p-1 rounded hover:bg-[#3E2723] transition-colors cursor-pointer"
                           >
                             <Check size={12} />
                           </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-[#3E2723] truncate">{c.name}</span>
-                          <button 
-                            onClick={() => startEditing(c)}
-                            className="text-[#A1887F] hover:text-[#3E2723] transition-colors p-0.5"
-                            title="Sửa tên chương"
-                          >
-                            <Edit2 size={11} />
-                          </button>
+                          <span className={`font-bold text-xs truncate ${activeTab === 'trash' ? 'text-[#5D4037]' : 'text-[#3E2723]'}`}>
+                            {c.name}
+                          </span>
+                          {activeTab === 'active' && (
+                            <button 
+                              onClick={() => startEditing(c)}
+                              className="text-[#A1887F] hover:text-[#3E2723] transition-colors p-0.5 cursor-pointer"
+                              title="Sửa tên chương"
+                            >
+                              <Edit2 size={11} />
+                            </button>
+                          )}
+                          {activeTab === 'trash' && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full border ${
+                              daysLeft <= 3 
+                                ? 'bg-red-100 text-red-800 border-red-300 animate-pulse' 
+                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                            }`}>
+                              Còn {daysLeft} ngày
+                            </span>
+                          )}
                         </div>
                       )}
                       
                       <div className="flex items-center gap-3 mt-1 text-[10px] text-[#A1887F]">
                         <span className="flex items-center gap-1">
                           <Calendar size={10} />
-                          {new Date(c.timestamp).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                          {activeTab === 'trash' && c.deletedAt ? (
+                            <span>Đã xóa: {new Date(c.deletedAt).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                          ) : (
+                            <span>Lưu lúc: {new Date(c.timestamp).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                          )}
                         </span>
                         <span>•</span>
                         <span>{c.result?.segments?.length || 0} đoạn edit</span>
@@ -405,30 +495,58 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
 
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Bạn có chắc chắn muốn khôi phục và tiếp tục sửa "${c.name}"? Bản nháp hiện tại của bạn sẽ bị ghi đè.`)) {
-                          onSelectChapter(c);
-                        }
-                      }}
-                      className="flex items-center gap-1 text-[10px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-[#EFEBE9] hover:bg-[#D7CCC8] px-2.5 py-1 rounded transition-colors"
-                      title="Nạp vào editor để edit tiếp"
-                    >
-                      <RotateCcw size={11} />
-                      <span>Sửa tiếp</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Bạn muốn xóa "${c.name}" khỏi kho lưu trữ?`)) {
-                          onDeleteChapter(c.id);
-                        }
-                      }}
-                      className="text-[#A1887F] hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
-                      title="Xóa chương"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {activeTab === 'active' ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Bạn có chắc chắn muốn nạp và tiếp tục sửa "${c.name}"? Bản nháp hiện tại của bạn sẽ được thay thế bằng chương này.`)) {
+                              onSelectChapter(c);
+                            }
+                          }}
+                          className="flex items-center gap-1 text-[10px] font-bold text-[#5D4037] hover:text-[#3E2723] bg-[#EFEBE9] hover:bg-[#D7CCC8] px-2.5 py-1 rounded transition-colors cursor-pointer"
+                          title="Nạp vào editor để edit tiếp"
+                        >
+                          <RotateCcw size={11} />
+                          <span>Sửa tiếp</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Chuyển chương "${c.name}" vào thùng rác? (Bạn có thể khôi phục lại bất cứ lúc nào trong vòng 30 ngày)`)) {
+                              onMoveToTrash(c.id);
+                            }
+                          }}
+                          className="text-[#A1887F] hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                          title="Chuyển vào thùng rác"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => onRestoreFromTrash(c.id)}
+                          className="flex items-center gap-1 text-[10px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-100/70 hover:bg-emerald-200 px-2.5 py-1 rounded border border-emerald-300 transition-colors cursor-pointer"
+                          title="Khôi phục lại vào Kho lưu trữ"
+                        >
+                          <RotateCcw size={11} />
+                          <span>Khôi phục</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`CẢNH BÁO: Xóa vĩnh viễn chương "${c.name}"? Hành động này sẽ không thể khôi phục lại được nữa!`)) {
+                              onPermanentDeleteChapter(c.id);
+                            }
+                          }}
+                          className="flex items-center gap-1 text-[10px] font-bold text-red-700 hover:text-red-900 bg-red-100/70 hover:bg-red-200 px-2 py-1 rounded border border-red-200 transition-colors cursor-pointer"
+                          title="Xóa vĩnh viễn ngay lập tức"
+                        >
+                          <Trash2 size={11} />
+                          <span>Xóa vĩnh viễn</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -437,21 +555,41 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
         </div>
 
         {/* Footer */}
-        {chapters.length > 0 && (
-          <div className="p-4 border-t border-[#D7CCC8] bg-white flex justify-between items-center">
-            <span className="text-xs text-[#A1887F] font-bold">Tổng cộng: {chapters.length} chương lưu trữ</span>
-            <button 
-              onClick={() => {
-                if (window.confirm("CẢNH BÁO: Hành động này sẽ XÓA TOÀN BỘ chương lưu trữ trong kho! Bạn có chắc chắn muốn tiếp tục không?")) {
-                  onClearAll();
-                }
-              }}
-              className="text-[#D32F2F] text-[10px] font-bold hover:bg-red-50 px-2.5 py-1 rounded transition-colors flex items-center gap-1 border border-transparent"
-            >
-              <Trash2 size={12} /> Xóa sạch kho chương
-            </button>
-          </div>
-        )}
+        <div className="p-3.5 border-t border-[#D7CCC8] bg-white flex justify-between items-center">
+          {activeTab === 'active' ? (
+            <>
+              <span className="text-xs text-[#A1887F] font-bold">Tổng cộng: {activeChapters.length} chương lưu trữ</span>
+              {activeChapters.length > 0 && (
+                <button 
+                  onClick={() => {
+                    if (window.confirm("Chuyển TOÀN BỘ chương trong kho vào Thùng rác? (Bạn vẫn có 30 ngày để khôi phục)")) {
+                      onClearAll();
+                    }
+                  }}
+                  className="text-amber-800 text-[10px] font-bold hover:bg-amber-50 px-2.5 py-1 rounded transition-colors flex items-center gap-1 border border-amber-300 cursor-pointer"
+                >
+                  <Trash2 size={12} /> Chuyển tất cả vào thùng rác
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="text-xs text-[#8D6E63] font-bold">Thùng rác: {trashChapters.length} chương</span>
+              {trashChapters.length > 0 && (
+                <button 
+                  onClick={() => {
+                    if (window.confirm("CẢNH BÁO NGUY HIỂM: Bạn có chắc chắn muốn DỌN SẠCH THÙNG RÁC? Toàn bộ chương trong thùng rác sẽ bị XÓA VĨNH VIỄN không thể khôi phục!")) {
+                      onEmptyTrash();
+                    }
+                  }}
+                  className="text-red-600 hover:text-white hover:bg-red-600 text-[10px] font-bold bg-red-50 px-2.5 py-1 rounded transition-colors flex items-center gap-1 border border-red-300 cursor-pointer"
+                >
+                  <Trash2 size={12} /> Dọn sạch thùng rác
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {showZipOptions && (
@@ -462,95 +600,63 @@ export const ChapterArchiveModal: React.FC<ChapterArchiveModalProps> = ({
                 <FolderDown size={16} className="text-[#5D4037]" />
                 <span>Cấu hình tải bộ chương ZIP</span>
               </div>
-              <button onClick={() => setShowZipOptions(false)} className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full transition-colors">
+              <button onClick={() => setShowZipOptions(false)} className="text-[#A1887F] hover:text-[#3E2723] p-1 rounded-full transition-colors cursor-pointer">
                 <X size={16} />
               </button>
             </div>
             
             <div className="p-5 space-y-4">
               <p className="text-xs text-[#5D4037] font-medium leading-relaxed">
-                Hệ thống sẽ tạo một file nén <strong>.zip</strong> chứa các thư mục tương ứng với định dạng bạn chọn. Mỗi thư mục sẽ có các chương được lưu dưới dạng file Word (.doc).
+                Hệ thống sẽ nén <strong>{selectedIds.size} chương đã chọn</strong> thành một file ZIP duy nhất. Bạn muốn lấy các định dạng tài liệu Word nào?
               </p>
-              
-              <div className="space-y-3 bg-white p-3.5 rounded-lg border border-[#D7CCC8]">
-                {/* Option 1: Table view */}
-                <label className="flex items-start gap-3 cursor-pointer select-none group">
-                  <input
-                    type="checkbox"
+
+              <div className="space-y-2.5 bg-white p-3.5 rounded-lg border border-[#D7CCC8]">
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-[#3E2723]">
+                  <input 
+                    type="checkbox" 
                     checked={optExportTable}
                     onChange={(e) => setOptExportTable(e.target.checked)}
-                    className="mt-0.5 rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8]"
+                    className="w-4 h-4 rounded text-[#5D4037] focus:ring-[#8D6E63] cursor-pointer" 
                   />
-                  <div>
-                    <span className="text-xs font-bold text-[#3E2723] group-hover:text-[#5D4037] transition-colors">
-                      Thư mục: Bản đối chiếu dạng bảng
-                    </span>
-                    <p className="text-[10px] text-[#A1887F]">
-                      Chứa file bảng đối chiếu 4 cột (Raw - Vietphrase - Google/DeepL - Edit).
-                    </p>
-                  </div>
+                  <span>1. Bản đối chiếu 4 cột (Raw - Vietphrase - DeepL - Edit)</span>
                 </label>
 
-                {/* Option 2: Edit & Raw */}
-                <label className="flex items-start gap-3 cursor-pointer select-none group pt-2 border-t border-[#F5E6D3]">
-                  <input
-                    type="checkbox"
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-[#3E2723]">
+                  <input 
+                    type="checkbox" 
                     checked={optExportParallel}
                     onChange={(e) => setOptExportParallel(e.target.checked)}
-                    className="mt-0.5 rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8]"
+                    className="w-4 h-4 rounded text-[#5D4037] focus:ring-[#8D6E63] cursor-pointer" 
                   />
-                  <div>
-                    <span className="text-xs font-bold text-[#3E2723] group-hover:text-[#5D4037] transition-colors">
-                      Thư mục: Song ngữ (Edit & Raw)
-                    </span>
-                    <p className="text-[10px] text-[#A1887F]">
-                      Chứa file dạng đoạn Raw và đoạn Edit dính sát nhau, phân dòng rõ ràng.
-                    </p>
-                  </div>
+                  <span>2. Bản song ngữ song hành (Edit & Raw)</span>
                 </label>
 
-                {/* Option 3: Only Edit */}
-                <label className="flex items-start gap-3 cursor-pointer select-none group pt-2 border-t border-[#F5E6D3]">
-                  <input
-                    type="checkbox"
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-[#3E2723]">
+                  <input 
+                    type="checkbox" 
                     checked={optExportEdit}
                     onChange={(e) => setOptExportEdit(e.target.checked)}
-                    className="mt-0.5 rounded text-[#5D4037] focus:ring-[#8D6E63] border-[#D7CCC8]"
+                    className="w-4 h-4 rounded text-[#5D4037] focus:ring-[#8D6E63] cursor-pointer" 
                   />
-                  <div>
-                    <span className="text-xs font-bold text-[#3E2723] group-hover:text-[#5D4037] transition-colors">
-                      Thư mục: Bản tinh chỉnh (Chỉ Edit)
-                    </span>
-                    <p className="text-[10px] text-[#A1887F]">
-                      Chứa file chỉ có các đoạn đã tinh chỉnh mượt mà (sạch Raw).
-                    </p>
-                  </div>
+                  <span>3. Bản tinh chỉnh hoàn thiện (Chỉ Edit sạch)</span>
                 </label>
               </div>
-
-              <div className="text-[10px] text-[#A1887F] italic bg-[#FFF8E1] p-2 rounded border border-[#FFE082] flex items-center gap-1.5">
-                <AlertCircle size={12} className="text-[#FFB300] shrink-0" />
-                <span>Bạn có thể tích chọn nhiều thư mục cùng một lúc để tải về trọn bộ!</span>
-              </div>
             </div>
-            
+
             <div className="bg-[#F5F2F0] px-5 py-3 border-t border-[#D7CCC8] flex justify-end gap-2">
               <button
                 onClick={() => setShowZipOptions(false)}
-                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent"
+                className="px-3.5 py-1.5 rounded text-xs font-bold text-[#5D4037] hover:bg-[#D7CCC8]/30 transition-all border border-transparent cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 onClick={performExportZip}
                 disabled={!optExportTable && !optExportParallel && !optExportEdit}
-                className={`px-4 py-1.5 rounded text-white text-xs font-bold transition-all shadow-sm ${
-                  (optExportTable || optExportParallel || optExportEdit)
-                    ? 'bg-[#5D4037] hover:bg-[#3E2723] cursor-pointer'
-                    : 'bg-[#EFEBE9] text-[#BCAAA4] border border-[#D7CCC8] cursor-not-allowed'
-                }`}
+                className="px-4 py-1.5 rounded bg-[#5D4037] hover:bg-[#3E2723] text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                Tải ZIP ({selectedIds.size} chương)
+                <FolderDown size={14} />
+                <span>Bắt đầu tải ZIP</span>
               </button>
             </div>
           </div>

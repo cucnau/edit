@@ -759,6 +759,54 @@ function AppContent() {
     }
   }, [history]);
 
+  // TỰ ĐỘNG KHÔI PHỤC VÀ TỰ ĐỘNG TẠO LẠI CÁC CHƯƠNG MẤT TỪ LỊCH SỬ NẾU BỊ XUNG ĐỘT ID
+  useEffect(() => {
+    if (history.length > 0 && Array.isArray(history)) {
+      const missingChapters: Chapter[] = [];
+      history.forEach(histItem => {
+        if (!histItem.sourceText || !histItem.sourceText.trim() || !histItem.result?.segments || histItem.result.segments.length === 0) return;
+        
+        const cleanInput = histItem.sourceText.trim();
+        const exists = chapters.some(c => c.inputText && c.inputText.trim() === cleanInput);
+        if (!exists) {
+          let name = "";
+          const lines = cleanInput.split('\n').map(l => l.trim()).filter(Boolean);
+          for (const line of lines.slice(0, 5)) {
+            if (line.match(/(Chương\s+\d+|第[一二三四五六七八九十百千万\d]+章)/i)) {
+              name = vietphraseEngine.translate(line, vietphraseEngine.getCustomMap());
+              break;
+            }
+          }
+          if (!name && histItem.result.segments[0]?.natural) {
+            name = histItem.result.segments[0].natural.trim().slice(0, 40);
+          }
+          if (!name) {
+            name = `Chương khôi phục (${new Date(histItem.timestamp || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})`;
+          }
+
+          const recoveredChap: Chapter = {
+            id: `rec_${histItem.id}_${Math.random().toString(36).substring(2, 6)}`,
+            novelId: session.currentNovelId,
+            name: name,
+            timestamp: histItem.timestamp || Date.now(),
+            inputText: histItem.sourceText,
+            deeplText: histItem.result.deeplTranslation || '',
+            preEditedText: histItem.result.naturalTranslation || '',
+            result: histItem.result,
+            completedSegments: histItem.completedSegments || []
+          };
+          missingChapters.push(recoveredChap);
+          db.saveChapter(recoveredChap).catch(console.warn);
+          saveChapterToCloud(recoveredChap).catch(console.warn);
+        }
+      });
+
+      if (missingChapters.length > 0) {
+        setChapters(prev => [...missingChapters, ...prev]);
+      }
+    }
+  }, [history]);
+
   // TỰ ĐỘNG TẠO / CẬP NHẬT BẢN NHÁP TRONG KHO CHƯƠNG KHI CÓ KẾT QUẢ VÀ SỬA ĐỔI
   useEffect(() => {
     if (!session.result || !session.result.segments || session.result.segments.length === 0 || !session.inputText.trim()) return;
@@ -789,7 +837,8 @@ function AppContent() {
           }
         }
 
-        const chapterId = session.currentChapterId || `auto_draft_${session.currentNovelId || 'default'}`;
+        // Dùng ID duy nhất cho draft, tránh mọi xung đột đè ID lên chương khác
+        const chapterId = session.currentChapterId || `auto_draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const draftChapter: Chapter = {
           id: chapterId,
           novelId: session.currentNovelId,
@@ -1678,6 +1727,7 @@ function AppContent() {
   };
 
   const handleRestoreHistory = (item: HistoryItem) => {
+    // QUAN TRỌNG: Bỏ currentChapterId khi khôi phục từ Lịch sử để không ghi đè lên chương đang mở
     updateSession({
       inputText: item.sourceText,
       deeplText: item.result?.deeplTranslation || "",
@@ -1686,7 +1736,8 @@ function AppContent() {
       status: AppStatus.SUCCESS,
       error: null,
       completedSegments: item.completedSegments || [],
-      currentHistoryId: item.id
+      currentHistoryId: item.id,
+      currentChapterId: undefined
     });
     pushActiveSessionToCloud({
       inputText: item.sourceText,
@@ -1695,7 +1746,8 @@ function AppContent() {
       result: sanitizeResult(item.result),
       status: AppStatus.SUCCESS,
       completedSegments: item.completedSegments || [],
-      currentHistoryId: item.id
+      currentHistoryId: item.id,
+      currentChapterId: undefined
     });
     setShowHistory(false);
   };
@@ -1721,7 +1773,17 @@ function AppContent() {
       return;
     }
 
-    const chapterId = session.currentChapterId || `chap_${Date.now()}`;
+    const isDraft = session.currentChapterId?.startsWith('auto_draft_');
+    const oldDraftId = isDraft ? session.currentChapterId : null;
+    const chapterId = (session.currentChapterId && !isDraft) 
+      ? session.currentChapterId 
+      : `chap_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // Nếu chuyển từ bản nháp sang chương chính thức, dọn dẹp bản nháp cũ
+    if (oldDraftId) {
+      db.deleteChapter(oldDraftId).catch(console.warn);
+      deleteFirestoreDoc('chapter', oldDraftId).catch(console.warn);
+    }
 
     const newChapter: Chapter = {
       id: chapterId,
@@ -1737,7 +1799,7 @@ function AppContent() {
 
     await db.saveChapter(newChapter);
     await saveChapterToCloud(newChapter);
-    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId)]);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId && c.id !== oldDraftId)]);
     updateSession({ currentChapterId: chapterId });
     pushActiveSessionToCloud({ currentChapterId: chapterId });
   };

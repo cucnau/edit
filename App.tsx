@@ -4,7 +4,7 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime, getAllUserCustomTermsFromCloud } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime, getAllUserCustomTermsFromCloud, deleteFirestoreDoc } from './services/firestoreService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -1782,7 +1782,7 @@ function AppContent() {
     // Nếu chuyển từ bản nháp sang chương chính thức, dọn dẹp bản nháp cũ
     if (oldDraftId) {
       db.deleteChapter(oldDraftId).catch(console.warn);
-      deleteFirestoreDoc('chapter', oldDraftId).catch(console.warn);
+      deleteChapterFromCloud(oldDraftId).catch(console.warn);
     }
 
     const newChapter: Chapter = {

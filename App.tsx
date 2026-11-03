@@ -1347,7 +1347,7 @@ function AppContent() {
         timestamp: Date.now()
       };
       await db.saveChapter(updatedChapter);
-      await saveChapterToCloud(updatedChapter);
+      saveChapterToCloud(updatedChapter).catch(console.warn);
       setChapters(prev => prev.map(c => c.id === existingChapter.id ? updatedChapter : c));
     } else {
       // CHƯA CÓ TRONG KHO: Người dùng quên lưu nên tự động lưu kho
@@ -1371,20 +1371,35 @@ function AppContent() {
       };
 
       await db.saveChapter(newChapter);
-      await saveChapterToCloud(newChapter);
+      saveChapterToCloud(newChapter).catch(console.warn);
       setChapters(prev => [newChapter, ...prev]);
     }
   };
 
-  const handleClearSession = async () => {
-    if (!session.inputText.trim()) return;
+  const handleClearSession = () => {
+    // Xóa sạch ô nhập và giao diện ngay lập tức trong 0ms, không chờ đợi mạng
+    updateSession({ 
+      inputText: '', 
+      deeplText: '', 
+      preEditedText: '', 
+      result: null, 
+      status: AppStatus.IDLE, 
+      currentChapterId: undefined, 
+      currentHistoryId: undefined, 
+      completedSegments: [] 
+    });
 
-    // Tự động bảo vệ dữ liệu nếu người dùng quên lưu
-    await autoSaveIfUnsaved(session);
-
-    // Tiến hành xóa session
-    updateSession({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
-    pushActiveSessionToCloud({ inputText: '', deeplText: '', preEditedText: '', result: null, status: AppStatus.IDLE, currentChapterId: undefined, currentHistoryId: undefined, completedSegments: [] });
+    // Đồng bộ phiên trống lên Cloud chạy ngầm, không block UI
+    pushActiveSessionToCloud({ 
+      inputText: '', 
+      deeplText: '', 
+      preEditedText: '', 
+      result: null, 
+      status: AppStatus.IDLE, 
+      currentChapterId: undefined, 
+      currentHistoryId: undefined, 
+      completedSegments: [] 
+    });
   };
 
   // Hàm loại bỏ dòng trống và chuẩn hóa văn bản

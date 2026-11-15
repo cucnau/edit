@@ -2,6 +2,7 @@
 import { CustomTerm, VietphraseFile, VietphraseFileType } from "../types";
 import { db } from "./db";
 import { cleanVietphraseMeaning, cleanTextArtifacts } from "./textUtils";
+import { getScopedStorageItem, setScopedStorageItem } from "./storageScope";
 
 export interface TrieNode {
   children: Map<string, TrieNode>;
@@ -256,24 +257,24 @@ class VietphraseEngine {
     this.lacVietDictionary = new Map();
     this.maxKeyLength = 0;
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const savedOmitted = localStorage.getItem('app_omitted_particles');
+      if (typeof window !== 'undefined') {
+        const savedOmitted = getScopedStorageItem('app_omitted_particles');
         if (savedOmitted) {
           const parsed = JSON.parse(savedOmitted);
           if (Array.isArray(parsed)) {
             // Tự động gộp trọn bộ danh sách chuẩn (đặc biệt là 的, 之...) cùng bất kỳ từ nào người dùng thêm
             const merged = new Set([...DEFAULT_OMITTED_CHARS, ...parsed]);
             this.omittedParticles = merged;
-            localStorage.setItem('app_omitted_particles', JSON.stringify(Array.from(merged)));
+            setScopedStorageItem('app_omitted_particles', JSON.stringify(Array.from(merged)));
           } else {
             this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
-            localStorage.setItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
+            setScopedStorageItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
           }
         } else {
           this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
-          localStorage.setItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
+          setScopedStorageItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
         }
-        const savedEnabled = localStorage.getItem('app_omit_particles_enabled');
+        const savedEnabled = getScopedStorageItem('app_omit_particles_enabled');
         if (savedEnabled !== null) {
           this.enableParticleOmission = savedEnabled === 'true';
         }
@@ -296,8 +297,8 @@ class VietphraseEngine {
   resetToDefaultParticles(): void {
     this.omittedParticles = new Set(DEFAULT_OMITTED_CHARS);
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
+      if (typeof window !== 'undefined') {
+        setScopedStorageItem('app_omitted_particles', JSON.stringify(DEFAULT_OMITTED_CHARS));
       }
     } catch (e) {}
     this.notify();
@@ -310,8 +311,8 @@ class VietphraseEngine {
   setParticleOmissionEnabled(enabled: boolean): void {
     this.enableParticleOmission = enabled;
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem('app_omit_particles_enabled', enabled ? 'true' : 'false');
+      if (typeof window !== 'undefined') {
+        setScopedStorageItem('app_omit_particles_enabled', enabled ? 'true' : 'false');
       }
     } catch (e) {}
     this.notify();
@@ -320,8 +321,8 @@ class VietphraseEngine {
   setOmittedParticles(particles: string[]): void {
     this.omittedParticles = new Set(particles.map(p => p.trim()).filter(Boolean));
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem('app_omitted_particles', JSON.stringify(Array.from(this.omittedParticles)));
+      if (typeof window !== 'undefined') {
+        setScopedStorageItem('app_omitted_particles', JSON.stringify(Array.from(this.omittedParticles)));
       }
     } catch (e) {}
     this.notify();

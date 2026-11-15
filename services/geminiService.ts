@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { TranslationResponse, CustomTerm, Character, Relationship } from "../types";
+import { getScopedStorageItem } from "./storageScope";
 
 const getApiKey = (): string => {
   let key = "";
@@ -14,7 +15,7 @@ const getApiKey = (): string => {
     key = (window as any).__GEMINI_API_KEY__ || "";
     if (!key) {
       try {
-        key = localStorage.getItem("GEMINI_API_KEY") || "";
+        key = getScopedStorageItem("GEMINI_API_KEY") || localStorage.getItem("GEMINI_API_KEY") || "";
       } catch {}
     }
   }
@@ -36,6 +37,7 @@ const getAi = (): GoogleGenAI => {
 
 // Danh sách các model ưu tiên thử nghiệm theo thứ tự khi gặp lỗi
 const FALLBACK_MODELS = [
+  'gemini-4-hydrogen',
   'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.6-flash',
@@ -124,15 +126,18 @@ const performApiCallWithFallback = async (prompt: string): Promise<TranslationRe
         while (retries <= maxRetriesPerModel) {
             try {
                 await waitForQuota();
+                const apiConfig: any = {
+                    responseMimeType: "application/json",
+                    responseSchema: translationSchema,
+                    safetySettings: SAFETY_SETTINGS,
+                };
+                if (!modelId.startsWith('gemini-4-')) {
+                    apiConfig.temperature = 0.1;
+                }
                 const response = await getAi().models.generateContent({
                     model: modelId,
                     contents: prompt,
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: translationSchema,
-                        safetySettings: SAFETY_SETTINGS,
-                        temperature: 0.1,
-                    },
+                    config: apiConfig,
                 });
 
                 const text = response.text;
@@ -372,33 +377,21 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
     required: ["pinyin", "hanViet", "meaning"]
   };
   
-  // Quick lookup chỉ dùng flash để nhanh
-  try {
-    const response = await getAi().models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: { 
-            responseMimeType: "application/json", 
-            responseSchema: schema,
-            temperature: 0.1
-        }
-    });
-    const data = JSON.parse(response.text?.trim() || "{}");
-    return {
-        pinyin: (data.pinyin || "").trim(),
-        hanViet: (data.hanViet || "").trim(),
-        meaning: (data.meaning || "Lỗi").trim()
-    };
-  } catch (e) {
+  // Quick lookup ưu tiên model mới nhất và flash để nhanh
+  const lookupModels = ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.7-flash'];
+  for (const modelId of lookupModels) {
     try {
+      const apiConfig: any = {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+      };
+      if (!modelId.startsWith('gemini-4-')) {
+          apiConfig.temperature = 0.1;
+      }
       const response = await getAi().models.generateContent({
-          model: 'gemini-3.7-flash',
+          model: modelId,
           contents: prompt,
-          config: { 
-              responseMimeType: "application/json", 
-              responseSchema: schema,
-              temperature: 0.1
-          }
+          config: apiConfig
       });
       const data = JSON.parse(response.text?.trim() || "{}");
       return {
@@ -406,10 +399,11 @@ export const quickLookup = async (term: string): Promise<{ pinyin: string; hanVi
           hanViet: (data.hanViet || "").trim(),
           meaning: (data.meaning || "Lỗi").trim()
       };
-    } catch {
-      return { pinyin: "", hanViet: "", meaning: "Lỗi" };
+    } catch (e) {
+      // Thử model tiếp theo
     }
   }
+  return { pinyin: "", hanViet: "", meaning: "Lỗi" };
 };
 
 
@@ -460,14 +454,17 @@ Hãy trả về một danh sách các chuỗi, trong đó mỗi chuỗi tương 
     while (retries <= maxRetriesPerModel) {
       try {
         await waitForQuota();
+        const apiConfig: any = {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+        };
+        if (!modelId.startsWith('gemini-4-')) {
+          apiConfig.temperature = 0.1;
+        }
         const response = await getAi().models.generateContent({
           model: modelId,
           contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            temperature: 0.1
-          }
+          config: apiConfig
         });
         
         let result: string[] = JSON.parse(response.text?.trim() || "[]");

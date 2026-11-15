@@ -6,6 +6,7 @@ import { syncFirestoreData, deleteFirestoreDoc, overwriteFirestoreData } from '.
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine, getQuickTransFileType, DEFAULT_OMITTED_PARTICLES } from '../services/vietphraseService';
+import { getScopedStorageItem, setScopedStorageItem } from '../services/storageScope';
 // Deleted smartClassify import
 
 interface DictionarySidebarProps {
@@ -137,7 +138,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
   
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
-    const saved = localStorage.getItem('autoSync_vocab');
+    const saved = getScopedStorageItem('autoSync_vocab');
     return saved === null ? true : saved === 'true';
   });
   const isInitialMount = useRef(true);
@@ -145,7 +146,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
 
   // Persist autoSync preference
   useEffect(() => {
-    localStorage.setItem('autoSync_vocab', String(autoSync));
+    setScopedStorageItem('autoSync_vocab', String(autoSync));
   }, [autoSync]);
 
   // Omit particles state

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter, CustomTerm, Character, TranslationSegment } from './types';
+import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapter, CustomTerm, Character, Relationship, TranslationSegment } from './types';
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
@@ -17,10 +17,10 @@ import { ChapterArchiveModal } from './components/ChapterArchiveModal';
 import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
-import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type } from 'lucide-react';
+import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type, RotateCcw } from 'lucide-react';
 import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
 import { convertToSmartQuotes, cleanTextArtifacts } from './services/textUtils';
-import { getScopedStorageItem, setScopedStorageItem } from './services/storageScope';
+import { getScopedStorageItem, setScopedStorageItem, getScopedSessionItem, setScopedSessionItem } from './services/storageScope';
 
 const EXAMPLE_TEXT = "路遥知马力，日久见人心。";
 
@@ -391,10 +391,10 @@ function AppContent() {
   // --- REAL-TIME DEVICE IDENTIFIER & SYNC STATE ---
   const deviceId = useMemo(() => {
     try {
-      let id = sessionStorage.getItem('app_device_id');
+      let id = getScopedSessionItem('app_device_id');
       if (!id) {
         id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
-        sessionStorage.setItem('app_device_id', id);
+        setScopedSessionItem('app_device_id', id);
       }
       return id;
     } catch (e) {

@@ -6,6 +6,7 @@ import { syncFirestoreData, deleteFirestoreDoc } from '../services/firestoreServ
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from '../services/vietphraseService';
+import { getScopedStorageItem, setScopedStorageItem } from '../services/storageScope';
 
 interface WorldInfoPanelProps {
   currentNovelId: string;
@@ -61,7 +62,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   // Auto Sync State
   const [autoSync, setAutoSync] = useState<boolean>(() => {
-    const saved = localStorage.getItem('autoSync_world');
+    const saved = getScopedStorageItem('autoSync_world');
     return saved === null ? true : saved === 'true';
   });
   const isInitialMount = useRef(true);
@@ -87,7 +88,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
 
   // Persist autoSync preference
   useEffect(() => {
-    localStorage.setItem('autoSync_world', String(autoSync));
+    setScopedStorageItem('autoSync_world', String(autoSync));
   }, [autoSync]);
 
   // Dedicated Effect for Characters

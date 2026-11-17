@@ -1725,7 +1725,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                               <div className="flex flex-col py-0.5">
                                 {/* Raw text section */}
                                 <div className={`flex items-start ${isFocusMode ? 'text-[14.5px] lg:text-[18.5px]' : 'text-[14.5px]'} font-serif-sc leading-[1.2] text-[#3E2723] m-0 whitespace-normal break-words`}>
-                                   <span className={`w-5 min-w-[20px] flex items-center justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
+                                   <span className={`w-5 min-w-[20px] flex items-center justify-center lg:justify-start mr-1 select-none shrink-0 font-bold ${isDone ? 'text-[#3E2723]/70 font-black' : 'text-[#A1887F]/40'} ${isFocusMode ? 'text-[9.5px] lg:text-[11px]' : 'text-[9.5px]'} mt-0.5`}>
                                        {idx + 1}.
                                    </span>
                                    <div className="flex-1 min-w-0">
@@ -1754,11 +1754,11 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
                            <div className="py-1 lg:py-0.5 px-2 align-top relative lg:pr-7 border-none block lg:table-cell lg:w-[55%] lg:max-w-0">
                               <div className="flex flex-row lg:flex-col py-0.5 items-start lg:items-stretch w-full">
-                                  {/* Mobile action buttons */}
-                                  <div className="lg:hidden flex items-center gap-1 mr-1 shrink-0 mt-0.5">
+                                  {/* Mobile action buttons - xếp dọc trong đúng cột w-5 mr-1 (24px) để thẳng hàng tuyệt đối với Raw & Vietphrase */}
+                                  <div className="lg:hidden flex flex-col items-center gap-0.5 w-5 min-w-[20px] mr-1 shrink-0 mt-0.5">
                                       <button
                                           onClick={() => onToggleComplete?.(idx)}
-                                          className={`w-5 min-w-[20px] h-5 flex items-center justify-center rounded-full transition-all shrink-0 ${isDone ? 'text-[#5D4037]' : 'text-[#A1887F]/60 hover:text-[#5D4037]'}`}
+                                          className={`w-5 h-5 flex items-center justify-center rounded-full transition-all shrink-0 ${isDone ? 'text-[#5D4037]' : 'text-[#A1887F]/60 hover:text-[#5D4037]'}`}
                                           title={isDone ? "Đã hoàn thành" : "Chưa hoàn thành"}
                                        >
                                           <CheckCircle2 size={14} className={isDone ? "fill-[#D7CCC8]/40" : ""} />
@@ -1774,7 +1774,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                                               y: rect.bottom + 4
                                             });
                                           }}
-                                          className="p-1 text-[#8D6E63] hover:text-[#3E2723]"
+                                          className="w-5 h-5 flex items-center justify-center rounded-full text-[#8D6E63] hover:text-[#3E2723]"
                                           title="Tùy chọn hàng"
                                        >
                                           <MoreVertical size={13} />

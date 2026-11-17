@@ -1,6 +1,6 @@
 import { db, auth } from './firebase';
-import { getAppScope } from './storageScope';
-import { collection, doc, setDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { getAppScope, APP_SIGNATURE } from './storageScope';
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, writeBatch, query, where, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { CustomTerm, Character, Relationship, Novel, Chapter, TextShortcut, TranslationResponse } from '../types';
 
 export enum OperationType {
@@ -498,8 +498,24 @@ export interface ActiveSessionCloudData {
 }
 
 export const getActiveSessionDocId = (userId: string) => {
-  const scope = getAppScope();
-  return `session_${userId}_${scope}`;
+  // Dùng APP_SIGNATURE để Laptop và Điện thoại dùng chung 1 doc phiên làm việc bất kể truy cập từ URL nào (ais-dev, ais-pre, github.io, localhost...)
+  return `session_${userId}_${APP_SIGNATURE}`;
+};
+
+export const getActiveSessionFromCloud = async (): Promise<ActiveSessionCloudData | null> => {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  const docId = getActiveSessionDocId(user.uid);
+  const docRef = doc(db, 'activeSessions', docId);
+  try {
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return snap.data() as ActiveSessionCloudData;
+  } catch (error) {
+    console.warn("Lỗi tải active session từ đám mây:", error);
+    return null;
+  }
 };
 
 export const saveActiveSessionToCloud = async (

@@ -7,7 +7,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 
 interface NovelSelectorProps {
   currentNovelId: string;
-  onSelectNovel: (id: string) => void;
+  onSelectNovel: (id: string, isAutoInit?: boolean) => void;
 }
 
 export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, onSelectNovel }) => {
@@ -36,7 +36,7 @@ export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, on
       const data = await getNovels();
       setNovels(data);
       if (data.length > 0 && !currentNovelId) {
-        onSelectNovel(data[0].id);
+        onSelectNovel(data[0].id, true);
       }
     } catch (e: any) {
       console.error(e);

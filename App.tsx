@@ -4,7 +4,7 @@ import { AppStatus, TranslationSession, HistoryItem, TranslationResponse, Chapte
 import { translateText } from './services/geminiService';
 import { alignTextWithAI } from './services/geminiService';
 import { exportToExcel } from './services/excelService';
-import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime, getAllUserCustomTermsFromCloud, deleteFirestoreDoc } from './services/firestoreService';
+import { getNovels, getChaptersFromCloud, saveChapterToCloud, bulkSaveChaptersToCloud, deleteChapterFromCloud, clearNovelChaptersFromCloud, syncFirestoreData, getActiveSessionFromCloud, saveActiveSessionToCloud, listenToActiveSession, listenToChaptersRealtime, getAllUserCustomTermsFromCloud, deleteFirestoreDoc, ActiveSessionCloudData } from './services/firestoreService';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { vietphraseEngine } from './services/vietphraseService';
@@ -403,18 +403,39 @@ function AppContent() {
   }, []);
 
   const [realtimeNotify, setRealtimeNotify] = useState<string | null>(null);
-  const lastLocalUpdateTimestampRef = useRef<number>(0);
+  const lastLocalUpdateTimestampRef = useRef<number>((() => {
+    try {
+      const saved = getScopedStorageItem('app_last_edit_ts');
+      const parsed = saved ? parseInt(saved, 10) : 0;
+      return isNaN(parsed) ? 0 : parsed;
+    } catch {
+      return 0;
+    }
+  })());
+  const cloudHydratedRef = useRef<boolean>(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const debounceTimerRef = useRef<any>(null);
   const pendingUpdatesRef = useRef<Partial<TranslationSession>>({});
+
+  const hasSessionContent = (s: { inputText?: string; deeplText?: string; preEditedText?: string; result?: TranslationResponse | null } | null | undefined) => {
+    if (!s) return false;
+    return Boolean(
+      (s.inputText && s.inputText.trim()) ||
+      (s.deeplText && s.deeplText.trim()) ||
+      (s.preEditedText && s.preEditedText.trim()) ||
+      (s.result?.segments && s.result.segments.length > 0)
+    );
+  };
 
   // Hàm đẩy trạng thái phiên làm việc hiện tại lên Cloud cho các thiết bị khác nhận realtime
   const pushActiveSessionToCloud = (customUpdates?: Partial<TranslationSession>) => {
     const user = auth.currentUser;
     if (!user) return;
     const current = { ...sessionRef.current, ...customUpdates };
-    lastLocalUpdateTimestampRef.current = Date.now();
+    const now = Date.now();
+    lastLocalUpdateTimestampRef.current = now;
+    try { setScopedStorageItem('app_last_edit_ts', String(now)); } catch {}
     saveActiveSessionToCloud({
       novelId: current.currentNovelId,
       deviceId,
@@ -440,63 +461,157 @@ function AppContent() {
     }, 1500);
   };
 
-  // LẮNG NGHE ĐỒNG BỘ PHIÊN LÀM VIỆC THỜI GIAN THỰC (LAPTOP <-> ĐIỆN THOẠI)
+  const applyCloudSessionData = (cloudData: ActiveSessionCloudData, showNotify = true) => {
+    if (!cloudData) return;
+    cloudHydratedRef.current = true;
+    const ts = cloudData.updatedAt || Date.now();
+    lastLocalUpdateTimestampRef.current = ts;
+    try { setScopedStorageItem('app_last_edit_ts', String(ts)); } catch {}
+
+    const curr = sessionRef.current;
+    const prevCompleted = curr.completedSegments || [];
+    const cloudCompleted = cloudData.completedSegments || [];
+    const completedEqual = prevCompleted.length === cloudCompleted.length && prevCompleted.every((v, i) => v === cloudCompleted[i]);
+
+    const prevSegments = curr.result?.segments?.map(s => s.natural).join('\n') || '';
+    const cloudSegments = cloudData.result?.segments?.map(s => s.natural).join('\n') || '';
+    const segmentsEqual = prevSegments === cloudSegments;
+
+    const novelEqual = (curr.currentNovelId || '') === (cloudData.novelId || '');
+    const inputEqual = curr.inputText === (cloudData.inputText || '');
+    const deeplEqual = curr.deeplText === (cloudData.deeplText || '');
+    const preEditedEqual = curr.preEditedText === (cloudData.preEditedText || '');
+    const statusEqual = curr.status === cloudData.status;
+    const chapterEqual = (curr.currentChapterId || '') === (cloudData.currentChapterId || '');
+
+    if (novelEqual && completedEqual && segmentsEqual && inputEqual && deeplEqual && preEditedEqual && statusEqual && chapterEqual) {
+      return;
+    }
+
+    setSession(prev => {
+      const newResult = sanitizeResult(cloudData.result);
+      const isCloudCleared = !hasSessionContent(cloudData) && (!cloudData.status || cloudData.status === AppStatus.IDLE);
+
+      if (isCloudCleared) {
+        return {
+          ...prev,
+          currentNovelId: cloudData.novelId ? cloudData.novelId : prev.currentNovelId,
+          inputText: '',
+          deeplText: '',
+          preEditedText: '',
+          status: AppStatus.IDLE,
+          result: null,
+          completedSegments: [],
+          currentChapterId: undefined,
+          currentHistoryId: undefined
+        };
+      }
+
+      return {
+        ...prev,
+        currentNovelId: cloudData.novelId ? cloudData.novelId : prev.currentNovelId,
+        inputText: cloudData.inputText !== undefined ? cloudData.inputText : prev.inputText,
+        deeplText: cloudData.deeplText !== undefined ? cloudData.deeplText : prev.deeplText,
+        preEditedText: cloudData.preEditedText !== undefined ? cloudData.preEditedText : prev.preEditedText,
+        status: (cloudData.status as AppStatus) || (newResult ? AppStatus.SUCCESS : prev.status),
+        result: newResult,
+        completedSegments: cloudCompleted,
+        currentChapterId: cloudData.currentChapterId || undefined,
+        currentHistoryId: cloudData.currentHistoryId || undefined
+      };
+    });
+
+    if (showNotify) {
+      setRealtimeNotify("Đã đồng bộ từ thiết bị khác");
+      setTimeout(() => setRealtimeNotify(null), 2500);
+    }
+  };
+
+  // 1. LẮNG NGHE & ĐỒNG BỘ PHIÊN LÀM VIỆC THỜI GIAN THỰC (LAPTOP <-> ĐIỆN THOẠI)
   useEffect(() => {
     let unsubscribeSession: (() => void) | null = null;
-    let unsubscribeChapters: (() => void) | null = null;
+    let isCancelled = false;
+    let syncRunId = 0;
 
-    const setupRealtimeListeners = () => {
+    const setupSessionSync = async () => {
+      const currentRun = ++syncRunId;
+      if (unsubscribeSession) {
+        unsubscribeSession();
+        unsubscribeSession = null;
+      }
       const user = auth.currentUser;
       if (!user) return;
 
-      // 1. Lắng nghe active session realtime theo tài khoản người dùng
-      unsubscribeSession = listenToActiveSession(deviceId, (cloudData) => {
-        if (!cloudData) return;
-        // Bỏ qua nếu dữ liệu từ thiết bị khác không mới hơn thời điểm cập nhật cục bộ gần nhất
-        if (cloudData.updatedAt && cloudData.updatedAt > lastLocalUpdateTimestampRef.current) {
-          lastLocalUpdateTimestampRef.current = cloudData.updatedAt;
-          
-          setSession(prev => {
-            const prevCompleted = prev.completedSegments || [];
-            const cloudCompleted = cloudData.completedSegments || [];
-            const completedEqual = prevCompleted.length === cloudCompleted.length && prevCompleted.every((v, i) => v === cloudCompleted[i]);
-            
-            const prevSegments = prev.result?.segments?.map(s => s.natural).join('\n') || '';
-            const cloudSegments = cloudData.result?.segments?.map(s => s.natural).join('\n') || '';
-            const segmentsEqual = prevSegments === cloudSegments;
+      // Hủy các timer đẩy phiên cũ đang chờ trên thiết bị mới đăng nhập để tránh ghi đè lên đám mây
+      if (!hasSessionContent(sessionRef.current)) {
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        pendingUpdatesRef.current = {};
+      }
 
-            const novelEqual = (prev.currentNovelId || '') === (cloudData.novelId || '');
-            const inputEqual = prev.inputText === cloudData.inputText;
-            const deeplEqual = prev.deeplText === cloudData.deeplText;
-            const preEditedEqual = prev.preEditedText === cloudData.preEditedText;
-            const statusEqual = prev.status === cloudData.status;
-            const chapterEqual = prev.currentChapterId === cloudData.currentChapterId;
+      // Kiểm tra trạng thái phiên trên Cloud ngay lập tức khi đăng nhập
+      const cloudData = await getActiveSessionFromCloud();
+      if (isCancelled || currentRun !== syncRunId) return;
 
-            if (novelEqual && completedEqual && segmentsEqual && inputEqual && deeplEqual && preEditedEqual && statusEqual && chapterEqual) {
-              return prev;
-            }
+      const localHasContent = hasSessionContent(sessionRef.current);
+      const cloudHasContent = hasSessionContent(cloudData);
 
-            const newResult = sanitizeResult(cloudData.result);
-            return {
-              ...prev,
-              currentNovelId: cloudData.novelId !== undefined ? cloudData.novelId : prev.currentNovelId,
-              inputText: cloudData.inputText !== undefined ? cloudData.inputText : prev.inputText,
-              deeplText: cloudData.deeplText !== undefined ? cloudData.deeplText : prev.deeplText,
-              preEditedText: cloudData.preEditedText !== undefined ? cloudData.preEditedText : prev.preEditedText,
-              status: (cloudData.status as AppStatus) || prev.status,
-              result: newResult !== null ? newResult : prev.result,
-              completedSegments: cloudCompleted,
-              currentChapterId: cloudData.currentChapterId || prev.currentChapterId,
-              currentHistoryId: cloudData.currentHistoryId || prev.currentHistoryId
-            };
-          });
+      if (cloudData && cloudHasContent) {
+        // Nếu thiết bị này đang trống (ví dụ vừa đăng nhập trên ĐT), HOẶC bản trên Cloud mới hơn -> kéo về ngay
+        if (!localHasContent || (cloudData.updatedAt && cloudData.updatedAt > lastLocalUpdateTimestampRef.current)) {
+          applyCloudSessionData(cloudData, true);
+        } else if (localHasContent && lastLocalUpdateTimestampRef.current > (cloudData.updatedAt || 0)) {
+          // Thiết bị này có chỉnh sửa mới hơn hẳn (ví dụ edit offline trước đó) -> đẩy lên Cloud
+          pushActiveSessionToCloud();
+        }
+      } else if (localHasContent) {
+        // Cloud chưa có phiên nào nhưng máy này đang edit dở -> đẩy lên Cloud để các thiết bị khác nhận
+        pushActiveSessionToCloud();
+      }
 
-          setRealtimeNotify("Đã đồng bộ từ thiết bị khác");
-          setTimeout(() => setRealtimeNotify(null), 2500);
+      if (isCancelled || currentRun !== syncRunId) return;
+
+      // Bắt đầu lắng nghe thay đổi realtime từ thiết bị khác
+      unsubscribeSession = listenToActiveSession(deviceId, (incoming) => {
+        if (!incoming) return;
+        const localEmpty = !hasSessionContent(sessionRef.current);
+        if (localEmpty || (incoming.updatedAt && incoming.updatedAt > lastLocalUpdateTimestampRef.current)) {
+          applyCloudSessionData(incoming, true);
         }
       });
+    };
 
-      // 2. Lắng nghe kho chương realtime (chỉ cập nhật danh sách chương trong kho, không ghi đè lên phiên làm việc đang gõ)
+    const authUnsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setupSessionSync();
+      } else {
+        syncRunId++;
+        if (unsubscribeSession) {
+          unsubscribeSession();
+          unsubscribeSession = null;
+        }
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+      syncRunId++;
+      authUnsub();
+      if (unsubscribeSession) unsubscribeSession();
+    };
+  }, [deviceId]);
+
+  // 2. LẮNG NGHE KHO CHƯƠNG REALTIME THEO BỘ TRUYỆN ĐANG CHỌN
+  useEffect(() => {
+    let unsubscribeChapters: (() => void) | null = null;
+
+    const setupChaptersSync = () => {
+      if (unsubscribeChapters) {
+        unsubscribeChapters();
+        unsubscribeChapters = null;
+      }
+      const user = auth.currentUser;
+      if (!user || !session.currentNovelId) return;
+
       unsubscribeChapters = listenToChaptersRealtime(session.currentNovelId, (cloudChapters) => {
         setChapters(prev => {
           const other = prev.filter(c => c.novelId && c.novelId !== session.currentNovelId);
@@ -505,22 +620,21 @@ function AppContent() {
       });
     };
 
-    setupRealtimeListeners();
+    setupChaptersSync();
     const authUnsub = onAuthStateChanged(auth, (user) => {
       if (user) {
-        setupRealtimeListeners();
-      } else {
-        if (unsubscribeSession) unsubscribeSession();
-        if (unsubscribeChapters) unsubscribeChapters();
+        setupChaptersSync();
+      } else if (unsubscribeChapters) {
+        unsubscribeChapters();
+        unsubscribeChapters = null;
       }
     });
 
     return () => {
       authUnsub();
-      if (unsubscribeSession) unsubscribeSession();
       if (unsubscribeChapters) unsubscribeChapters();
     };
-  }, [session.currentNovelId, deviceId]);
+  }, [session.currentNovelId]);
 
   // --- REFS ---
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -587,6 +701,7 @@ function AppContent() {
 
     // Tải phiên làm việc & lịch sử từ IndexedDB để phục hồi 100% dữ liệu không bao giờ bị cắt do QuotaExceededError
     db.getActiveSession().then(savedDbSession => {
+      if (cloudHydratedRef.current) return; // Không ghi đè nếu đã vừa đồng bộ phiên mới hơn từ Cloud
       if (savedDbSession && savedDbSession.inputText) {
         setSession(prev => {
           const prevHasSegs = Boolean(prev.result?.segments && prev.result.segments.length > 0);
@@ -853,9 +968,11 @@ function AppContent() {
   // --- ACTIONS ---
 
   const updateSession = (updates: Partial<TranslationSession>, syncToCloud = true) => {
-    lastLocalUpdateTimestampRef.current = Date.now();
     setSession(prev => ({ ...prev, ...updates }));
     if (syncToCloud) {
+      const now = Date.now();
+      lastLocalUpdateTimestampRef.current = now;
+      try { setScopedStorageItem('app_last_edit_ts', String(now)); } catch {}
       debouncedPushSession(updates);
     }
   };
@@ -906,7 +1023,7 @@ function AppContent() {
         };
       }
 
-      updateSession({ customTerms: merged, result: updatedResult });
+      updateSession({ customTerms: merged, result: updatedResult }, false);
       db.bulkSaveCustomTerms(merged).catch(err => {
         console.error("App: db.bulkSaveCustomTerms failed", err);
       });
@@ -964,7 +1081,7 @@ function AppContent() {
         };
       }
 
-      updateSession({ characters: merged, result: updatedResult });
+      updateSession({ characters: merged, result: updatedResult }, false);
       if (currentId && auth.currentUser) {
         syncFirestoreData('char', currentId, 'POST', currentNovelChars).catch(err => {
           console.error("App: syncFirestoreData char failed", err);
@@ -982,7 +1099,7 @@ function AppContent() {
       const otherRels = (session.relationships || []).filter(r => r.novelId && r.novelId !== currentId);
       const scopedNovelRels = novelRels.map(r => ({ ...r, novelId: currentId }));
       const merged = [...otherRels, ...scopedNovelRels];
-      updateSession({ relationships: merged });
+      updateSession({ relationships: merged }, false);
       if (currentId && auth.currentUser) {
         syncFirestoreData('rel', currentId, 'POST', scopedNovelRels).catch(err => {
           console.error("App: syncFirestoreData rel failed", err);
@@ -994,8 +1111,15 @@ function AppContent() {
   };
 
   // Quản lý chuyển đổi truyện độc lập: lưu nháp truyện cũ và khôi phục nháp truyện mới
-  const handleSelectNovel = (id: string) => {
+  const handleSelectNovel = (id: string, isAutoInit = false) => {
     if (id === session.currentNovelId) return;
+
+    // Nếu là tự động chọn bộ truyện đầu tiên khi vừa đăng nhập trên thiết bị mới:
+    // Chỉ gán ID truyện cục bộ nếu chưa có, tuyệt đối KHÔNG xóa/ghi đè phiên làm việc đang edit và KHÔNG đẩy bản trống lên Cloud!
+    if (isAutoInit) {
+      setSession(prev => prev.currentNovelId ? prev : { ...prev, currentNovelId: id });
+      return;
+    }
 
     // 1. Lưu nháp phiên làm việc của truyện cũ vào scoped storage
     const oldNovelId = session.currentNovelId || 'default';

@@ -1650,55 +1650,42 @@ function AppContent() {
     updateSession({ status: AppStatus.LOADING, error: null, result: null, completedSegments: [], currentHistoryId: undefined, currentChapterId: undefined });
 
     try {
-      const hasPreEdited = !!(session.preEditedText && session.preEditedText.trim());
-      const hasDeepl = !!(session.deeplText && session.deeplText.trim());
+      const hasPreEdited = !!(cleanPreEdit && cleanPreEdit.trim());
+      const hasDeepl = !!(cleanDeepl && cleanDeepl.trim());
       let data: any = null;
-
-      if (mode === 'beta' && hasPreEdited) {
-          data = {
-              modelUsed: 'None (Local Alignment)',
-              segments: []
-          };
-      } else {
-          // --- BƯỚC 2: GỌI AI ---
-          data = await translateText(
-            session.inputText, 
-            currentTerms,
-            currentCharacters,
-            currentRelationships
-          );
-      }
-      
-      // --- BƯỚC 3: MERGE KẾT QUẢ ---
       let mergedSegments = [];
 
       if (mode === 'beta' && hasPreEdited) {
-         // Align pre-edited text to source lines
-         const preEditedLines = await alignTextWithAI(inputLines, session.preEditedText || "");
-         
-         // Align GG/DeepL text to source lines if it was provided
-         const deeplLines = hasDeepl ? await alignTextWithAI(inputLines, session.deeplText) : [];
+         data = {
+             modelUsed: 'None (Local Alignment)',
+             segments: []
+         };
 
-         mergedSegments = inputLines.map((line, i) => {
-             // In Beta mode:
-             // - If GG/DeepL is NOT pasted, we just leave it empty since we skip AI
-             // - If GG/DeepL IS pasted, we use the aligned GG/DeepL as "deepl" reference
-             let refDeepl = "";
-             if (hasDeepl) {
-                 refDeepl = deeplLines[i] || "";
-             }
+         const [preEditedLines, deeplLines] = await Promise.all([
+           alignTextWithAI(inputLines, cleanPreEdit, forceFastAlign),
+           hasDeepl ? alignTextWithAI(inputLines, cleanDeepl, forceFastAlign) : Promise.resolve([] as string[])
+         ]);
 
-             return {
-                 source: line,
-                 natural: preEditedLines[i] || "", // Main translation is replaced with aligned pre-edited text
-                 quick: vpSegments[i]?.quick || "",
-                 deepl: refDeepl
-             };
-         });
+         mergedSegments = inputLines.map((line, i) => ({
+             source: line,
+             natural: preEditedLines[i] || "",
+             quick: vpSegments[i]?.quick || "",
+             deepl: hasDeepl ? (deeplLines[i] || "") : ""
+         }));
       } else {
-         // Standard Edit Mode
-         const deeplLines = await alignTextWithAI(inputLines, session.deeplText || "");
-         mergedSegments = data.segments.map((seg, i) => ({
+         // --- BƯỚC 2: CHẠY SONG SONG DỊCH AI & GIÓNG HÀNG DEEPL ---
+         const [translatedData, deeplLines] = await Promise.all([
+           translateText(
+             cleanInput,
+             currentTerms,
+             currentCharacters,
+             currentRelationships
+           ),
+           hasDeepl ? alignTextWithAI(inputLines, cleanDeepl, forceFastAlign) : Promise.resolve([] as string[])
+         ]);
+         data = translatedData;
+
+         mergedSegments = data.segments.map((seg: any, i: number) => ({
             ...seg,
             quick: vpSegments[i]?.quick !== undefined ? vpSegments[i].quick : (seg.quick || ''), // Prefer local Vietphrase
             deepl: deeplLines[i] || "" // Set DeepL reference
@@ -1734,7 +1721,7 @@ function AppContent() {
       const newHistoryItem: HistoryItem = {
         id: historyId,
         timestamp: Date.now(),
-        sourceText: session.inputText,
+        sourceText: cleanInput,
         result: sanitized as TranslationResponse,
         modelId: data.modelUsed,
         completedSegments: []

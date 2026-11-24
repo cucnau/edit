@@ -34,7 +34,7 @@ interface HomeScreenProps {
   onCreateNovel: (name: string) => Promise<Novel | null>;
   onRenameNovel: (id: string, newName: string) => Promise<void>;
   onOpenChapter: (chapter: Chapter) => void;
-  onCreateNewChapter: (novelId?: string) => void;
+  onCreateNewChapter: (chapterName: string, novelId?: string) => Promise<void>;
   onRenameChapter: (id: string, newName: string) => Promise<void>;
   onMoveToTrash: (id: string) => Promise<void>;
   onRestoreFromTrash: (id: string) => Promise<void>;
@@ -72,6 +72,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [newNovelName, setNewNovelName] = useState('');
   const [isCreatingNovel, setIsCreatingNovel] = useState(false);
   const [novelError, setNovelError] = useState<string | null>(null);
+
+  // Create Chapter dialog state
+  const [showCreateChapter, setShowCreateChapter] = useState(false);
+  const [createChapterNovelId, setCreateChapterNovelId] = useState<string | undefined>(undefined);
+  const [newChapterName, setNewChapterName] = useState('');
+  const [isCreatingChapter, setIsCreatingChapter] = useState(false);
+  const [chapterError, setChapterError] = useState<string | null>(null);
 
   // Rename Novel state
   const [editingNovelId, setEditingNovelId] = useState<string | null>(null);
@@ -225,6 +232,43 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       setNovelError(err?.message || 'Không thể tạo truyện mới.');
     } finally {
       setIsCreatingNovel(false);
+    }
+  };
+
+  const openCreateChapterModal = (novelId?: string) => {
+    setCreateChapterNovelId(novelId);
+    setNewChapterName('');
+    setChapterError(null);
+    setShowCreateChapter(true);
+  };
+
+  const handleSubmitCreateChapter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newChapterName.trim();
+    if (!trimmed) return;
+
+    const duplicate = activeChaptersAll.find(c => {
+      const sameNovel = createChapterNovelId
+        ? c.novelId === createChapterNovelId
+        : !c.novelId;
+      return sameNovel && c.name.trim().toLowerCase() === trimmed.toLowerCase();
+    });
+
+    if (duplicate) {
+      setChapterError(`Chương "${trimmed}" đã tồn tại trong bộ truyện này. Vui lòng đặt tên khác.`);
+      return;
+    }
+
+    setIsCreatingChapter(true);
+    setChapterError(null);
+    try {
+      await onCreateNewChapter(trimmed, createChapterNovelId);
+      setShowCreateChapter(false);
+      setNewChapterName('');
+    } catch (err: any) {
+      setChapterError(err?.message || 'Không thể tạo chương mới.');
+    } finally {
+      setIsCreatingChapter(false);
     }
   };
 
@@ -544,7 +588,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => onCreateNewChapter(selectedNovelFilter === '__uncategorized__' ? undefined : selectedNovelFilter)}
+                  onClick={() => openCreateChapterModal(selectedNovelFilter === '__uncategorized__' ? undefined : selectedNovelFilter)}
                   className="h-9 px-4 rounded-lg bg-[#3E2723] hover:bg-[#4E342E] text-[#FFECB3] text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors whitespace-nowrap cursor-pointer"
                 >
                   <Plus size={16} />
@@ -638,11 +682,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </button>
                 ) : !isSignedIn && !searchQuery ? (
                   <button
-                    onClick={() => onCreateNewChapter(undefined)}
+                    onClick={() => openCreateChapterModal(undefined)}
                     className="h-9 px-4 rounded-lg bg-[#3E2723] hover:bg-[#4E342E] text-[#FFECB3] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <Plus size={15} />
-                    <span>Mở trang edit mới</span>
+                    <span>Tạo chương mới</span>
                   </button>
                 ) : null}
               </div>
@@ -970,7 +1014,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 </p>
                 {activeTab === 'active' && !searchQuery && (
                   <button
-                    onClick={() => onCreateNewChapter(selectedNovelFilter === '__uncategorized__' ? undefined : selectedNovelFilter)}
+                    onClick={() => openCreateChapterModal(selectedNovelFilter === '__uncategorized__' ? undefined : selectedNovelFilter)}
                     className="h-9 px-4 rounded-lg bg-[#3E2723] hover:bg-[#4E342E] text-[#FFECB3] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <Plus size={15} />
@@ -1321,6 +1365,75 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               >
                 {isCreatingNovel && <Loader2 size={13} className="animate-spin" />}
                 Tạo truyện
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* CREATE CHAPTER MODAL */}
+      {showCreateChapter && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowCreateChapter(false)}
+        >
+          <form
+            onSubmit={handleSubmitCreateChapter}
+            onClick={e => e.stopPropagation()}
+            className="bg-[#FFFDF7] border border-[#D7CCC8] rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-[#3E2723] flex items-center gap-2">
+                  <FileText size={18} className="text-[#5D4037]" />
+                  Tạo chương mới
+                </h2>
+                <p className="text-xs text-[#795548] mt-0.5">
+                  Bộ truyện: <span className="font-semibold text-[#3E2723]">{createChapterNovelId ? (novelMap.get(createChapterNovelId) || 'Bộ truyện') : 'Chưa phân loại'}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateChapter(false)}
+                className="p-1 rounded hover:bg-[#EFEBE9] text-[#8D6E63]"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-[#5D4037] mb-1.5">
+                Tên chương
+              </label>
+              <input
+                type="text"
+                value={newChapterName}
+                onChange={(e) => {
+                  setNewChapterName(e.target.value);
+                  if (chapterError) setChapterError(null);
+                }}
+                placeholder="Ví dụ: Chương 1: Khởi đầu..."
+                autoFocus
+                className="w-full px-3 py-2 rounded-lg border border-[#D7CCC8] bg-white text-sm text-[#3E2723] outline-none focus:border-[#4E342E]"
+              />
+              {chapterError && (
+                <p className="text-xs text-red-600 mt-1.5">{chapterError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateChapter(false)}
+                className="px-4 py-2 rounded-lg border border-[#D7CCC8] text-xs font-bold text-[#5D4037] hover:bg-[#EFEBE9] cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                disabled={isCreatingChapter || !newChapterName.trim()}
+                className="px-4 py-2 rounded-lg bg-[#3E2723] hover:bg-[#4E342E] disabled:opacity-50 text-[#FFECB3] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                {isCreatingChapter && <Loader2 size={13} className="animate-spin" />}
+                Tạo & lưu kho
               </button>
             </div>
           </form>

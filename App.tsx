@@ -461,6 +461,8 @@ function AppContent() {
   const [realtimeNotify, setRealtimeNotify] = useState<string | null>(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const chaptersRef = useRef(chapters);
+  chaptersRef.current = chapters;
 
   // Level 2 timestamp tracking (per-document, per-segment, per-field)
   const localResultResetAtRef = useRef<number>(0);
@@ -482,41 +484,47 @@ function AppContent() {
   };
 
   // Đồng bộ chương hiện tại vào IndexedDB & Cloud dựa trên trạng thái đã hợp nhất mới nhất
-  const flushChapterProgressNow = async (overrideResult?: TranslationResponse, overrideCompleted?: number[]) => {
+  const flushChapterProgressNow = async (
+    overrideResult?: TranslationResponse,
+    overrideCompleted?: number[],
+    overrideFields?: { inputText?: string; deeplText?: string; preEditedText?: string }
+  ) => {
     if (chapterSaveTimerRef.current) {
       clearTimeout(chapterSaveTimerRef.current);
       chapterSaveTimerRef.current = null;
     }
     const curr = sessionRef.current;
     const chapId = curr.currentChapterId;
-    const resToSave = overrideResult || curr.result;
-    if (!chapId || !resToSave) return;
+    if (!chapId) return;
+
+    const targetChap = chaptersRef.current.find(c => c.id === chapId);
+    if (!targetChap) return;
+
+    const resToSave = overrideResult || curr.result || targetChap.result || {
+      naturalTranslation: '',
+      quickTrans: '',
+      sinoVietnamese: '',
+      deeplTranslation: '',
+      segments: [],
+      vocabulary: []
+    };
 
     const compToSave = overrideCompleted !== undefined ? overrideCompleted : (curr.completedSegments || []);
     const now = Date.now();
-    let updatedChap: Chapter | null = null;
+    const updatedChap: Chapter = {
+      ...targetChap,
+      inputText: overrideFields?.inputText !== undefined ? overrideFields.inputText : curr.inputText,
+      deeplText: overrideFields?.deeplText !== undefined ? overrideFields.deeplText : curr.deeplText,
+      preEditedText: overrideFields?.preEditedText !== undefined ? overrideFields.preEditedText : curr.preEditedText,
+      result: resToSave,
+      completedSegments: compToSave,
+      resultUpdatedAt: localResultResetAtRef.current || targetChap.resultUpdatedAt || now,
+      timestamp: now
+    };
 
-    setChapters(prev => prev.map(c => {
-      if (c.id === chapId) {
-        updatedChap = {
-          ...c,
-          inputText: curr.inputText,
-          deeplText: curr.deeplText,
-          preEditedText: curr.preEditedText,
-          result: resToSave,
-          completedSegments: compToSave,
-          resultUpdatedAt: localResultResetAtRef.current || c.resultUpdatedAt || now,
-          timestamp: now
-        };
-        return updatedChap;
-      }
-      return c;
-    }));
-
-    if (updatedChap) {
-      await db.saveChapter(updatedChap).catch(console.warn);
-      await saveChapterToCloud(updatedChap).catch(console.warn);
-    }
+    setChapters(prev => prev.map(c => (c.id === chapId ? updatedChap : c)));
+    await db.saveChapter(updatedChap).catch(console.warn);
+    await saveChapterToCloud(updatedChap).catch(console.warn);
   };
 
   const scheduleChapterProgressSave = () => {
@@ -1134,23 +1142,28 @@ function AppContent() {
       }
     });
 
-    if (hasFieldChange && auth.currentUser) {
-      if (fieldSyncTimerRef.current) clearTimeout(fieldSyncTimerRef.current);
-      fieldSyncTimerRef.current = setTimeout(() => {
-        const toPush = { ...pendingFieldsRef.current };
-        pendingFieldsRef.current = {};
-        const curr = sessionRef.current;
-        const targetKey = curr.currentChapterId || curr.docKey || '';
-        if (targetKey && Object.keys(toPush).length > 0) {
-          updateDocCollabFields(targetKey, {
-            novelId: curr.currentNovelId,
-            deviceId,
-            currentChapterId: curr.currentChapterId,
-            ...toPush,
-            now: Date.now()
-          }).catch(console.warn);
-        }
-      }, 450);
+    if (hasFieldChange) {
+      if (sessionRef.current.currentChapterId) {
+        scheduleChapterProgressSave();
+      }
+      if (auth.currentUser) {
+        if (fieldSyncTimerRef.current) clearTimeout(fieldSyncTimerRef.current);
+        fieldSyncTimerRef.current = setTimeout(() => {
+          const toPush = { ...pendingFieldsRef.current };
+          pendingFieldsRef.current = {};
+          const curr = sessionRef.current;
+          const targetKey = curr.currentChapterId || curr.docKey || '';
+          if (targetKey && Object.keys(toPush).length > 0) {
+            updateDocCollabFields(targetKey, {
+              novelId: curr.currentNovelId,
+              deviceId,
+              currentChapterId: curr.currentChapterId,
+              ...toPush,
+              now: Date.now()
+            }).catch(console.warn);
+          }
+        }, 450);
+      }
     }
   };
 
@@ -1864,11 +1877,25 @@ function AppContent() {
         quick: vietphraseEngine.translate(line, customMap), // Dịch Vietphrase
     }));
     
+    const existingSavedChap = session.currentChapterId
+      ? chaptersRef.current.find(c => c.id === session.currentChapterId && !c.deletedAt)
+      : null;
+    const keepChapterId = Boolean(
+      existingSavedChap && (!existingSavedChap.result?.segments || existingSavedChap.result.segments.length === 0)
+    );
+
     // Tạo trạng thái giả lập (Draft) để người dùng thấy ngay kết quả sơ bộ nếu muốn
     // Tuy nhiên, ở đây ta sẽ giữ trạng thái LOADING cho đến khi có AI để trải nghiệm mượt mà hơn,
     // hoặc có thể hiển thị Quick Trans trước nếu muốn. 
     // Ở đây mình chọn LOADING và merge kết quả sau cùng để đồng bộ.
-    updateSession({ status: AppStatus.LOADING, error: null, result: null, completedSegments: [], currentHistoryId: undefined, currentChapterId: undefined });
+    updateSession({
+      status: AppStatus.LOADING,
+      error: null,
+      result: null,
+      completedSegments: [],
+      currentHistoryId: undefined,
+      ...(keepChapterId ? {} : { currentChapterId: undefined })
+    });
 
     try {
       const hasPreEdited = !!(cleanPreEdit && cleanPreEdit.trim());
@@ -1939,6 +1966,14 @@ function AppContent() {
         currentHistoryId: historyId,
         completedSegments: []
       });
+
+      if (keepChapterId && sanitized) {
+        flushChapterProgressNow(sanitized, [], {
+          inputText: cleanInput,
+          deeplText: cleanDeepl,
+          preEditedText: cleanPreEdit
+        }).catch(console.warn);
+      }
       
       const newHistoryItem: HistoryItem = {
         id: historyId,
@@ -2072,30 +2107,74 @@ function AppContent() {
     setActiveView('editor');
   };
 
-  // Mở trang soạn thảo trống cho chương mới từ Màn hình chính
-  const handleCreateNewChapterFromHome = (novelId?: string) => {
-    const targetNovelId = novelId || homeNovelFilter || novels[0]?.id || session.currentNovelId;
-    const freshDocKey = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    localResultResetAtRef.current = 0;
+  // Tạo chương mới (đặt tên & lưu vào kho ngay lúc tạo) và mở màn hình edit
+  const handleCreateNewChapterFromHome = async (chapterName: string, novelId?: string) => {
+    const cleanName = chapterName.trim();
+    if (!cleanName) return;
+
+    const targetNovelId = novelId;
+    const chapterId = `chap_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const now = Date.now();
+    const emptyResult: TranslationResponse = {
+      naturalTranslation: '',
+      quickTrans: '',
+      sinoVietnamese: '',
+      deeplTranslation: '',
+      segments: [],
+      vocabulary: []
+    };
+
+    const newChapter: Chapter = {
+      id: chapterId,
+      novelId: targetNovelId,
+      name: cleanName,
+      timestamp: now,
+      resultUpdatedAt: now,
+      inputText: '',
+      deeplText: '',
+      preEditedText: '',
+      result: emptyResult,
+      completedSegments: []
+    };
+
+    await db.saveChapter(newChapter);
+    await saveChapterToCloud(newChapter);
+    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId)]);
+
+    localResultResetAtRef.current = now;
     localSegmentTsRef.current = {};
     localCompletedTsRef.current = {};
-    localFieldTsRef.current = {};
+    localFieldTsRef.current = { inputText: now, deeplText: now, preEditedText: now };
 
     setSession(prev => ({
       ...prev,
-      docKey: freshDocKey,
+      docKey: chapterId,
+      currentNovelId: targetNovelId !== undefined ? targetNovelId : prev.currentNovelId,
+      inputText: '',
+      deeplText: '',
+      preEditedText: '',
+      result: emptyResult,
+      resultUpdatedAt: now,
+      status: AppStatus.IDLE,
+      error: null,
+      completedSegments: [],
+      currentChapterId: chapterId,
+      currentHistoryId: undefined
+    }));
+
+    pushFullDocCollabToCloud({
+      docKey: chapterId,
+      currentChapterId: chapterId,
       currentNovelId: targetNovelId,
       inputText: '',
       deeplText: '',
       preEditedText: '',
-      result: null,
-      resultUpdatedAt: 0,
+      result: emptyResult,
       status: AppStatus.IDLE,
-      error: null,
       completedSegments: [],
-      currentChapterId: undefined,
-      currentHistoryId: undefined
-    }));
+      resultUpdatedAt: now
+    }, chapterId);
+
     setActiveView('editor');
   };
 

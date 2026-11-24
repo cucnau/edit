@@ -1903,16 +1903,33 @@ function AppContent() {
       let data: any = null;
       let mergedSegments = [];
 
-      if (mode === 'beta' && hasPreEdited) {
+      if (mode === 'beta') {
          data = {
-             modelUsed: 'None (Local Alignment)',
-             segments: []
+             modelUsed: 'None (Local Beta)',
+             segments: [],
+             vocabulary: []
          };
 
-         const [preEditedLines, deeplLines] = await Promise.all([
-           alignTextWithAI(inputLines, cleanPreEdit, forceFastAlign),
-           hasDeepl ? alignTextWithAI(inputLines, cleanDeepl, forceFastAlign) : Promise.resolve([] as string[])
-         ]);
+         const alignBetaLinesLocally = (rawLines: string[], pastedText: string): string[] => {
+           if (!pastedText.trim()) return new Array(rawLines.length).fill('');
+           const tLines = pastedText.split('\n').map(l => l.trim()).filter(Boolean);
+           const result = new Array(rawLines.length).fill('');
+           if (tLines.length === 0 || rawLines.length === 0) return result;
+
+           rawLines.forEach((_, idx) => {
+             if (idx < tLines.length) {
+               if (idx === rawLines.length - 1 && tLines.length > rawLines.length) {
+                 result[idx] = tLines.slice(idx).join(' ');
+               } else {
+                 result[idx] = tLines[idx];
+               }
+             }
+           });
+           return result;
+         };
+
+         const preEditedLines = hasPreEdited ? alignBetaLinesLocally(inputLines, cleanPreEdit) : new Array(inputLines.length).fill('');
+         const deeplLines = hasDeepl ? alignBetaLinesLocally(inputLines, cleanDeepl) : new Array(inputLines.length).fill('');
 
          mergedSegments = inputLines.map((line, i) => ({
              source: line,

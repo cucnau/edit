@@ -102,6 +102,36 @@ export const createNovel = async (id: string, name: string): Promise<Novel> => {
   }
 };
 
+export const renameNovel = async (id: string, name: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Bạn cần đăng nhập!');
+  const path = `novels/${id}`;
+  try {
+    await setDoc(doc(db, 'novels', id), { userId: user.uid, name: name.trim() }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+};
+
+export const listenToNovelsRealtime = (
+  onUpdate: (novels: Novel[]) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  const q = query(collection(db, 'novels'), where('userId', '==', user.uid));
+  return onSnapshot(q, (snapshot) => {
+    const novels: Novel[] = [];
+    snapshot.forEach(d => {
+      const data = d.data();
+      novels.push({ id: d.id, name: data.name || 'Không tên' });
+    });
+    onUpdate(novels);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe danh sách truyện realtime:", error);
+  });
+};
+
 export const deleteNovel = async (id: string): Promise<void> => {
   const user = auth.currentUser;
   if (!user) throw new Error('Bạn cần đăng nhập!');
@@ -608,5 +638,382 @@ export const listenToChaptersRealtime = (
     console.warn("Lỗi lắng nghe kho chương realtime:", error);
   });
 };
+
+export const getAllChaptersFromCloud = async (): Promise<Chapter[]> => {
+  const user = auth.currentUser;
+  if (!user) return [];
+  const q = query(collection(db, 'chapters'), where('userId', '==', user.uid));
+  const snap = await getDocs(q);
+  const chapters: Chapter[] = [];
+  snap.forEach(d => {
+    const data = d.data();
+    const { userId, ...rest } = data;
+    chapters.push({ id: d.id, ...rest } as Chapter);
+  });
+  return chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+};
+
+export const listenToAllChaptersRealtime = (
+  onUpdate: (chapters: Chapter[]) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  const q = query(collection(db, 'chapters'), where('userId', '==', user.uid));
+  return onSnapshot(q, (snapshot) => {
+    const chapters: Chapter[] = [];
+    snapshot.forEach(d => {
+      const data = d.data();
+      const { userId, ...rest } = data;
+      chapters.push({ id: d.id, ...rest } as Chapter);
+    });
+    chapters.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    onUpdate(chapters);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe toàn bộ chương realtime:", error);
+  });
+};
+
+// --- LEVEL 1 & LEVEL 2 GOOGLE DOCS COLLABORATIVE SYNC ---
+export interface SegmentEditEntry {
+  source?: string;
+  natural?: string;
+  quick?: string;
+  deepl?: string;
+  updatedAt: number;
+  deviceId: string;
+}
+
+export interface CompletedEditEntry {
+  done: boolean;
+  updatedAt: number;
+  deviceId: string;
+}
+
+export interface DocCollabCloudData {
+  userId: string;
+  docKey: string;
+  novelId: string;
+  updatedAt: number;
+  resultUpdatedAt?: number;
+  deviceId: string;
+  currentChapterId?: string;
+  currentHistoryId?: string;
+  inputText: string;
+  deeplText: string;
+  preEditedText: string;
+  fieldsUpdatedAt?: {
+    inputText?: number;
+    deeplText?: number;
+    preEditedText?: number;
+  };
+  status: string;
+  completedSegments: number[];
+  result: TranslationResponse | null;
+  segmentEdits?: Record<string, SegmentEditEntry>;
+  completedEdits?: Record<string, CompletedEditEntry>;
+}
+
+export const getDocCollabId = (userId: string, docKey: string): string => {
+  const safeKey = (docKey || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `doc_${userId}_${safeKey}_${APP_SIGNATURE}`;
+};
+
+export const getDocCollabSessionFromCloud = async (docKey: string): Promise<DocCollabCloudData | null> => {
+  const user = auth.currentUser;
+  if (!user || !docKey) return null;
+
+  const docRef = doc(db, 'activeSessions', getDocCollabId(user.uid, docKey));
+  try {
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return snap.data() as DocCollabCloudData;
+  } catch (error) {
+    console.warn("Lỗi tải phiên cộng tác tài liệu từ đám mây:", error);
+    return null;
+  }
+};
+
+export const listenToDocCollabSession = (
+  docKey: string,
+  currentDeviceId: string,
+  onUpdate: (data: DocCollabCloudData) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user || !docKey) return null;
+
+  const docRef = doc(db, 'activeSessions', getDocCollabId(user.uid, docKey));
+  return onSnapshot(docRef, (docSnap) => {
+    if (!docSnap.exists()) return;
+    const data = docSnap.data() as DocCollabCloudData;
+    if (data.deviceId === currentDeviceId) return;
+    onUpdate(data);
+  }, (error) => {
+    console.warn("Lỗi lắng nghe phiên cộng tác tài liệu realtime:", error);
+  });
+};
+
+export const saveDocCollabFullSession = async (
+  docKey: string,
+  sessionData: {
+    novelId?: string;
+    deviceId: string;
+    currentChapterId?: string;
+    currentHistoryId?: string;
+    inputText: string;
+    deeplText: string;
+    preEditedText: string;
+    status: string;
+    completedSegments: number[];
+    result: TranslationResponse | null;
+    resultUpdatedAt?: number;
+  }
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !docKey) return;
+
+  const docRef = doc(db, 'activeSessions', getDocCollabId(user.uid, docKey));
+  const now = sessionData.resultUpdatedAt || Date.now();
+
+  const rawData: DocCollabCloudData = {
+    userId: user.uid,
+    docKey,
+    novelId: sessionData.novelId || '',
+    updatedAt: now,
+    resultUpdatedAt: now,
+    deviceId: sessionData.deviceId,
+    currentChapterId: sessionData.currentChapterId || '',
+    currentHistoryId: sessionData.currentHistoryId || '',
+    inputText: sessionData.inputText || '',
+    deeplText: sessionData.deeplText || '',
+    preEditedText: sessionData.preEditedText || '',
+    fieldsUpdatedAt: {
+      inputText: now,
+      deeplText: now,
+      preEditedText: now,
+    },
+    status: sessionData.status || 'IDLE',
+    completedSegments: sessionData.completedSegments || [],
+    result: sessionData.result || null,
+    segmentEdits: {},
+    completedEdits: {}
+  };
+
+  const dataToSave = sanitizeData(rawData);
+  try {
+    // Ghi đè toàn bộ tài liệu khi khởi tạo/phân tích lại/xóa đoạn để làm sạch segmentEdits cũ
+    await setDoc(docRef, dataToSave);
+  } catch (error) {
+    console.warn("Lỗi lưu toàn bộ phiên cộng tác lên đám mây:", error);
+  }
+};
+
+export const updateDocCollabFields = async (
+  docKey: string,
+  params: {
+    novelId?: string;
+    deviceId: string;
+    currentChapterId?: string;
+    inputText?: string;
+    deeplText?: string;
+    preEditedText?: string;
+    status?: string;
+    now?: number;
+  }
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !docKey) return;
+
+  const now = params.now || Date.now();
+  const docRef = doc(db, 'activeSessions', getDocCollabId(user.uid, docKey));
+  const fieldsUpdatedAt: Record<string, number> = {};
+  const payload: Record<string, any> = {
+    userId: user.uid,
+    docKey,
+    novelId: params.novelId || '',
+    currentChapterId: params.currentChapterId || '',
+    deviceId: params.deviceId,
+    updatedAt: now
+  };
+
+  if (params.inputText !== undefined) {
+    payload.inputText = params.inputText;
+    fieldsUpdatedAt.inputText = now;
+  }
+  if (params.deeplText !== undefined) {
+    payload.deeplText = params.deeplText;
+    fieldsUpdatedAt.deeplText = now;
+  }
+  if (params.preEditedText !== undefined) {
+    payload.preEditedText = params.preEditedText;
+    fieldsUpdatedAt.preEditedText = now;
+  }
+  if (params.status !== undefined) {
+    payload.status = params.status;
+  }
+  if (Object.keys(fieldsUpdatedAt).length > 0) {
+    payload.fieldsUpdatedAt = fieldsUpdatedAt;
+  }
+
+  try {
+    await setDoc(docRef, sanitizeData(payload), { merge: true });
+  } catch (error) {
+    console.warn("Lỗi cập nhật trường tài liệu lên đám mây:", error);
+  }
+};
+
+export const updateDocCollabSegment = async (
+  docKey: string,
+  params: {
+    novelId?: string;
+    deviceId: string;
+    currentChapterId?: string;
+    segmentIndex: number;
+    edit: { source?: string; natural?: string; quick?: string; deepl?: string };
+    now?: number;
+  }
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !docKey) return;
+
+  const now = params.now || Date.now();
+  const docRef = doc(db, 'activeSessions', getDocCollabId(user.uid, docKey));
+  const payload = sanitizeData({
+    userId: user.uid,
+    docKey,
+    novelId: params.novelId || '',
+    currentChapterId: params.currentChapterId || '',
+    deviceId: params.deviceId,
+    updatedAt: now,
+    segmentEdits: {
+      [String(params.segmentIndex)]: {
+        ...params.edit,
+        updatedAt: now,
+        deviceId: params.deviceId
+      }
+    }
+  });
+
+  try {
+    await setDoc(docRef, payload, { merge: true });
+  } catch (error) {
+    console.warn("Lỗi đồng bộ đoạn văn lên đám mây:", error);
+  }
+};
+
+export const updateDocCollabCompleted = async (
+  docKey: string,
+  params: {
+    novelId?: string;
+    deviceId: string;
+    currentChapterId?: string;
+    segmentIndex: number;
+    done: boolean;
+    now?: number;
+  }
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user || !docKey) return;
+
+  const now = params.now || Date.now();
+  const docRef = doc(db, 'activeSessions', getDocCollabId(user.uid, docKey));
+  const payload = sanitizeData({
+    userId: user.uid,
+    docKey,
+    novelId: params.novelId || '',
+    currentChapterId: params.currentChapterId || '',
+    deviceId: params.deviceId,
+    updatedAt: now,
+    completedEdits: {
+      [String(params.segmentIndex)]: {
+        done: params.done,
+        updatedAt: now,
+        deviceId: params.deviceId
+      }
+    }
+  });
+
+  try {
+    await setDoc(docRef, payload, { merge: true });
+  } catch (error) {
+    console.warn("Lỗi đồng bộ trạng thái hoàn thành đoạn lên đám mây:", error);
+  }
+};
+
+export const mergeCollabIntoChapterSnapshot = (
+  chapter: Chapter,
+  collab: DocCollabCloudData | null
+): Chapter => {
+  if (!collab) return chapter;
+  const chapterBaseTs = chapter.resultUpdatedAt || chapter.timestamp || 0;
+  const collabResultTs = collab.resultUpdatedAt || 0;
+
+  // Nếu collab có kết quả mới hơn hẳn (vd: phân tích lại hoặc xóa đoạn)
+  let baseResult = chapter.result;
+  let baseCompleted = [...(chapter.completedSegments || [])];
+  let effectiveResultTs = chapterBaseTs;
+
+  if (collab.result && collabResultTs > chapterBaseTs) {
+    baseResult = collab.result;
+    baseCompleted = [...(collab.completedSegments || [])];
+    effectiveResultTs = collabResultTs;
+  }
+
+  const segments = baseResult?.segments ? baseResult.segments.map(s => ({ ...s })) : [];
+  let resultChanged = false;
+  const segEdits = collab.segmentEdits || {};
+  Object.keys(segEdits).forEach(key => {
+    const idx = parseInt(key, 10);
+    const entry = segEdits[key];
+    if (isNaN(idx) || idx < 0 || idx >= segments.length || !entry) return;
+    if ((entry.updatedAt || 0) > chapterBaseTs && (entry.updatedAt || 0) >= effectiveResultTs) {
+      if (entry.source !== undefined) segments[idx].source = entry.source;
+      if (entry.natural !== undefined) segments[idx].natural = entry.natural;
+      if (entry.quick !== undefined) segments[idx].quick = entry.quick;
+      if (entry.deepl !== undefined) segments[idx].deepl = entry.deepl;
+      resultChanged = true;
+    }
+  });
+
+  const completedSet = new Set(baseCompleted);
+  const compEdits = collab.completedEdits || {};
+  Object.keys(compEdits).forEach(key => {
+    const idx = parseInt(key, 10);
+    const entry = compEdits[key];
+    if (isNaN(idx) || !entry) return;
+    if ((entry.updatedAt || 0) > chapterBaseTs && (entry.updatedAt || 0) >= effectiveResultTs) {
+      if (entry.done) completedSet.add(idx);
+      else completedSet.delete(idx);
+    }
+  });
+
+  const mergedResult = baseResult ? {
+    ...baseResult,
+    segments,
+    naturalTranslation: segments.map(s => s.natural || '').join('\n'),
+    quickTrans: segments.map(s => s.quick || '').join('\n'),
+    deeplTranslation: segments.map(s => s.deepl || '').join('\n')
+  } : chapter.result;
+
+  const fieldsTs = collab.fieldsUpdatedAt || {};
+  const nextInput = (fieldsTs.inputText && fieldsTs.inputText > chapterBaseTs && collab.inputText !== undefined)
+    ? collab.inputText : chapter.inputText;
+  const nextDeepl = (fieldsTs.deeplText && fieldsTs.deeplText > chapterBaseTs && collab.deeplText !== undefined)
+    ? collab.deeplText : chapter.deeplText;
+  const nextPreEdited = (fieldsTs.preEditedText && fieldsTs.preEditedText > chapterBaseTs && collab.preEditedText !== undefined)
+    ? collab.preEditedText : chapter.preEditedText;
+
+  return {
+    ...chapter,
+    inputText: nextInput,
+    deeplText: nextDeepl,
+    preEditedText: nextPreEdited,
+    result: resultChanged || collabResultTs > chapterBaseTs ? mergedResult : chapter.result,
+    completedSegments: Array.from(completedSet),
+    resultUpdatedAt: Math.max(chapterBaseTs, effectiveResultTs),
+    timestamp: Math.max(chapter.timestamp || 0, collab.updatedAt || 0)
+  };
+};
+
 
 

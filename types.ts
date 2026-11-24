@@ -90,6 +90,7 @@ export interface Chapter {
   novelId?: string;
   name: string;
   timestamp: number;
+  resultUpdatedAt?: number;
   inputText: string;
   deeplText?: string;
   preEditedText?: string;
@@ -107,11 +108,13 @@ export enum AppStatus {
 
 export interface TranslationSession {
   id: string;
+  docKey?: string; // Định danh duy nhất cho tài liệu đang mở trên tab hiện tại (chap_... hoặc draft_...)
   name: string;
   inputText: string;
   deeplText: string;
   status: AppStatus;
   result: TranslationResponse | null;
+  resultUpdatedAt?: number;
   error: string | null;
   modelId: string; // Model AI được chọn cho session này
   currentHistoryId?: string; // Liên kết với bản ghi lịch sử

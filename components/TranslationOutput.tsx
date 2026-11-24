@@ -2,15 +2,16 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { TranslationResponse, TranslationSegment, VocabItem, CustomTerm, Character, TextShortcut } from '../types';
-import { Copy, TableProperties, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical, RefreshCw } from 'lucide-react';
+import { Copy, TableProperties, FileText, Check, Info, X, Users, ClipboardList, CheckCircle2, FileDown, BookOpen, Undo2, Redo2, Search, Maximize2, Minimize2, ChevronLeft, ChevronRight, Loader2, Pencil, Trash2, Plus, UserPlus, SlidersHorizontal, MoreVertical, RefreshCw } from 'lucide-react';
 import { vietphraseEngine, LacVietLookupResult } from '../services/vietphraseService';
-import { checkAndApplyShortcut, getStoredShortcuts } from '../services/shortcutService';
+import { checkAndApplyShortcut, formatWithCaseMatch, getStoredShortcuts, isShortcutsEnabled } from '../services/shortcutService';
 import { convertToSmartQuotes, cleanTextArtifacts, formatDictionaryDefinition, cleanMeaningForVocab } from '../services/textUtils';
 import { deleteFirestoreDoc } from '../services/firestoreService';
 import { db } from '../services/db';
 
 interface TranslationOutputProps {
   data: TranslationResponse;
+  chapterTitle?: string;
   customTerms?: CustomTerm[];
   characters?: Character[];
   completedSegments?: number[];
@@ -126,8 +127,16 @@ const EditableSegment = ({
     const [shortcuts, setShortcuts] = useState<TextShortcut[]>(() => getStoredShortcuts(novelId));
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
+    const isFocusedRef = useRef(false);
+    const hasPendingRef = useRef(false);
+    const lastCommittedRef = useRef(text);
     
     useEffect(() => {
+        if (isFocusedRef.current) {
+            if (hasPendingRef.current) return;
+            if (text === lastCommittedRef.current) return;
+        }
+        lastCommittedRef.current = text;
         setLocalText(text);
     }, [text]);
 
@@ -167,6 +176,12 @@ const EditableSegment = ({
         };
     }, [localText, isFocusMode, isFocused]);
 
+    const commitUpdate = (val: string) => {
+        hasPendingRef.current = false;
+        lastCommittedRef.current = val.replace(/\n+$/, "");
+        onUpdate(val);
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         // Phím tắt ngầm: Nhấn Enter (không kèm Shift) để lưu, đánh dấu hoàn thành và nhảy sang đoạn tiếp theo
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -181,7 +196,7 @@ const EditableSegment = ({
             if (debounceTimeout.current) {
                 clearTimeout(debounceTimeout.current);
             }
-            onUpdate(currentVal);
+            commitUpdate(currentVal);
             if (onEnterNext) {
                 onEnterNext();
             }
@@ -196,11 +211,12 @@ const EditableSegment = ({
                 e.preventDefault();
                 setLocalText(newText);
                 adjustHeight();
+                hasPendingRef.current = true;
                 if (debounceTimeout.current) {
                     clearTimeout(debounceTimeout.current);
                 }
                 debounceTimeout.current = setTimeout(() => {
-                    onUpdate(newText);
+                    commitUpdate(newText);
                 }, 200);
             }
         }
@@ -210,24 +226,27 @@ const EditableSegment = ({
         const val = e.target.value;
         const converted = convertToSmartQuotes(val);
         setLocalText(converted);
+        hasPendingRef.current = true;
 
         if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
         }
         debounceTimeout.current = setTimeout(() => {
-            onUpdate(converted);
-        }, 500);
+            commitUpdate(converted);
+        }, 450);
     };
 
     const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+        isFocusedRef.current = false;
         setIsFocused(false);
         if (debounceTimeout.current) {
             clearTimeout(debounceTimeout.current);
         }
-        onUpdate(convertToSmartQuotes(e.target.value));
+        commitUpdate(convertToSmartQuotes(e.target.value));
     };
 
     const handleFocus = () => {
+        isFocusedRef.current = true;
         setIsFocused(true);
     };
 
@@ -312,14 +331,18 @@ const EditableRawSegment = ({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasPendingRef = useRef(false);
 
   useEffect(() => {
+    if (isFocusedRef.current && hasPendingRef.current) return;
     setLocalVal(source);
   }, [source]);
 
   useEffect(() => {
     const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
       if (e.detail?.index === segmentIndex) {
+        isFocusedRef.current = true;
         setIsFocused(true);
         setTimeout(() => {
           if (textareaRef.current) {
@@ -352,13 +375,17 @@ const EditableRawSegment = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setLocalVal(val);
+    hasPendingRef.current = true;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
+      hasPendingRef.current = false;
       onUpdate(val);
-    }, 500);
+    }, 450);
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    isFocusedRef.current = false;
+    hasPendingRef.current = false;
     setIsFocused(false);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     onUpdate(e.target.value);
@@ -420,14 +447,18 @@ const EditableVpSegment = ({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasPendingRef = useRef(false);
 
   useEffect(() => {
+    if (isFocusedRef.current && hasPendingRef.current) return;
     setLocalVal(quick);
   }, [quick]);
 
   useEffect(() => {
     const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
       if (e.detail?.index === segmentIndex) {
+        isFocusedRef.current = true;
         setIsFocused(true);
         setTimeout(() => {
           if (textareaRef.current) {
@@ -460,13 +491,17 @@ const EditableVpSegment = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setLocalVal(val);
+    hasPendingRef.current = true;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
+      hasPendingRef.current = false;
       onUpdate(val);
-    }, 500);
+    }, 450);
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    isFocusedRef.current = false;
+    hasPendingRef.current = false;
     setIsFocused(false);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     onUpdate(e.target.value);
@@ -530,14 +565,18 @@ const EditableDeeplSegment = ({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasPendingRef = useRef(false);
 
   useEffect(() => {
+    if (isFocusedRef.current && hasPendingRef.current) return;
     setLocalVal(deepl);
   }, [deepl]);
 
   useEffect(() => {
     const handleCustomFocus = (e: CustomEvent<{ index: number }>) => {
       if (e.detail?.index === segmentIndex) {
+        isFocusedRef.current = true;
         setIsFocused(true);
         setTimeout(() => {
           if (textareaRef.current) {
@@ -570,13 +609,17 @@ const EditableDeeplSegment = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setLocalVal(val);
+    hasPendingRef.current = true;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
+      hasPendingRef.current = false;
       onUpdate(val);
-    }, 500);
+    }, 450);
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    isFocusedRef.current = false;
+    hasPendingRef.current = false;
     setIsFocused(false);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     onUpdate(e.target.value);
@@ -627,8 +670,450 @@ const EditableDeeplSegment = ({
 
 
 
+const OnlyEditDocument: React.FC<{
+  segments: TranslationSegment[];
+  fallbackText?: string;
+  chapterTitle?: string;
+  fontSize?: number;
+  novelId?: string;
+  findText?: string;
+  matchCase?: boolean;
+  matchDiacritics?: boolean;
+  onUpdateSegment?: (index: number, newNatural: string) => void;
+  onUpdateAllSegments?: (newNaturals: string[]) => void;
+}> = ({
+  segments,
+  fallbackText = '',
+  chapterTitle,
+  fontSize = 16,
+  novelId,
+  findText,
+  matchCase,
+  matchDiacritics,
+  onUpdateSegment,
+  onUpdateAllSegments,
+}) => {
+  const visibleEntries = useMemo(() => {
+    const list: { index: number; text: string }[] = [];
+    segments.forEach((seg, idx) => {
+      const t = (seg.natural || '').trim();
+      if (t) list.push({ index: idx, text: t });
+    });
+    return list;
+  }, [segments]);
+
+  const initialParagraphs = useMemo(() => {
+    if (visibleEntries.length > 0) {
+      return visibleEntries.map(e => e.text);
+    }
+    const cleanFallback = (fallbackText || '').trim();
+    if (!cleanFallback) return [];
+    return cleanFallback
+      .split(/\r?\n+/)
+      .map(l => l.trim())
+      .filter(Boolean);
+  }, [visibleEntries, fallbackText]);
+
+  const incomingSignature = useMemo(() => initialParagraphs.join('\n'), [initialParagraphs]);
+
+  const [paragraphsPreview, setParagraphsPreview] = useState<string[]>(initialParagraphs);
+  const [isFocused, setIsFocused] = useState(false);
+  const [shortcuts, setShortcuts] = useState<TextShortcut[]>(() => getStoredShortcuts(novelId));
+
+  const editorRef = useRef<HTMLDivElement>(null);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasPendingRef = useRef(false);
+  const latestParagraphsRef = useRef<string[]>(initialParagraphs);
+  const lastCommittedSignatureRef = useRef<string>(incomingSignature);
+  const latestEntriesRef = useRef(visibleEntries);
+  const latestSegmentsRef = useRef(segments);
+  const isHydratedRef = useRef(false);
+
+  latestEntriesRef.current = visibleEntries;
+  latestSegmentsRef.current = segments;
+
+  useEffect(() => {
+    setShortcuts(getStoredShortcuts(novelId));
+  }, [novelId]);
+
+  useEffect(() => {
+    const handleUpdate = () => setShortcuts(getStoredShortcuts(novelId));
+    window.addEventListener('shortcuts_updated', handleUpdate);
+    window.addEventListener('shortcuts_toggle', handleUpdate);
+    return () => {
+      window.removeEventListener('shortcuts_updated', handleUpdate);
+      window.removeEventListener('shortcuts_toggle', handleUpdate);
+    };
+  }, [novelId]);
+
+  const renderParagraphsToDom = (el: HTMLDivElement, paras: string[]) => {
+    el.innerHTML = '';
+    if (paras.length === 0) {
+      const p = document.createElement('p');
+      p.appendChild(document.createElement('br'));
+      el.appendChild(p);
+      return;
+    }
+    paras.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      el.appendChild(p);
+    });
+  };
+
+  const extractParagraphsFromDom = (el: HTMLDivElement): string[] => {
+    const out: string[] = [];
+    el.childNodes.forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const raw = node.textContent || '';
+        raw.split(/\r?\n+/).forEach(part => {
+          const clean = part.trim();
+          if (clean) out.push(clean);
+        });
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const htmlNode = node as HTMLElement;
+        const raw = htmlNode.innerText ?? htmlNode.textContent ?? '';
+        raw.split(/\r?\n+/).forEach(part => {
+          const clean = part.trim();
+          if (clean) out.push(clean);
+        });
+      }
+    });
+    return out;
+  };
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    if (!isHydratedRef.current) {
+      isHydratedRef.current = true;
+      renderParagraphsToDom(el, initialParagraphs);
+      latestParagraphsRef.current = initialParagraphs;
+      setParagraphsPreview(initialParagraphs);
+      lastCommittedSignatureRef.current = incomingSignature;
+      return;
+    }
+    if (isFocusedRef.current && hasPendingRef.current) return;
+    if (incomingSignature === lastCommittedSignatureRef.current) return;
+    lastCommittedSignatureRef.current = incomingSignature;
+    latestParagraphsRef.current = initialParagraphs;
+    setParagraphsPreview(initialParagraphs);
+    renderParagraphsToDom(el, initialParagraphs);
+  }, [incomingSignature, initialParagraphs]);
+
+  const commitParagraphs = (rawParas: string[]) => {
+    hasPendingRef.current = false;
+    const nextParagraphs = rawParas
+      .map(p => (/["']/.test(p) ? convertToSmartQuotes(p) : p).trim())
+      .filter(Boolean);
+    const nextSig = nextParagraphs.join('\n');
+    if (nextSig === lastCommittedSignatureRef.current) return;
+    lastCommittedSignatureRef.current = nextSig;
+
+    const currentEntries = latestEntriesRef.current;
+    if (currentEntries.length > 0 && nextParagraphs.length === currentEntries.length) {
+      const changed: { segIndex: number; text: string }[] = [];
+      for (let i = 0; i < nextParagraphs.length; i++) {
+        if (nextParagraphs[i] !== currentEntries[i].text) {
+          changed.push({ segIndex: currentEntries[i].index, text: nextParagraphs[i] });
+        }
+      }
+      if (changed.length === 1 && onUpdateSegment) {
+        onUpdateSegment(changed[0].segIndex, changed[0].text);
+        return;
+      }
+      if (changed.length > 0 && onUpdateAllSegments) {
+        const allNaturals = latestSegmentsRef.current.map(s => s.natural || '');
+        changed.forEach(c => {
+          allNaturals[c.segIndex] = c.text;
+        });
+        onUpdateAllSegments(allNaturals);
+        return;
+      }
+    } else if (onUpdateAllSegments) {
+      onUpdateAllSegments(nextParagraphs);
+    }
+  };
+
+  const commitRef = useRef(commitParagraphs);
+  commitRef.current = commitParagraphs;
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      if (hasPendingRef.current) {
+        commitRef.current(latestParagraphsRef.current);
+      }
+    };
+  }, []);
+
+  const syncFromDomAndSchedule = (delay = 450) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const paras = extractParagraphsFromDom(el);
+    latestParagraphsRef.current = paras;
+    setParagraphsPreview(paras);
+    hasPendingRef.current = true;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      commitRef.current(latestParagraphsRef.current);
+    }, delay);
+  };
+
+  const handleInput = () => {
+    const el = editorRef.current;
+    if (el && el.childNodes.length === 0) {
+      const p = document.createElement('p');
+      p.appendChild(document.createElement('br'));
+      el.appendChild(p);
+    }
+    syncFromDomAndSchedule(450);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text/plain') || '';
+    const lines = pasted
+      .split(/\r?\n+/)
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(l => (/["']/.test(l) ? convertToSmartQuotes(l) : l));
+
+    if (lines.length === 0) return;
+    if (lines.length === 1) {
+      document.execCommand('insertText', false, lines[0]);
+      syncFromDomAndSchedule(300);
+      return;
+    }
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const frag = document.createDocumentFragment();
+      lines.forEach((line, idx) => {
+        if (idx === 0) {
+          frag.appendChild(document.createTextNode(line));
+        } else {
+          const p = document.createElement('p');
+          p.textContent = line;
+          frag.appendChild(p);
+        }
+      });
+      range.insertNode(frag);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      syncFromDomAndSchedule(300);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === '"') {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        let quoteChar = '“';
+        if (!range.collapsed) {
+          const selected = sel.toString();
+          e.preventDefault();
+          document.execCommand('insertText', false, `“${selected}”`);
+          syncFromDomAndSchedule(450);
+          return;
+        }
+        if (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
+          const prevChar = (range.startContainer.textContent || '')[range.startOffset - 1];
+          quoteChar = /[\s(\[{<«\n\r\t“]/.test(prevChar) ? '“' : '”';
+        }
+        e.preventDefault();
+        document.execCommand('insertText', false, quoteChar);
+        syncFromDomAndSchedule(450);
+        return;
+      }
+    }
+
+    const triggerKeys = [' ', 'Enter', 'Tab', ',', '.', '?', '!', ';', ':'];
+    if (triggerKeys.includes(e.key) && isShortcutsEnabled() && shortcuts.length > 0) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (range.collapsed && range.startContainer.nodeType === Node.TEXT_NODE) {
+          const textNode = range.startContainer as Text;
+          const offset = range.startOffset;
+          const before = (textNode.textContent || '').substring(0, offset);
+          const match = before.match(/([A-Za-z0-9àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđĐ_]+)$/);
+          if (match) {
+            const typedWord = match[1];
+            const matched = shortcuts.find(
+              s => s.enabled && s.shortcut.trim().toLowerCase() === typedWord.toLowerCase()
+            );
+            if (matched) {
+              e.preventDefault();
+              const replaceRange = document.createRange();
+              replaceRange.setStart(textNode, offset - typedWord.length);
+              replaceRange.setEnd(textNode, offset);
+              sel.removeAllRanges();
+              sel.addRange(replaceRange);
+
+              const formatted = formatWithCaseMatch(typedWord, matched.expansion);
+              if (e.key === 'Enter') {
+                document.execCommand('insertText', false, formatted);
+                document.execCommand('insertParagraph', false);
+              } else {
+                const triggerChar = e.key === 'Tab' ? '\t' : e.key;
+                document.execCommand('insertText', false, formatted + triggerChar);
+              }
+              syncFromDomAndSchedule(200);
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const handleFocus = () => {
+    isFocusedRef.current = true;
+    setIsFocused(true);
+    try {
+      document.execCommand('defaultParagraphSeparator', false, 'p');
+    } catch {}
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+    setIsFocused(false);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    const el = editorRef.current;
+    if (el) {
+      const paras = extractParagraphsFromDom(el);
+      latestParagraphsRef.current = paras;
+      setParagraphsPreview(paras);
+      commitRef.current(paras);
+    }
+  };
+
+  const paragraphCount = paragraphsPreview.length;
+  const joinedForStats = useMemo(() => paragraphsPreview.join('\n'), [paragraphsPreview]);
+  const wordCount = useMemo(
+    () => (joinedForStats.trim() ? joinedForStats.trim().split(/\s+/).length : 0),
+    [joinedForStats]
+  );
+  const charCount = joinedForStats.length;
+
+  const searchRegex = useMemo(() => {
+    if (!findText) return null;
+    return buildSearchRegex(findText, matchCase ?? false, matchDiacritics ?? true);
+  }, [findText, matchCase, matchDiacritics]);
+
+  const hasSearchMatch = useMemo(() => {
+    if (!searchRegex) return false;
+    searchRegex.lastIndex = 0;
+    return searchRegex.test(joinedForStats);
+  }, [searchRegex, joinedForStats]);
+
+  const renderHighlightedParagraph = (plainText: string) => {
+    if (!findText || !searchRegex) return plainText;
+    const regex = buildSearchRegex(findText, matchCase ?? false, matchDiacritics ?? true);
+    if (!regex) return plainText;
+    const parts = plainText.split(regex);
+    const matches = plainText.match(regex) || [];
+    let matchIdx = 0;
+    return parts.map((part, idx) => {
+      if (idx > 0) {
+        const matched = matches[matchIdx++];
+        return (
+          <React.Fragment key={idx}>
+            <mark className="bg-amber-200 text-amber-950 font-medium px-0.5 rounded-xs">
+              {matched}
+            </mark>
+            {part}
+          </React.Fragment>
+        );
+      }
+      return part;
+    });
+  };
+
+  const showHighlightPreview = Boolean(findText && hasSearchMatch && !isFocused);
+
+  return (
+    <div className="min-h-full bg-[#EFE5D9]/65 py-4 px-2 sm:py-6 sm:px-5 lg:py-8 lg:px-8">
+      <div
+        onClick={() => {
+          if (!isFocused && !showHighlightPreview) {
+            editorRef.current?.focus();
+          }
+        }}
+        className="max-w-[820px] w-full mx-auto bg-white border border-[#D7CCC8] shadow-[0_2px_10px_rgba(62,39,35,0.07)] rounded-sm px-5 py-6 sm:px-12 sm:py-10 min-h-[calc(100vh-11rem)] flex flex-col cursor-text"
+      >
+        <div className="border-b border-[#EFEBE9] pb-3 mb-5 select-none">
+          {chapterTitle && (
+            <h2 className="text-lg sm:text-xl font-bold text-[#3E2723] tracking-tight mb-1">
+              {chapterTitle}
+            </h2>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#8D6E63] tabular-nums">
+            <span>{paragraphCount} đoạn</span>
+            <span aria-hidden="true">·</span>
+            <span>{wordCount.toLocaleString('vi-VN')} từ</span>
+            <span aria-hidden="true">·</span>
+            <span>{charCount.toLocaleString('vi-VN')} ký tự</span>
+          </div>
+        </div>
+
+        <div className="relative flex-1">
+          {!showHighlightPreview && paragraphCount === 0 && !isFocused && (
+            <div
+              style={{ fontSize: `${fontSize}px` }}
+              className="pointer-events-none absolute top-0 left-0 text-[#BCAAA4] leading-[1.75]"
+            >
+              Bắt đầu viết hoặc chỉnh sửa nội dung chương như trong Google Docs...
+            </div>
+          )}
+
+          {showHighlightPreview && (
+            <div
+              onClick={() => {
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) return;
+                isFocusedRef.current = true;
+                setIsFocused(true);
+                requestAnimationFrame(() => editorRef.current?.focus());
+              }}
+              style={{ fontSize: `${fontSize}px` }}
+              className="w-full text-[#3E2723] leading-[1.75] [&>p]:mb-[0.85em] [&>p:last-child]:mb-0 break-words cursor-text"
+            >
+              {paragraphsPreview.map((para, idx) => (
+                <p key={idx}>{renderHighlightedParagraph(para)}</p>
+              ))}
+            </div>
+          )}
+
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            spellCheck={false}
+            onInput={handleInput}
+            onPaste={handlePaste}
+            onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            style={{ fontSize: `${fontSize}px` }}
+            className={`${showHighlightPreview ? 'hidden' : 'block'} w-full min-h-[460px] outline-none text-[#3E2723] leading-[1.75] [&>p]:mb-[0.85em] [&>p:last-child]:mb-0 [&>div]:mb-[0.85em] [&>div:last-child]:mb-0 break-words`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const TranslationOutput: React.FC<TranslationOutputProps> = ({ 
     data, 
+    chapterTitle,
     customTerms = [], 
     characters = [],
     completedSegments = [],
@@ -651,6 +1136,36 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     onOpenDictionary,
     onOpenWorldInfo
 }) => {
+  const [editorViewMode, setEditorViewMode] = useState<'table' | 'only-edit'>(() => {
+    try {
+      const saved = localStorage.getItem('editor_view_mode');
+      return saved === 'only-edit' ? 'only-edit' : 'table';
+    } catch {
+      return 'table';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('editor_view_mode', editorViewMode);
+    } catch {}
+  }, [editorViewMode]);
+
+  const [onlyEditFontSize, setOnlyEditFontSize] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('only_edit_font_size'));
+      return Number.isFinite(saved) && saved >= 12 && saved <= 28 ? saved : 16;
+    } catch {
+      return 16;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('only_edit_font_size', String(onlyEditFontSize));
+    } catch {}
+  }, [onlyEditFontSize]);
+
   const [showNamingModal, setShowNamingModal] = useState(false);
   const [exportFileName, setExportFileName] = useState('');
   const [showSaveArchiveModal, setShowSaveArchiveModal] = useState(false);
@@ -1484,9 +1999,75 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   return (
     <div className="bg-white flex flex-col h-full overflow-hidden relative border border-[#D7CCC8] rounded-xl shadow-sm">
       <div className="shrink-0 bg-white">
-          <div className="flex items-center justify-between bg-[#EFEBE9] px-3 py-1 border-b border-[#D7CCC8]">
-             <div className="flex items-center gap-1.5 text-[#3E2723] font-bold text-[10px] uppercase tracking-tight"><TableProperties size={12} /><span>Bảng đối chiếu</span></div>
-             <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between gap-2 bg-[#EFEBE9] px-2.5 sm:px-3 py-1 border-b border-[#D7CCC8] overflow-x-auto no-scrollbar">
+             <div className="flex items-center bg-[#EFE5D9] p-0.5 rounded-md border border-[#D7CCC8] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEditorViewMode('table')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
+                    editorViewMode === 'table'
+                      ? 'bg-white text-[#3E2723] shadow-2xs'
+                      : 'text-[#6D4C41] hover:text-[#3E2723]'
+                  }`}
+                  title="Xem bảng đối chiếu Raw / Vietphrase / DeepL / Edit"
+                >
+                  <TableProperties size={11} />
+                  <span>Đối chiếu</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditorViewMode('only-edit')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
+                    editorViewMode === 'only-edit'
+                      ? 'bg-white text-[#3E2723] shadow-2xs'
+                      : 'text-[#6D4C41] hover:text-[#3E2723]'
+                  }`}
+                  title="Chế độ Only Edit như soạn truyện trên Google Docs"
+                >
+                  <FileText size={11} />
+                  <span>Only Edit</span>
+                </button>
+             </div>
+
+             {editorViewMode === 'only-edit' && (
+               <div
+                 className="flex items-center bg-white border border-[#D7CCC8] rounded-md px-0.5 py-0.5 shrink-0"
+                 title="Chỉnh cỡ chữ ở chế độ Only Edit"
+               >
+                 <button
+                   type="button"
+                   onMouseDown={(e) => e.preventDefault()}
+                   onClick={() => setOnlyEditFontSize(prev => Math.max(12, prev - 1))}
+                   disabled={onlyEditFontSize <= 12}
+                   className="w-5 h-4 flex items-center justify-center rounded text-[11px] font-bold text-[#5D4037] hover:bg-[#EFEBE9] disabled:opacity-30 cursor-pointer"
+                   title="Giảm cỡ chữ"
+                 >
+                   -
+                 </button>
+                 <select
+                   value={onlyEditFontSize}
+                   onChange={(e) => setOnlyEditFontSize(Number(e.target.value))}
+                   className="bg-transparent text-[#3E2723] text-[10px] font-bold font-mono tabular-nums outline-none cursor-pointer px-1 text-center"
+                   title="Chọn cỡ chữ"
+                 >
+                   {[12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].map(sz => (
+                     <option key={sz} value={sz}>{sz}px</option>
+                   ))}
+                 </select>
+                 <button
+                   type="button"
+                   onMouseDown={(e) => e.preventDefault()}
+                   onClick={() => setOnlyEditFontSize(prev => Math.min(28, prev + 1))}
+                   disabled={onlyEditFontSize >= 28}
+                   className="w-5 h-4 flex items-center justify-center rounded text-[11px] font-bold text-[#5D4037] hover:bg-[#EFEBE9] disabled:opacity-30 cursor-pointer"
+                   title="Tăng cỡ chữ"
+                 >
+                   +
+                 </button>
+               </div>
+             )}
+
+             <div className="flex items-center gap-1 shrink-0">
                 {/* Undo / Redo */}
                 <div className="flex items-center gap-0.5 border-r border-[#D7CCC8] pr-1.5 mr-0.5">
                    <button 
@@ -1676,7 +2257,7 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                 </div>
              </div>
           )}
-          {hasSegments && (
+          {editorViewMode === 'table' && hasSegments && (
              <div className="hidden lg:flex w-full bg-[#EFEBE9] text-[#5D4037] text-[9px] font-bold uppercase tracking-wider shadow-sm border-t border-[#D7CCC8]">
                  <div className="w-[45%] p-1 border-r border-[#D7CCC8] pl-2">Raw</div>
                  <div className="w-[55%] p-1 pl-2">Edit</div>
@@ -1685,7 +2266,20 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto bg-white pb-4">
-        {hasSegments ? (
+        {editorViewMode === 'only-edit' ? (
+          <OnlyEditDocument
+            segments={data.segments || []}
+            fallbackText={data.naturalTranslation || ''}
+            chapterTitle={chapterTitle}
+            fontSize={onlyEditFontSize}
+            novelId={currentNovelId}
+            findText={findText}
+            matchCase={matchCase}
+            matchDiacritics={matchDiacritics}
+            onUpdateSegment={onUpdateSegment}
+            onUpdateAllSegments={onUpdateAllSegments}
+          />
+        ) : hasSegments ? (
              <div className="w-full text-left m-0 p-0 border-none block lg:table lg:table-fixed border-collapse">
                 <div className="divide-y divide-[#EFEBE9] block lg:table-row-group">
                    {data.segments.map((seg, idx) => {

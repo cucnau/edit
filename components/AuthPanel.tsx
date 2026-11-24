@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { auth } from '../services/firebase';
 import { 
   signInWithPopup, 
@@ -252,8 +253,8 @@ export const AuthPanel: React.FC = () => {
       )}
 
       {/* AUTHENTICATION MODAL */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+      {isModalOpen && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
           {/* Backdrop Click */}
           <div className="absolute inset-0" onClick={() => setIsModalOpen(false)} />
           
@@ -514,7 +515,8 @@ export const AuthPanel: React.FC = () => {
             )}
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

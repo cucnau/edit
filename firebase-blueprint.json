@@ -66,6 +66,7 @@
         "novelId": "string",
         "name": "string",
         "timestamp": "number",
+        "resultUpdatedAt": "number",
         "inputText": "string",
         "deeplText": "string",
         "preEditedText": "string",
@@ -87,20 +88,25 @@
     },
     {
       "name": "activeSessions",
-      "purpose": "Stores real-time active editing session state for multi-device synchronization (laptop and phone)",
+      "purpose": "Stores real-time active editing session state per document/chapter for multi-tab and multi-device collaborative synchronization",
       "access_pattern": "Users can read and write only their own active sessions.",
       "document_schema": {
         "userId": "string",
+        "docKey": "string",
         "novelId": "string",
         "updatedAt": "number",
+        "resultUpdatedAt": "number",
         "deviceId": "string",
         "currentChapterId": "string",
         "inputText": "string",
         "deeplText": "string",
         "preEditedText": "string",
+        "fieldsUpdatedAt": "object",
         "status": "string",
         "completedSegments": "array",
-        "result": "object"
+        "result": "object",
+        "segmentEdits": "object",
+        "completedEdits": "object"
       }
     }
   ],

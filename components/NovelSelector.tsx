@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getNovels, createNovel } from '../services/firestoreService';
+import { getNovels, createNovel, listenToNovelsRealtime } from '../services/firestoreService';
 import { Novel } from '../types';
 import { Book, Plus, Loader2, AlertTriangle } from 'lucide-react';
 import { auth } from '../services/firebase';
@@ -17,16 +17,30 @@ export const NovelSelector: React.FC<NovelSelectorProps> = ({ currentNovelId, on
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let unsubNovels: (() => void) | null = null;
     const unsub = onAuthStateChanged(auth, (user) => {
       setIsSignedIn(!!user);
+      if (unsubNovels) {
+        unsubNovels();
+        unsubNovels = null;
+      }
       if (user) {
         fetchNovels();
+        unsubNovels = listenToNovelsRealtime((liveNovels) => {
+          setNovels(liveNovels);
+          if (liveNovels.length > 0 && !currentNovelId) {
+            onSelectNovel(liveNovels[0].id, true);
+          }
+        });
       } else {
         setNovels([]);
         setError(null);
       }
     });
-    return () => unsub();
+    return () => {
+      unsub();
+      if (unsubNovels) unsubNovels();
+    };
   }, []);
 
   const fetchNovels = async () => {

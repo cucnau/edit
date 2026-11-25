@@ -17,7 +17,10 @@ const getBrowserAiClient = (): GoogleGenAI => {
     return browserAiClient;
   }
   cachedBrowserApiKey = apiKey;
-  browserAiClient = new GoogleGenAI({ apiKey });
+  browserAiClient = new GoogleGenAI({
+    apiKey,
+    apiVersion: 'v1beta',
+  });
   return browserAiClient;
 };
 
@@ -34,6 +37,8 @@ const FALLBACK_MODELS = [
   'gemini-pro-latest',
   'gemini-flash-latest',
   'gemini-flash-lite-latest',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
 ];
 
 const MIN_REQUEST_INTERVAL = 200;

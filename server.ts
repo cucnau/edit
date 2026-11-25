@@ -79,6 +79,7 @@ const getAiClient = (): GoogleGenAI => {
   cachedApiKey = apiKey;
   aiClient = new GoogleGenAI({
     apiKey,
+    apiVersion: 'v1beta',
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build',
@@ -102,6 +103,8 @@ const FALLBACK_MODELS = [
   'gemini-pro-latest',
   'gemini-flash-latest',
   'gemini-flash-lite-latest',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
 ];
 
 const MIN_REQUEST_INTERVAL = 200;

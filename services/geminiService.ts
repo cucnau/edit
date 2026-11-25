@@ -39,7 +39,7 @@ const FALLBACK_MODELS = [
   'gemini-pro-latest',
 ];
 
-const MIN_REQUEST_INTERVAL = 200;
+const MIN_REQUEST_INTERVAL = 250;
 
 const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -86,13 +86,14 @@ const translationSchema = {
 };
 
 let lastRequestTime = 0;
+let globalCooldownUntil = 0;
 let quotaChain: Promise<void> = Promise.resolve();
 const waitForQuota = (): Promise<void> => {
   const next = quotaChain.then(async () => {
     const now = Date.now();
-    const timeSinceLast = now - lastRequestTime;
-    if (timeSinceLast < MIN_REQUEST_INTERVAL) {
-      await new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL - timeSinceLast));
+    const targetTime = Math.max(lastRequestTime + MIN_REQUEST_INTERVAL, globalCooldownUntil);
+    if (targetTime > now) {
+      await new Promise((resolve) => setTimeout(resolve, targetTime - now));
     }
     lastRequestTime = Date.now();
   });
@@ -100,8 +101,33 @@ const waitForQuota = (): Promise<void> => {
   return next;
 };
 
+const disabledModelsForSession = new Set<string>();
+let preferredModelId: string | null = null;
+
 const cleanJsonString = (str: string) => {
   return str.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
+};
+
+const parseRetryDelayMs = (message: string): number | null => {
+  const retryMatch =
+    message.match(/retry in\s+([\d.]+)\s*s/i) ||
+    message.match(/Please retry in\s+([\d.]+)\s*s/i);
+  if (!retryMatch) return null;
+  const parsedSeconds = parseFloat(retryMatch[1]);
+  if (isNaN(parsedSeconds)) return null;
+  return Math.max(1500, Math.ceil(parsedSeconds * 1000) + 1000);
+};
+
+const getOrderedActiveModels = (): string[] => {
+  const activeModels = FALLBACK_MODELS.filter((m) => !disabledModelsForSession.has(m));
+  const baseModels = activeModels.length > 0 ? activeModels : [...FALLBACK_MODELS];
+  if (activeModels.length === 0) {
+    disabledModelsForSession.clear();
+  }
+  if (preferredModelId && baseModels.includes(preferredModelId)) {
+    return [preferredModelId, ...baseModels.filter((m) => m !== preferredModelId)];
+  }
+  return baseModels;
 };
 
 const performBrowserApiCallWithFallback = async (
@@ -109,81 +135,121 @@ const performBrowserApiCallWithFallback = async (
 ): Promise<TranslationResponse & { modelUsed: string }> => {
   let lastError: unknown = null;
   let lastMeaningfulError: unknown = null;
-  const maxRetriesPerModel = 3;
-  const modelsToTry = [...FALLBACK_MODELS];
+  const maxRounds = 3;
 
-  for (const modelId of modelsToTry) {
-    let retries = 0;
+  for (let round = 1; round <= maxRounds; round++) {
+    const modelsToTry = getOrderedActiveModels();
 
-    while (retries <= maxRetriesPerModel) {
-      try {
-        await waitForQuota();
-        const apiConfig: Record<string, unknown> = {
-          responseMimeType: 'application/json',
-          responseSchema: translationSchema,
-          safetySettings: SAFETY_SETTINGS,
-        };
-        if (!modelId.startsWith('gemini-4-')) {
-          apiConfig.temperature = 0.1;
-        }
-        const response = await getBrowserAiClient().models.generateContent({
-          model: modelId,
-          contents: prompt,
-          config: apiConfig,
-        });
+    let roundHadRetryableError = false;
+    let minSuggestedWaitMs: number | null = null;
+    let sawRateLimitThisRound = false;
 
-        const text = response.text;
-        if (!text) throw new Error('AI không phản hồi');
+    for (const modelId of modelsToTry) {
+      const maxAttemptsForModel = round === 1 ? 1 : 2;
+      for (let attempt = 1; attempt <= maxAttemptsForModel; attempt++) {
+        try {
+          await waitForQuota();
+          const apiConfig: Record<string, unknown> = {
+            responseMimeType: 'application/json',
+            responseSchema: translationSchema,
+            safetySettings: SAFETY_SETTINGS,
+          };
+          if (!modelId.startsWith('gemini-4-')) {
+            apiConfig.temperature = 0.1;
+          }
+          const response = await getBrowserAiClient().models.generateContent({
+            model: modelId,
+            contents: prompt,
+            config: apiConfig,
+          });
 
-        const cleaned = cleanJsonString(text);
-        const parsed = JSON.parse(cleaned) as TranslationResponse;
-        return { ...parsed, modelUsed: modelId };
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e || '');
-        console.warn(`Model ${modelId} thất bại (Lần ${retries + 1}):`, message);
-        lastError = e;
+          const text = response.text;
+          if (!text) throw new Error('AI không phản hồi');
 
-        const isNotFound =
-          message.includes('404') ||
-          message.includes('NOT_FOUND') ||
-          message.includes('is not found');
-        if (!isNotFound) {
-          lastMeaningfulError = e;
-        }
+          const cleaned = cleanJsonString(text);
+          const parsed = JSON.parse(cleaned) as TranslationResponse;
+          preferredModelId = modelId;
+          return { ...parsed, modelUsed: modelId };
+        } catch (e: unknown) {
+          const message = e instanceof Error ? e.message : String(e || '');
+          console.warn(`[Vòng ${round}/${maxRounds}] Model ${modelId} thất bại (Lần ${attempt}):`, message);
+          lastError = e;
 
-        const isZeroQuota = message.includes('limit: 0');
-        const isOverloaded =
-          !isZeroQuota &&
-          (message.includes('503') ||
-            message.includes('429') ||
-            message.includes('high demand') ||
-            message.includes('UNAVAILABLE') ||
-            message.includes('quota') ||
-            message.includes('RESOURCE_EXHAUSTED'));
+          const isNotFound =
+            message.includes('404') ||
+            message.includes('NOT_FOUND') ||
+            message.includes('is not found');
+          const isZeroQuota = message.includes('limit: 0');
 
-        if (isOverloaded && retries < maxRetriesPerModel) {
-          const retryMatch =
-            message.match(/retry in\s+([\d.]+)\s*s/i) ||
-            message.match(/Please retry in\s+([\d.]+)\s*s/i);
-          let waitTime = Math.pow(2, retries) * 3000;
-          if (retryMatch) {
-            const parsedSeconds = parseFloat(retryMatch[1]);
-            if (!isNaN(parsedSeconds)) {
-              waitTime = parsedSeconds * 1000 + 1500;
-            }
+          if (isNotFound || isZeroQuota) {
+            disabledModelsForSession.add(modelId);
+            if (preferredModelId === modelId) preferredModelId = null;
+            break;
           }
 
-          console.log(`Đang bị giới hạn quota/tải. Đợi ${Math.ceil(waitTime / 1000)} giây trước khi thử lại...`);
-          await new Promise((r) => setTimeout(r, waitTime));
-          retries++;
-        } else {
-          if (!isNotFound && !isZeroQuota) {
+          lastMeaningfulError = e;
+
+          const isKeyInvalid =
+            message.includes('API_KEY_INVALID') ||
+            message.includes('API key not valid');
+          if (isKeyInvalid) {
+            throw new Error(message);
+          }
+
+          const isRateLimited =
+            message.includes('429') ||
+            message.includes('quota') ||
+            message.includes('RESOURCE_EXHAUSTED');
+          const isUnavailable =
+            message.includes('503') ||
+            message.includes('high demand') ||
+            message.includes('UNAVAILABLE');
+          const isRetryable = isRateLimited || isUnavailable;
+
+          if (isRetryable) {
+            roundHadRetryableError = true;
+            if (isRateLimited) sawRateLimitThisRound = true;
+            const parsedWait = parseRetryDelayMs(message);
+            if (parsedWait !== null) {
+              minSuggestedWaitMs =
+                minSuggestedWaitMs === null ? parsedWait : Math.min(minSuggestedWaitMs, parsedWait);
+            }
+
+            if (attempt < maxAttemptsForModel && parsedWait !== null && parsedWait <= 6000) {
+              await new Promise((r) => setTimeout(r, parsedWait));
+              continue;
+            }
+            break;
+          }
+
+          // Lỗi khác (ví dụ JSON bị cắt hoặc mạng chập chờn): thử lại 1 lần ngắn hoặc chuyển model
+          if (attempt < maxAttemptsForModel) {
             await new Promise((r) => setTimeout(r, 1000));
+            continue;
           }
           break;
         }
       }
     }
+
+    if (!roundHadRetryableError || round >= maxRounds) {
+      break;
+    }
+
+    const roundCooldownMs =
+      minSuggestedWaitMs !== null
+        ? Math.min(62000, Math.max(4000, minSuggestedWaitMs))
+        : sawRateLimitThisRound
+        ? round === 1
+          ? 12000
+          : 35000
+        : 4000;
+
+    console.log(
+      `Các model đang bận/chạm giới hạn tạm thời. Tự động đợi ${Math.ceil(roundCooldownMs / 1000)} giây rồi thử lại (Vòng ${round + 1}/${maxRounds})...`
+    );
+    globalCooldownUntil = Math.max(globalCooldownUntil, Date.now() + roundCooldownMs);
+    await new Promise((r) => setTimeout(r, roundCooldownMs));
   }
 
   const finalError = lastMeaningfulError || lastError;
@@ -192,10 +258,10 @@ const performBrowserApiCallWithFallback = async (
     throw new Error('Văn bản quá dài khiến AI bị quá tải dữ liệu. Hãy chia nhỏ văn bản (tầm 15-20 dòng) để AI dịch đầy đủ nhất.');
   }
   if (lastMessage.includes('503') || lastMessage.includes('high demand') || lastMessage.includes('UNAVAILABLE')) {
-    throw new Error('Máy chủ Gemini AI đang quá tải tạm thời (503). Bạn đợi vài giây rồi ấn Phân tích lại nhé!');
+    throw new Error('Máy chủ Gemini AI đang quá tải tạm thời (503) sau nhiều lần tự động thử lại.');
   }
   if (lastMessage.includes('429') || lastMessage.includes('RESOURCE_EXHAUSTED') || lastMessage.includes('quota')) {
-    throw new Error('API key đang chạm giới hạn lượt gọi/phút (429). Bạn đợi khoảng 30–60 giây rồi ấn Phân tích lại nhé!');
+    throw new Error('API key vẫn đang bị giới hạn lượt gọi từ Google (429) sau khi đã tự động chờ và thử lại nhiều lần.');
   }
 
   throw new Error(lastMessage || 'Tất cả các model AI đều không thể phản hồi lúc này.');
@@ -334,15 +400,24 @@ ${relationships.length > 0 ? `- Xưng hô:\n  ${relationships.map((r) => `Giữa
     };
   };
 
-  const workerCount = Math.min(MAX_CONCURRENT_CHUNKS, chunks.length);
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextChunkIdx < chunks.length) {
-        const currentIdx = nextChunkIdx++;
-        await processChunk(currentIdx);
-      }
-    })
-  );
+  nextChunkIdx = 0;
+  if (!preferredModelId && chunks.length > 1) {
+    nextChunkIdx = 1;
+    await processChunk(0);
+  }
+
+  const remainingChunks = chunks.length - nextChunkIdx;
+  if (remainingChunks > 0) {
+    const workerCount = Math.min(MAX_CONCURRENT_CHUNKS, remainingChunks);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextChunkIdx < chunks.length) {
+          const currentIdx = nextChunkIdx++;
+          await processChunk(currentIdx);
+        }
+      })
+    );
+  }
 
   let allSegments: Array<{ source: string; natural: string; quick: string }> = [];
   const allVocabulary: VocabItem[] = [];
@@ -546,7 +621,8 @@ Hãy trả về một danh sách các chuỗi, trong đó mỗi chuỗi tương 
     };
 
     const maxRetriesPerModel = 2;
-    const modelsToTry = [...FALLBACK_MODELS];
+    const activeAlignModels = FALLBACK_MODELS.filter((m) => !disabledModelsForSession.has(m));
+    const modelsToTry = activeAlignModels.length > 0 ? activeAlignModels : [...FALLBACK_MODELS];
 
     for (const modelId of modelsToTry) {
       let retries = 0;
@@ -577,14 +653,20 @@ Hãy trả về một danh sách các chuỗi, trong đó mỗi chuỗi tương 
           return result;
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err || '');
+          if (message.includes('404') || message.includes('NOT_FOUND') || message.includes('is not found') || message.includes('limit: 0')) {
+            disabledModelsForSession.add(modelId);
+            break;
+          }
           if (
-            !message.includes('limit: 0') &&
-            (message.includes('429') || message.includes('Resource has been exhausted'))
+            message.includes('429') ||
+            message.includes('Resource has been exhausted') ||
+            message.includes('RESOURCE_EXHAUSTED')
           ) {
+            const parsedWait = parseRetryDelayMs(message) ?? 5000;
             console.warn(
-              `[alignTextWithAI] Quota exceeded on ${modelId} (Lần ${retries + 1}/${maxRetriesPerModel + 1}). Thử lại sau 2s...`
+              `[alignTextWithAI] Quota exceeded on ${modelId} (Lần ${retries + 1}/${maxRetriesPerModel + 1}). Thử lại sau ${Math.ceil(parsedWait / 1000)}s...`
             );
-            await new Promise((r) => setTimeout(r, 2000));
+            await new Promise((r) => setTimeout(r, Math.min(parsedWait, 15000)));
             retries++;
             continue;
           }

@@ -291,7 +291,7 @@ function AppContent() {
         return {
           ...createNewSession(parsed.docKey, parsed.currentNovelId),
           ...parsed,
-          status: hasSegments ? AppStatus.SUCCESS : (parsed.status || AppStatus.IDLE),
+          status: hasSegments ? AppStatus.SUCCESS : (parsed.status === AppStatus.ERROR ? AppStatus.ERROR : AppStatus.IDLE),
           customTerms: [],
           result: sanitizedRes
         };
@@ -593,7 +593,7 @@ function AppContent() {
           inputText: incoming.inputText !== undefined ? incoming.inputText : prev.inputText,
           deeplText: incoming.deeplText !== undefined ? incoming.deeplText : prev.deeplText,
           preEditedText: incoming.preEditedText !== undefined ? incoming.preEditedText : prev.preEditedText,
-          status: (incoming.status as AppStatus) || AppStatus.SUCCESS,
+          status: mergedSegments.length > 0 ? AppStatus.SUCCESS : (incoming.status === AppStatus.ERROR ? AppStatus.ERROR : AppStatus.IDLE),
           result: nextResult,
           resultUpdatedAt: incomingResetTs,
           completedSegments: Array.from(completedSet),
@@ -1704,9 +1704,9 @@ function AppContent() {
         deeplText: currentSession.deeplText || '',
         timestamp: Date.now()
       };
+      setChapters(prev => prev.map(c => c.id === existingChapter.id ? updatedChapter : c));
       await db.saveChapter(updatedChapter);
       saveChapterToCloud(updatedChapter).catch(console.warn);
-      setChapters(prev => prev.map(c => c.id === existingChapter.id ? updatedChapter : c));
     } else {
       // CHƯA CÓ TRONG KHO: Người dùng quên lưu nên tự động lưu kho
       const firstLine = inputTrim.split('\n')[0].trim();
@@ -1728,9 +1728,9 @@ function AppContent() {
         completedSegments: currentSession.completedSegments || []
       };
 
+      setChapters(prev => [newChapter, ...prev]);
       await db.saveChapter(newChapter);
       saveChapterToCloud(newChapter).catch(console.warn);
-      setChapters(prev => [newChapter, ...prev]);
     }
   };
 
@@ -1837,24 +1837,18 @@ function AppContent() {
 
     // Trước khi phân tích văn bản mới, nếu phiên hiện tại có kết quả chưa lưu thì tự động bảo vệ vào kho
     if (session.result?.segments && session.result.segments.length > 0) {
-      await autoSaveIfUnsaved(session);
+      if (mode === 'beta') {
+        autoSaveIfUnsaved(session).catch(console.warn);
+      } else {
+        await autoSaveIfUnsaved(session);
+      }
     }
     
-    // --- BƯỚC 1: TÍNH TOÁN VIETPHRASE (LÀM TRƯỚC HOẶC SONG SONG VỚI GỌI API) ---
-    // Mặc dù gọi là làm song song, nhưng do JS đơn luồng, ta sẽ tính toán Vietphrase
-    // ngay lập tức (vì nó rất nhanh) để sẵn sàng merge khi AI trả về.
+    // --- BƯỚC 1: TÍNH TOÁN VIETPHRASE ---
     // Chuẩn hóa và làm sạch tất cả dòng trống trước khi dịch / phân tích
     const cleanInput = cleanEmptyLines(session.inputText);
     const cleanDeepl = cleanEmptyLines(session.deeplText || '');
     const cleanPreEdit = cleanEmptyLines(session.preEditedText || '');
-
-    if (cleanInput !== session.inputText || cleanDeepl !== session.deeplText || cleanPreEdit !== (session.preEditedText || '')) {
-      updateSession({
-        inputText: cleanInput,
-        deeplText: cleanDeepl,
-        preEditedText: cleanPreEdit
-      });
-    }
 
     const inputLines = cleanInput.split('\n').filter(Boolean);
     
@@ -1883,11 +1877,109 @@ function AppContent() {
     const keepChapterId = Boolean(
       existingSavedChap && (!existingSavedChap.result?.segments || existingSavedChap.result.segments.length === 0)
     );
+    const nextChapterId = keepChapterId ? session.currentChapterId : undefined;
+    const targetDocKey = nextChapterId || session.docKey || '';
 
-    // Tạo trạng thái giả lập (Draft) để người dùng thấy ngay kết quả sơ bộ nếu muốn
-    // Tuy nhiên, ở đây ta sẽ giữ trạng thái LOADING cho đến khi có AI để trải nghiệm mượt mà hơn,
-    // hoặc có thể hiển thị Quick Trans trước nếu muốn. 
-    // Ở đây mình chọn LOADING và merge kết quả sau cùng để đồng bộ.
+    const hasPreEdited = !!(cleanPreEdit && cleanPreEdit.trim());
+    const hasDeepl = !!(cleanDeepl && cleanDeepl.trim());
+
+    // CHẾ ĐỘ BETA: Không dùng AI, chia đoạn cục bộ và hiển thị bảng ngay lập tức (0ms, không LOADING)
+    if (mode === 'beta') {
+      const alignBetaLinesLocally = (rawLines: string[], pastedText: string): string[] => {
+        if (!pastedText.trim()) return new Array(rawLines.length).fill('');
+        const tLines = pastedText.split('\n').map(l => l.trim()).filter(Boolean);
+        const result = new Array(rawLines.length).fill('');
+        if (tLines.length === 0 || rawLines.length === 0) return result;
+
+        rawLines.forEach((_, idx) => {
+          if (idx < tLines.length) {
+            if (idx === rawLines.length - 1 && tLines.length > rawLines.length) {
+              result[idx] = tLines.slice(idx).join(' ');
+            } else {
+              result[idx] = tLines[idx];
+            }
+          }
+        });
+        return result;
+      };
+
+      const preEditedLines = hasPreEdited ? alignBetaLinesLocally(inputLines, cleanPreEdit) : new Array(inputLines.length).fill('');
+      const deeplLines = hasDeepl ? alignBetaLinesLocally(inputLines, cleanDeepl) : new Array(inputLines.length).fill('');
+
+      const mergedSegments = inputLines.map((line, i) => ({
+        source: line,
+        natural: preEditedLines[i] || "",
+        quick: vpSegments[i]?.quick || "",
+        deepl: hasDeepl ? (deeplLines[i] || "") : ""
+      }));
+
+      const mergedResult: TranslationResponse = {
+        segments: mergedSegments,
+        sinoVietnamese: '',
+        vocabulary: [],
+        naturalTranslation: mergedSegments.map(s => s.natural).join('\n'),
+        quickTrans: mergedSegments.map(s => s.quick).join('\n'),
+        deeplTranslation: mergedSegments.map(s => s.deepl).join('\n')
+      };
+
+      const sanitized = sanitizeResult(mergedResult);
+      const historyId = Date.now().toString();
+      const now = Date.now();
+
+      setSession(prev => ({
+        ...prev,
+        inputText: cleanInput,
+        deeplText: cleanDeepl,
+        preEditedText: cleanPreEdit,
+        result: sanitized,
+        resultUpdatedAt: now,
+        status: AppStatus.SUCCESS,
+        error: null,
+        currentHistoryId: historyId,
+        currentChapterId: nextChapterId,
+        completedSegments: []
+      }));
+
+      pushFullDocCollabToCloud({
+        inputText: cleanInput,
+        deeplText: cleanDeepl,
+        preEditedText: cleanPreEdit,
+        currentChapterId: nextChapterId,
+        result: sanitized,
+        status: AppStatus.SUCCESS,
+        currentHistoryId: historyId,
+        completedSegments: []
+      }, targetDocKey || undefined);
+
+      if (keepChapterId && sanitized) {
+        flushChapterProgressNow(sanitized, [], {
+          inputText: cleanInput,
+          deeplText: cleanDeepl,
+          preEditedText: cleanPreEdit
+        }).catch(console.warn);
+      }
+
+      const newHistoryItem: HistoryItem = {
+        id: historyId,
+        timestamp: now,
+        sourceText: cleanInput,
+        result: sanitized as TranslationResponse,
+        modelId: 'None (Local Beta)',
+        completedSegments: []
+      };
+      setHistory(prev => [newHistoryItem, ...prev].slice(0, 50));
+      return;
+    }
+
+    if (cleanInput !== session.inputText || cleanDeepl !== session.deeplText || cleanPreEdit !== (session.preEditedText || '')) {
+      updateSession({
+        inputText: cleanInput,
+        deeplText: cleanDeepl,
+        preEditedText: cleanPreEdit
+      });
+    }
+
+    // CHẾ ĐỘ EDIT: Hiển thị LOADING trong khi gọi AI
     updateSession({
       status: AppStatus.LOADING,
       error: null,
@@ -1898,64 +1990,23 @@ function AppContent() {
     });
 
     try {
-      const hasPreEdited = !!(cleanPreEdit && cleanPreEdit.trim());
-      const hasDeepl = !!(cleanDeepl && cleanDeepl.trim());
-      let data: any = null;
-      let mergedSegments = [];
+      // --- BƯỚC 2: CHẠY SONG SONG DỊCH AI & GIÓNG HÀNG DEEPL ---
+      const [translatedData, deeplLines] = await Promise.all([
+        translateText(
+          cleanInput,
+          currentTerms,
+          currentCharacters,
+          currentRelationships
+        ),
+        hasDeepl ? alignTextWithAI(inputLines, cleanDeepl, forceFastAlign) : Promise.resolve([] as string[])
+      ]);
+      const data = translatedData;
 
-      if (mode === 'beta') {
-         data = {
-             modelUsed: 'None (Local Beta)',
-             segments: [],
-             vocabulary: []
-         };
-
-         const alignBetaLinesLocally = (rawLines: string[], pastedText: string): string[] => {
-           if (!pastedText.trim()) return new Array(rawLines.length).fill('');
-           const tLines = pastedText.split('\n').map(l => l.trim()).filter(Boolean);
-           const result = new Array(rawLines.length).fill('');
-           if (tLines.length === 0 || rawLines.length === 0) return result;
-
-           rawLines.forEach((_, idx) => {
-             if (idx < tLines.length) {
-               if (idx === rawLines.length - 1 && tLines.length > rawLines.length) {
-                 result[idx] = tLines.slice(idx).join(' ');
-               } else {
-                 result[idx] = tLines[idx];
-               }
-             }
-           });
-           return result;
-         };
-
-         const preEditedLines = hasPreEdited ? alignBetaLinesLocally(inputLines, cleanPreEdit) : new Array(inputLines.length).fill('');
-         const deeplLines = hasDeepl ? alignBetaLinesLocally(inputLines, cleanDeepl) : new Array(inputLines.length).fill('');
-
-         mergedSegments = inputLines.map((line, i) => ({
-             source: line,
-             natural: preEditedLines[i] || "",
-             quick: vpSegments[i]?.quick || "",
-             deepl: hasDeepl ? (deeplLines[i] || "") : ""
-         }));
-      } else {
-         // --- BƯỚC 2: CHẠY SONG SONG DỊCH AI & GIÓNG HÀNG DEEPL ---
-         const [translatedData, deeplLines] = await Promise.all([
-           translateText(
-             cleanInput,
-             currentTerms,
-             currentCharacters,
-             currentRelationships
-           ),
-           hasDeepl ? alignTextWithAI(inputLines, cleanDeepl, forceFastAlign) : Promise.resolve([] as string[])
-         ]);
-         data = translatedData;
-
-         mergedSegments = data.segments.map((seg: any, i: number) => ({
-            ...seg,
-            quick: vpSegments[i]?.quick !== undefined ? vpSegments[i].quick : (seg.quick || ''), // Prefer local Vietphrase
-            deepl: deeplLines[i] || "" // Set DeepL reference
-         }));
-      }
+      const mergedSegments = data.segments.map((seg: any, i: number) => ({
+        ...seg,
+        quick: vpSegments[i]?.quick !== undefined ? vpSegments[i].quick : (seg.quick || ''), // Prefer local Vietphrase
+        deepl: deeplLines[i] || "" // Set DeepL reference
+      }));
 
       const mergedResult = {
          ...data,
@@ -1978,11 +2029,15 @@ function AppContent() {
       }));
 
       pushFullDocCollabToCloud({
+        inputText: cleanInput,
+        deeplText: cleanDeepl,
+        preEditedText: cleanPreEdit,
+        currentChapterId: nextChapterId,
         result: sanitized,
         status: AppStatus.SUCCESS,
         currentHistoryId: historyId,
         completedSegments: []
-      });
+      }, targetDocKey || undefined);
 
       if (keepChapterId && sanitized) {
         flushChapterProgressNow(sanitized, [], {
@@ -2397,7 +2452,15 @@ function AppContent() {
               <span className="hidden sm:inline">Edit</span>
             </button>
             <button
-              onClick={() => setMode('beta')}
+              onClick={() => {
+                setMode('beta');
+                if (session.status === AppStatus.LOADING) {
+                  setSession(prev => ({
+                    ...prev,
+                    status: prev.result?.segments?.length ? AppStatus.SUCCESS : AppStatus.IDLE
+                  }));
+                }
+              }}
               className={`w-7 h-7 sm:w-auto sm:px-3 sm:py-1 rounded-md text-[11px] font-bold transition-all flex items-center justify-center shrink-0 ${mode === 'beta' ? 'bg-[#FFECB3] text-[#3E2723] shadow-sm' : 'text-[#D7CCC8] hover:text-[#FFECB3]'}`}
             >
               <span className="sm:hidden">B</span>

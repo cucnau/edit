@@ -81,6 +81,7 @@ const getAiClient = (): GoogleGenAI => {
     apiKey,
     apiVersion: 'v1beta',
     httpOptions: {
+      apiVersion: 'v1beta',
       headers: {
         'User-Agent': 'aistudio-build',
       },
@@ -99,10 +100,12 @@ const FALLBACK_MODELS = [
   'gemini-3.1-pro-preview',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-lite-preview',
   'gemini-3-flash-preview',
   'gemini-pro-latest',
   'gemini-flash-latest',
   'gemini-flash-lite-latest',
+  'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
 ];
@@ -210,13 +213,19 @@ const performApiCallWithFallback = async (
         console.warn(`Model ${modelId} thất bại (Lần ${retries + 1}):`, message);
         lastError = e;
 
+        const isNotFound =
+          message.includes('404') ||
+          message.includes('NOT_FOUND') ||
+          message.includes('is not found');
+        const isZeroQuota = message.includes('limit: 0');
         const isOverloaded =
-          message.includes('503') ||
-          message.includes('429') ||
-          message.includes('high demand') ||
-          message.includes('UNAVAILABLE') ||
-          message.includes('quota') ||
-          message.includes('RESOURCE_EXHAUSTED');
+          !isZeroQuota &&
+          (message.includes('503') ||
+            message.includes('429') ||
+            message.includes('high demand') ||
+            message.includes('UNAVAILABLE') ||
+            message.includes('quota') ||
+            message.includes('RESOURCE_EXHAUSTED'));
 
         if (isOverloaded && retries < maxRetriesPerModel) {
           const retryMatch =
@@ -234,7 +243,9 @@ const performApiCallWithFallback = async (
           await new Promise((r) => setTimeout(r, waitTime));
           retries++;
         } else {
-          await new Promise((r) => setTimeout(r, 1000));
+          if (!isNotFound && !isZeroQuota) {
+            await new Promise((r) => setTimeout(r, 1000));
+          }
           break;
         }
       }
@@ -449,7 +460,17 @@ const quickLookupServer = async (
     required: ['pinyin', 'hanViet', 'meaning'],
   };
 
-  const lookupModels = ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.7-flash'];
+  const lookupModels = [
+    'gemini-4-hydrogen',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-3-flash-preview',
+    'gemini-flash-latest',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+  ];
   for (const modelId of lookupModels) {
     try {
       const apiConfig: Record<string, unknown> = {
@@ -557,7 +578,10 @@ Hãy trả về một danh sách các chuỗi, trong đó mỗi chuỗi tương 
       } catch (err: unknown) {
         lastError = err;
         const message = err instanceof Error ? err.message : String(err || '');
-        if (message.includes('429') || message.includes('Resource has been exhausted')) {
+        if (
+          !message.includes('limit: 0') &&
+          (message.includes('429') || message.includes('Resource has been exhausted'))
+        ) {
           console.warn(
             `[alignTextWithAI] Quota exceeded on ${modelId} (Lần ${retries + 1}/${maxRetriesPerModel + 1}). Thử lại sau 2s...`
           );

@@ -30,20 +30,13 @@ const getBrowserAiClient = (): GoogleGenAI => {
 const FALLBACK_MODELS = [
   'gemini-4-hydrogen',
   'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.1-pro-preview',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-flash-lite-preview',
   'gemini-3-flash-preview',
-  'gemini-pro-latest',
   'gemini-flash-latest',
   'gemini-flash-lite-latest',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
+  'gemini-3.1-pro-preview',
+  'gemini-pro-latest',
 ];
 
 const MIN_REQUEST_INTERVAL = 200;
@@ -115,6 +108,7 @@ const performBrowserApiCallWithFallback = async (
   prompt: string
 ): Promise<TranslationResponse & { modelUsed: string }> => {
   let lastError: unknown = null;
+  let lastMeaningfulError: unknown = null;
   const maxRetriesPerModel = 3;
   const modelsToTry = [...FALLBACK_MODELS];
 
@@ -153,6 +147,10 @@ const performBrowserApiCallWithFallback = async (
           message.includes('404') ||
           message.includes('NOT_FOUND') ||
           message.includes('is not found');
+        if (!isNotFound) {
+          lastMeaningfulError = e;
+        }
+
         const isZeroQuota = message.includes('limit: 0');
         const isOverloaded =
           !isZeroQuota &&
@@ -188,12 +186,16 @@ const performBrowserApiCallWithFallback = async (
     }
   }
 
-  const lastMessage = lastError instanceof Error ? lastError.message : '';
+  const finalError = lastMeaningfulError || lastError;
+  const lastMessage = finalError instanceof Error ? finalError.message : '';
   if (lastMessage.includes('Unterminated string') || lastMessage.includes('Unexpected end')) {
     throw new Error('Văn bản quá dài khiến AI bị quá tải dữ liệu. Hãy chia nhỏ văn bản (tầm 15-20 dòng) để AI dịch đầy đủ nhất.');
   }
-  if (lastMessage.includes('503') || lastMessage.includes('high demand')) {
-    throw new Error('Hệ thống AI đang quá tải do có nhiều người cùng sử dụng lúc này. Bạn thử ấn dịch lại lần nữa nhé!');
+  if (lastMessage.includes('503') || lastMessage.includes('high demand') || lastMessage.includes('UNAVAILABLE')) {
+    throw new Error('Máy chủ Gemini AI đang quá tải tạm thời (503). Bạn đợi vài giây rồi ấn Phân tích lại nhé!');
+  }
+  if (lastMessage.includes('429') || lastMessage.includes('RESOURCE_EXHAUSTED') || lastMessage.includes('quota')) {
+    throw new Error('API key đang chạm giới hạn lượt gọi/phút (429). Bạn đợi khoảng 30–60 giây rồi ấn Phân tích lại nhé!');
   }
 
   throw new Error(lastMessage || 'Tất cả các model AI đều không thể phản hồi lúc này.');
@@ -434,13 +436,11 @@ export const quickLookup = async (
     const lookupModels = [
       'gemini-4-hydrogen',
       'gemini-3.8-flash',
-      'gemini-3.7-flash',
+      'gemini-3.5-flash-lite',
       'gemini-3.1-flash-lite',
-      'gemini-3.1-flash-lite-preview',
       'gemini-3-flash-preview',
       'gemini-flash-latest',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
+      'gemini-flash-lite-latest',
     ];
     for (const modelId of lookupModels) {
       try {

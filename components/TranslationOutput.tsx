@@ -1556,8 +1556,14 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
   useEffect(() => {
     let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+    let isMouseDown = false;
+    let isTouchActive = false;
+    let isTouchSession = false;
+    let lastTouchTime = 0;
 
     const inspectSelection = (targetEl?: HTMLElement | null) => {
+      if (isMouseDown || isTouchActive) return;
+
       const activeEl = document.activeElement as HTMLElement | null;
       if (targetEl?.closest('.selection-popup-container') || activeEl?.closest('.selection-popup-container')) {
         return;
@@ -1653,34 +1659,95 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
       }
     };
 
+    const handleMouseDown = (e: MouseEvent) => {
+      if (Date.now() - lastTouchTime < 700) return;
+      isTouchSession = false;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.selection-popup-container')) {
+        return;
+      }
+      isMouseDown = true;
+      if (selectionTimer) {
+        clearTimeout(selectionTimer);
+        selectionTimer = null;
+      }
+      lastPopupTextRef.current = '';
+      setSelectionPopup(null);
+    };
+
     const handleMouseUp = (e: MouseEvent) => {
-      if (selectionTimer) clearTimeout(selectionTimer);
+      if (Date.now() - lastTouchTime < 700) return;
+      isMouseDown = false;
+      isTouchSession = false;
+      if (selectionTimer) {
+        clearTimeout(selectionTimer);
+        selectionTimer = null;
+      }
       inspectSelection(e.target as HTMLElement | null);
     };
 
+    const handleTouchStart = (e: TouchEvent) => {
+      lastTouchTime = Date.now();
+      isTouchSession = true;
+      isTouchActive = true;
+      isMouseDown = false;
+      if (selectionTimer) {
+        clearTimeout(selectionTimer);
+        selectionTimer = null;
+      }
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.selection-popup-container')) {
+        return;
+      }
+    };
+
     const handleTouchEnd = (e: TouchEvent) => {
+      lastTouchTime = Date.now();
+      isTouchSession = true;
+      isTouchActive = false;
       const target = e.target as HTMLElement | null;
       if (target?.closest('.selection-popup-container')) return;
       if (selectionTimer) clearTimeout(selectionTimer);
       selectionTimer = setTimeout(() => {
         inspectSelection(target);
-      }, 140);
+      }, 150);
+    };
+
+    const handleTouchCancel = () => {
+      isTouchActive = false;
     };
 
     const handleSelectionChange = () => {
+      // Trên máy tính (chuột), chỉ xử lý sau khi mouseup để không hiện popup giữa lúc đang kéo chọn chữ
+      if (isMouseDown || isTouchActive || !isTouchSession) {
+        return;
+      }
       if (selectionTimer) clearTimeout(selectionTimer);
       selectionTimer = setTimeout(() => {
         inspectSelection(null);
       }, 240);
     };
 
+    const handleWindowBlur = () => {
+      isMouseDown = false;
+      isTouchActive = false;
+    };
+
+    window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    document.addEventListener('touchcancel', handleTouchCancel, { passive: true });
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => {
       if (selectionTimer) clearTimeout(selectionTimer);
+      window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('touchstart', handleTouchStart);
       document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchCancel);
       document.removeEventListener('selectionchange', handleSelectionChange);
     };
   }, [customTerms, characters, customMap, onUpdateTerms, onUpdateCharacters, currentNovelId]);

@@ -121,15 +121,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // Fetch when novel changes
-  useEffect(() => {
-      if (isSignedIn && currentNovelId) {
-          const timer = setTimeout(() => {
-              handlePullFromCloud(true);
-          }, 500);
-          return () => clearTimeout(timer);
-      }
-  }, [currentNovelId, isSignedIn]);
+  // Đồng bộ tự động được quản lý tập trung theo thời gian thực ở App.tsx; DictionarySidebar vẫn giữ nút Tải về / Đẩy lên thủ công.
 
   const termsRef = useRef(terms);
   useEffect(() => {
@@ -192,7 +184,7 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
      });
   }, [refreshTrigger]);
 
-  // Auto-Pull on mount or when switching novel / sign in
+  // Lần đầu mở bảng hoặc đổi truyện khi đăng nhập: tải lại 1 lần để đảm bảo khớp Cloud
   useEffect(() => {
     if (isSignedIn && currentNovelId && !isSyncing && !isPullingRef.current) {
       const timer = setTimeout(() => {
@@ -202,21 +194,9 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
     }
   }, [isSignedIn, currentNovelId]);
 
-  // AUTO SYNC LOGIC (Push)
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    
-    if (!autoSync || !isSignedIn || isPullingRef.current || terms.length === 0) return;
-    
-    const timer = setTimeout(() => {
-      handlePushToCloud(true);
-    }, 3500);
-
-    return () => clearTimeout(timer);
-  }, [terms, autoSync, isSignedIn]);
+    isInitialMount.current = false;
+  }, []);
 
   // Filter terms belonging strictly to current novel or global
   const currentNovelTerms = useMemo(() => {
@@ -370,19 +350,21 @@ export const DictionarySidebar: React.FC<DictionarySidebarProps> = ({
               
               return {
                   ...cloudTerm,
-                  id: localTerm.id || cloudTerm.id,
+                  id: cloudTerm.id || localTerm.id,
                   novelId: currentNovelId,
-                  category: (!hasCloudCat && hasLocalCat) ? localTerm.category : cloudTerm.category,
-                  meaning: localTerm.meaning || cloudTerm.meaning
+                  category: hasCloudCat ? cloudTerm.category : (hasLocalCat ? localTerm.category : undefined),
+                  meaning: cloudTerm.meaning || localTerm.meaning
               };
           }
           return { ...cloudTerm, novelId: currentNovelId };
       });
 
-      // Bổ sung các từ cục bộ mà trên đám mây chưa có
+      // Nếu là thao tác Tải về thủ công thì lấy theo Cloud; nếu silent pull thì giữ thêm các từ cục bộ mới chưa lên mây
       const cloudTermTexts = new Set(data.map(t => (t.term || '').trim()));
       const cloudIds = new Set(data.map(t => t.id));
-      const localNewTerms = currentLocal.filter(t => !cloudIds.has(t.id) && !cloudTermTexts.has((t.term || '').trim())).map(t => ({ ...t, novelId: currentNovelId }));
+      const localNewTerms = silent
+        ? currentLocal.filter(t => !cloudIds.has(t.id) && !cloudTermTexts.has((t.term || '').trim())).map(t => ({ ...t, novelId: currentNovelId }))
+        : [];
       const finalMerged = [...mergedData, ...localNewTerms];
 
       onUpdateTerms(finalMerged);

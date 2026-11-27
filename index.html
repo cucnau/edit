@@ -5,7 +5,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Edit</title>
-    <link rel="manifest" href="/manifest.json">
     
     <!-- Android / Chrome -->
     <meta name="theme-color" content="#4E342E">
@@ -17,8 +16,8 @@
     <meta name="apple-mobile-web-app-title" content="Edit">
     
     <!-- Icons -->
-    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/1828/1828911.png">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1828/1828911.png">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -130,21 +129,6 @@
     <!-- Polyfill process để tránh lỗi crash khi chạy local -->
     <script>
       window.process = window.process || { env: {} };
-      // Hủy đăng ký ServiceWorker cũ và xóa cache để tránh lỗi 404 bundle cũ
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          for (var i = 0; i < registrations.length; i++) {
-            registrations[i].unregister();
-          }
-        });
-      }
-      if ('caches' in window) {
-        caches.keys().then(function(keys) {
-          for (var i = 0; i < keys.length; i++) {
-            caches.delete(keys[i]);
-          }
-        });
-      }
     </script>
 </head>
   <body class="bg-[#F5E6D3] text-[#3E2723] min-h-screen" translate="no">

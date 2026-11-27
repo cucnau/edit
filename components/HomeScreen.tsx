@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Novel, Chapter, CustomTerm } from '../types';
 import { AuthPanel } from './AuthPanel';
+import { PWAInstallButton } from './PWAControls';
 import { vietphraseEngine } from '../services/vietphraseService';
 import JSZip from 'jszip';
 import {
@@ -116,13 +117,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     return (chapters || []).filter(c => !!c.deletedAt);
   }, [chapters]);
 
+  const getEffectiveNovelBucket = (c: Chapter): string => {
+    if (c.novelId && novelMap.has(c.novelId)) return c.novelId;
+    return '__uncategorized__';
+  };
+
   // Count active & trash chapters and latest timestamp per novel
   const novelStats = useMemo(() => {
     const activeCounts = new Map<string, number>();
     const trashCounts = new Map<string, number>();
     const latestTs = new Map<string, number>();
     (chapters || []).forEach(c => {
-      const nid = c.novelId || '__uncategorized__';
+      const nid = getEffectiveNovelBucket(c);
       const ts = c.deletedAt || c.timestamp || 0;
       if (ts > (latestTs.get(nid) || 0)) latestTs.set(nid, ts);
       if (c.deletedAt) {
@@ -132,7 +138,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       }
     });
     return { activeCounts, trashCounts, latestTs };
-  }, [chapters]);
+  }, [chapters, novelMap]);
 
   const uncategorizedCount = (novelStats.activeCounts.get('__uncategorized__') || 0) + (novelStats.trashCounts.get('__uncategorized__') || 0);
 
@@ -151,17 +157,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const currentNovelActiveCount = useMemo(() => {
     if (!selectedNovelFilter) return 0;
-    return activeChaptersAll.filter(c =>
-      selectedNovelFilter === '__uncategorized__' ? !c.novelId : c.novelId === selectedNovelFilter
-    ).length;
-  }, [activeChaptersAll, selectedNovelFilter]);
+    return activeChaptersAll.filter(c => getEffectiveNovelBucket(c) === selectedNovelFilter).length;
+  }, [activeChaptersAll, selectedNovelFilter, novelMap]);
 
   const currentNovelTrashCount = useMemo(() => {
     if (!selectedNovelFilter) return 0;
-    return trashChaptersAll.filter(c =>
-      selectedNovelFilter === '__uncategorized__' ? !c.novelId : c.novelId === selectedNovelFilter
-    ).length;
-  }, [trashChaptersAll, selectedNovelFilter]);
+    return trashChaptersAll.filter(c => getEffectiveNovelBucket(c) === selectedNovelFilter).length;
+  }, [trashChaptersAll, selectedNovelFilter, novelMap]);
 
   const filteredChapters = useMemo(() => {
     if (!selectedNovelFilter) return [];
@@ -169,9 +171,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     const q = searchQuery.trim().toLowerCase();
 
     const list = base.filter(c => {
-      if (selectedNovelFilter === '__uncategorized__') {
-        if (c.novelId) return false;
-      } else if (c.novelId !== selectedNovelFilter) {
+      if (getEffectiveNovelBucket(c) !== selectedNovelFilter) {
         return false;
       }
       if (!q) return true;
@@ -189,7 +189,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       const timeB = activeTab === 'trash' ? (b.deletedAt || b.timestamp || 0) : (b.timestamp || 0);
       return timeB - timeA;
     });
-  }, [activeTab, activeChaptersAll, trashChaptersAll, selectedNovelFilter, searchQuery, sortBy]);
+  }, [activeTab, activeChaptersAll, trashChaptersAll, selectedNovelFilter, searchQuery, sortBy, novelMap]);
 
   const formatTimestamp = (ts?: number) => {
     if (!ts) return 'Chưa rõ';
@@ -500,6 +500,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <PWAInstallButton />
           <AuthPanel />
         </div>
       </header>

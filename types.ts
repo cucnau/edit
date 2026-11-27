@@ -97,6 +97,7 @@ export interface Chapter {
   result: TranslationResponse;
   completedSegments?: number[];
   deletedAt?: number; // Mốc thời gian khi đưa vào thùng rác (xóa vĩnh viễn sau 30 ngày)
+  pendingSync?: boolean; // Đánh dấu chỉnh sửa ngoại tuyến chưa đồng bộ lên Cloud
 }
 
 export enum AppStatus {

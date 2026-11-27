@@ -78,9 +78,16 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
   // Fetch when novel changes
   useEffect(() => {
       if (isSignedIn && currentNovelId) {
-          const timer = setTimeout(() => {
-              syncData('char', 'GET', true);
-              syncData('rel', 'GET', true);
+          const timer = setTimeout(async () => {
+              isPullingRef.current = true;
+              try {
+                await Promise.all([
+                  syncData('char', 'GET', true, true),
+                  syncData('rel', 'GET', true, true)
+                ]);
+              } finally {
+                setTimeout(() => { isPullingRef.current = false; }, 500);
+              }
           }, 300);
           return () => clearTimeout(timer);
       }
@@ -91,27 +98,12 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
     setScopedStorageItem('autoSync_world', String(autoSync));
   }, [autoSync]);
 
-  // Dedicated Effect for Characters
   useEffect(() => {
-    if (isInitialMount.current || !autoSync || !isSignedIn || isPullingRef.current) return;
-    const timer = setTimeout(() => {
-        syncData('char', 'POST', true);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [currentNovelCharacters, autoSync, isSignedIn]);
-
-  // Dedicated Effect for Relationships
-  useEffect(() => {
-    if (isInitialMount.current || !autoSync || !isSignedIn || isPullingRef.current) return;
-    const timer = setTimeout(() => {
-        syncData('rel', 'POST', true);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [currentNovelRelationships, autoSync, isSignedIn]);
-
+    isInitialMount.current = false;
+  }, []);
 
   // --- SYNC HANDLERS ---
-  const syncData = async (type: 'char' | 'rel', action: 'GET' | 'POST', silent = false) => {
+  const syncData = async (type: 'char' | 'rel', action: 'GET' | 'POST', silent = false, skipLock = false) => {
     if (!isSignedIn) {
       if (!silent) {
           setSyncMessage({ type: 'error', text: 'Bạn cần đăng nhập!' });
@@ -126,7 +118,7 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
       return;
     }
     
-    if (isSyncing) return; // Prevent overlapping
+    if (!skipLock && isSyncing) return; // Prevent overlapping manual clicks
 
     setIsSyncing(true);
     if (!silent) setSyncMessage(null);
@@ -137,11 +129,15 @@ export const WorldInfoPanel: React.FC<WorldInfoPanelProps> = ({
         const data = await syncFirestoreData<any>(type, currentNovelId, 'GET');
         
         if (type === 'char') {
-          onUpdateCharacters(data as Character[]);
+          if (data.length > 0 || !silent) {
+            onUpdateCharacters(data as Character[]);
+          }
         } else {
-          onUpdateRelationships(data as Relationship[]);
+          if (data.length > 0 || !silent) {
+            onUpdateRelationships(data as Relationship[]);
+          }
         }
-        setSyncMessage({ type: 'success', text: `Đã tải ${data.length} mục!` });
+        if (!silent) setSyncMessage({ type: 'success', text: `Đã tải ${data.length} mục!` });
       } else {
         if (type === 'char') {
           const toPush = currentNovelCharacters.map(c => ({ ...c, novelId: currentNovelId }));

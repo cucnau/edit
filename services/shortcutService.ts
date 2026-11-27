@@ -73,7 +73,6 @@ export const syncShortcutsFromCloud = async (novelId?: string): Promise<TextShor
   try {
     const cloudShortcuts = await getShortcutsFromCloud(targetId);
     if (cloudShortcuts && cloudShortcuts.length > 0) {
-      // Kết hợp các phím tắt mới tạo cục bộ nếu có
       const cloudIds = new Set(cloudShortcuts.map(s => s.id));
       const localNew = localShortcuts.filter(s => !cloudIds.has(s.id));
       const merged = [...cloudShortcuts, ...localNew];
@@ -81,7 +80,6 @@ export const syncShortcutsFromCloud = async (novelId?: string): Promise<TextShor
       saveStoredShortcuts(merged, targetId, true); // true = skipCloudSave to prevent loop
       return merged;
     } else if (localShortcuts.length > 0) {
-      // Nếu trên đám mây chưa có nhưng local có thì đẩy lên đám mây
       await saveShortcutsToCloud(targetId, localShortcuts);
       return localShortcuts;
     }

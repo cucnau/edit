@@ -325,6 +325,42 @@ export const syncFirestoreData = async <T extends { id: string, novelId?: string
   return [];
 };
 
+export const listenToFirestoreBundleRealtime = <T extends { id: string; novelId?: string }>(
+  type: 'vocab' | 'char' | 'rel' | 'shortcut',
+  novelId: string,
+  onUpdate: (items: T[], meta: { fromCache: boolean; hasPendingWrites: boolean; updatedAt: number }) => void
+): Unsubscribe | null => {
+  const user = auth.currentUser;
+  if (!user || !novelId) return null;
+
+  const collectionName = type === 'vocab' ? 'customTerms' : type === 'char' ? 'characters' : type === 'rel' ? 'relationships' : 'shortcuts';
+  const bundleCollection = `${collectionName}_bundles`;
+  const q = query(collection(db, bundleCollection), where('userId', '==', user.uid), where('novelId', '==', novelId));
+
+  return onSnapshot(q, (snapshot) => {
+    if (snapshot.empty) return;
+    const docs = [...snapshot.docs].sort((a, b) => (a.data().chunkIndex || 0) - (b.data().chunkIndex || 0));
+    let allItems: T[] = [];
+    let maxUpdatedAt = 0;
+    docs.forEach(d => {
+      const data = d.data();
+      if (typeof data.updatedAt === 'number' && data.updatedAt > maxUpdatedAt) {
+        maxUpdatedAt = data.updatedAt;
+      }
+      if (Array.isArray(data.items)) {
+        allItems = allItems.concat(data.items as T[]);
+      }
+    });
+    onUpdate(allItems, {
+      fromCache: snapshot.metadata.fromCache,
+      hasPendingWrites: snapshot.metadata.hasPendingWrites,
+      updatedAt: maxUpdatedAt
+    });
+  }, (error) => {
+    console.warn(`Lỗi lắng nghe realtime ${bundleCollection}:`, error);
+  });
+};
+
 export const getAllUserCustomTermsFromCloud = async (): Promise<CustomTerm[]> => {
   const user = auth.currentUser;
   if (!user) return [];
@@ -416,9 +452,10 @@ export const saveChapterToCloud = async (chapter: Chapter): Promise<void> => {
   if (!user) return; // Silent return if not logged in
   const path = `chapters/${chapter.id}`;
   try {
+    const { pendingSync, ...cleanChapter } = chapter;
     const rawData = {
-      ...chapter,
-      novelId: chapter.novelId || 'default',
+      ...cleanChapter,
+      novelId: cleanChapter.novelId || '',
       userId: user.uid,
       createdAt: Timestamp.now()
     };
@@ -443,8 +480,10 @@ export const bulkSaveChaptersToCloud = async (chapters: Chapter[]): Promise<void
     const batch = writeBatch(db);
     chunk.forEach(ch => {
       if (!ch.id) return;
+      const { pendingSync, ...cleanCh } = ch;
       const rawData = {
-        ...ch,
+        ...cleanCh,
+        novelId: cleanCh.novelId || '',
         userId: user.uid,
         createdAt: Timestamp.now()
       };
@@ -454,7 +493,15 @@ export const bulkSaveChaptersToCloud = async (chapters: Chapter[]): Promise<void
       });
       batch.set(doc(db, 'chapters', ch.id), dataToSave, { merge: true });
     });
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (batchErr) {
+      console.warn("Lỗi batch lưu chương, thử lưu từng chương:", batchErr);
+      for (const ch of chunk) {
+        if (!ch.id) continue;
+        await saveChapterToCloud(ch).catch(console.warn);
+      }
+    }
   }
 };
 
@@ -489,17 +536,10 @@ export const clearNovelChaptersFromCloud = async (novelId: string): Promise<void
 export const getShortcutsFromCloud = async (novelId: string): Promise<TextShortcut[]> => {
   const user = auth.currentUser;
   if (!user || !novelId) return [];
-  const path = 'shortcuts';
   try {
-    const q = query(collection(db, path), where('userId', '==', user.uid), where('novelId', '==', novelId));
-    const snap = await getDocs(q);
-    const shortcuts: TextShortcut[] = [];
-    snap.forEach(d => {
-      const data = d.data();
-      const { userId, createdAt, ...rest } = data;
-      shortcuts.push({ id: d.id, ...rest, novelId: data.novelId || novelId } as TextShortcut);
-    });
-    return shortcuts;
+    // Đọc từ shortcuts_bundles (nơi saveShortcutsToCloud ghi vào) và tự fallback sang legacy shortcuts nếu có
+    const shortcuts = await syncFirestoreData<TextShortcut>('shortcut', novelId, 'GET');
+    return shortcuts.map(s => ({ ...s, novelId: s.novelId || novelId }));
   } catch (error) {
     console.warn("Không thể tải phím tắt từ đám mây (đang dùng cache cục bộ):", error);
     return [];

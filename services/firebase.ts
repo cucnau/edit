@@ -1,6 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  Firestore
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const config = {
@@ -14,9 +19,21 @@ const config = {
 
 const app = initializeApp(config);
 const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || '(default)';
-export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true
-}, databaseId);
+
+let firestoreDb: Firestore;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    experimentalAutoDetectLongPolling: true
+  }, databaseId);
+} catch (e) {
+  console.warn("Không thể bật Firestore persistentLocalCache, dùng cache mặc định:", e);
+  firestoreDb = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true
+  }, databaseId);
+}
+
+export const db = firestoreDb;
 export const auth = getAuth(app);
 
 // Simple connection test

@@ -1359,36 +1359,45 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
   const popupCoords = useMemo(() => {
     if (!selectionPopup) return { left: 0, top: 0, width: 280 };
     const { rect, type } = selectionPopup;
-    
+
+    const viewportW = typeof window !== 'undefined' ? (window.visualViewport?.width || window.innerWidth) : 375;
+    const viewportH = typeof window !== 'undefined' ? (window.visualViewport?.height || window.innerHeight) : 667;
+    const isMobileViewport =
+      typeof window !== 'undefined' &&
+      (viewportW < 768 || window.matchMedia?.('(pointer: coarse)').matches);
+
     // Horizontal space constraints
     const maxW = type === 'idle' ? 300 : 320;
-    const W = Math.min(maxW, window.innerWidth - 24);
-    
+    const W = Math.min(maxW, viewportW - 24);
+
     // Approximate popup heights for clamping and placement
-    const H = type === 'idle' ? 290 : type === 'vocab' ? 240 : 330;
+    const rawH = type === 'idle' ? 290 : type === 'vocab' ? 240 : 330;
+    const H = Math.min(rawH, Math.max(180, viewportH - 24));
 
-    // Scroll offsets for absolute positioning relative to body
-    const scrollX = typeof window !== 'undefined' ? window.scrollX : 0;
-    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
-
-    // Horizontal placement: center relative to the selection rect
+    // Horizontal placement: center relative to the selection rect (fixed viewport coords)
     let left = rect.left + rect.width / 2 - W / 2;
-    // Clamp horizontally with 12px padding from viewport boundaries
-    left = Math.max(12, Math.min(left, window.innerWidth - W - 12));
-    left += scrollX;
+    left = Math.max(12, Math.min(left, viewportW - W - 12));
 
-    // Vertical placement: default is above the selection (with 8px spacing)
-    let top = rect.top - H - 8;
-    
-    // If the popup would overflow the top of the viewport (< 12px)
-    if (top < 12) {
-      // Put it below the selection rect instead
-      top = rect.bottom + 8;
+    let top: number;
+    if (isMobileViewport) {
+      // Trên điện thoại, thanh Copy/Chọn tất cả mặc định thường hiện phía trên vùng tô xanh,
+      // nên ưu tiên đặt popup phía dưới vùng chọn để tránh đè lên nhau.
+      const belowTop = rect.bottom + 14;
+      const aboveTop = rect.top - H - 56;
+      if (belowTop + H <= viewportH - 12 || aboveTop < 12) {
+        top = belowTop;
+      } else {
+        top = aboveTop;
+      }
+    } else {
+      top = rect.top - H - 8;
+      if (top < 12) {
+        top = rect.bottom + 8;
+      }
     }
-    
-    // Safety clamp vertical position relative to viewport height
-    top = Math.max(12, Math.min(top, window.innerHeight - H - 12));
-    top += scrollY;
+
+    // Safety clamp vertical position relative to visual viewport height
+    top = Math.max(12, Math.min(top, Math.max(12, viewportH - H - 12)));
 
     return { left, top, width: W };
   }, [selectionPopup]);
@@ -1540,48 +1549,80 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
     }
   };
 
-  // Selection change or mouseup listener
+  // Selection change, touchend, and mouseup listeners (hỗ trợ cả máy tính lẫn điện thoại)
+  const lastPopupTextRef = useRef<string>('');
+  const isPopupOpenRef = useRef<boolean>(false);
+  isPopupOpenRef.current = Boolean(selectionPopup);
+
   useEffect(() => {
-    const handleMouseUp = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('.selection-popup-container')) {
+    let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const inspectSelection = (targetEl?: HTMLElement | null) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (targetEl?.closest('.selection-popup-container') || activeEl?.closest('.selection-popup-container')) {
         return;
       }
 
-      // Không hiển thị pop up khi bôi đen trong ô input hoặc textarea
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      // Không hiển thị pop up khi bôi đen trong ô input, textarea hoặc vùng contentEditable
+      if (
+        (targetEl && (targetEl.tagName === 'INPUT' || targetEl.tagName === 'TEXTAREA' || targetEl.isContentEditable)) ||
+        (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable))
+      ) {
+        lastPopupTextRef.current = '';
         setSelectionPopup(null);
         return;
       }
 
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
+        lastPopupTextRef.current = '';
+        setSelectionPopup(null);
+        return;
+      }
+
+      const anchorEl = (
+        selection.anchorNode?.nodeType === Node.TEXT_NODE
+          ? selection.anchorNode.parentElement
+          : selection.anchorNode
+      ) as HTMLElement | null;
+      if (anchorEl?.closest('.selection-popup-container')) {
+        return;
+      }
+      if (anchorEl?.closest('input, textarea, [contenteditable="true"]')) {
+        lastPopupTextRef.current = '';
         setSelectionPopup(null);
         return;
       }
 
       const selectedText = selection.toString().trim();
-      
+
       // Chỉ hiện pop up khi tô xanh đoạn là Raw (chứa chữ Hán / tiếng Trung và KHÔNG chứa chữ Latin / tiếng Việt)
       const hasChinese = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(selectedText);
       const hasLatin = /[a-zA-Zà-ỹÀ-Ỹ]/.test(selectedText);
 
       if (!hasChinese || hasLatin) {
+        lastPopupTextRef.current = '';
         setSelectionPopup(null);
         return;
       }
 
-      // Only trigger if selection is Chinese text of reasonable length
       if (selectedText.length > 0 && selectedText.length < 150) {
         try {
+          if (selection.rangeCount === 0) return;
           const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
+          let rect = range.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) {
+            const firstClientRect = range.getClientRects()[0];
+            if (firstClientRect) rect = firstClientRect;
+          }
+          if (rect.width === 0 && rect.height === 0) return;
 
-          // Compute Vietphrase & LacViet
           const vpText = vietphraseEngine.translate(selectedText, customMap);
           const lvResult = vietphraseEngine.lookupLacViet(selectedText);
+          const isNewText = !isPopupOpenRef.current || lastPopupTextRef.current !== selectedText;
+          lastPopupTextRef.current = selectedText;
 
-          setSelectionPopup({
+          setSelectionPopup(prev => ({
             text: selectedText,
             vietphrase: vpText || '',
             lacviet: lvResult,
@@ -1593,25 +1634,54 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
               width: rect.width,
               height: rect.height
             },
-            type: 'idle'
-          });
+            type: !isNewText && prev ? prev.type : 'idle'
+          }));
 
-          const defaultMeaning = vpText || (lvResult.found ? (lvResult.charByChar && lvResult.charByChar.length > 0 ? lvResult.charByChar.map(c => c.meaning.split('/')[0].split(' - ')[0]).join(' ') : lvResult.meaning.split('/')[0].split(' - ')[0]) : '');
-          setVocabMeaning(defaultMeaning);
-          setCharVietName(defaultMeaning);
-          setCharPronoun('Hắn');
-          setCharDescription('');
+          if (isNewText) {
+            const defaultMeaning = vpText || (lvResult.found ? (lvResult.charByChar && lvResult.charByChar.length > 0 ? lvResult.charByChar.map(c => c.meaning.split('/')[0].split(' - ')[0]).join(' ') : lvResult.meaning.split('/')[0].split(' - ')[0]) : '');
+            setVocabMeaning(defaultMeaning);
+            setCharVietName(defaultMeaning);
+            setCharPronoun('Hắn');
+            setCharDescription('');
+          }
         } catch (err) {
           console.warn("Failed to capture range bounding rect:", err);
         }
       } else {
+        lastPopupTextRef.current = '';
         setSelectionPopup(null);
       }
     };
 
+    const handleMouseUp = (e: MouseEvent) => {
+      if (selectionTimer) clearTimeout(selectionTimer);
+      inspectSelection(e.target as HTMLElement | null);
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.selection-popup-container')) return;
+      if (selectionTimer) clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        inspectSelection(target);
+      }, 140);
+    };
+
+    const handleSelectionChange = () => {
+      if (selectionTimer) clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        inspectSelection(null);
+      }, 240);
+    };
+
     window.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    document.addEventListener('selectionchange', handleSelectionChange);
     return () => {
+      if (selectionTimer) clearTimeout(selectionTimer);
       window.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('selectionchange', handleSelectionChange);
     };
   }, [customTerms, characters, customMap, onUpdateTerms, onUpdateCharacters, currentNovelId]);
 
@@ -2300,6 +2370,10 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
                             if ((e.target as HTMLElement)?.tagName === 'TEXTAREA' || (e.target as HTMLElement)?.tagName === 'INPUT') {
                               return;
                             }
+                            const isTouchOrMobile = window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 1024;
+                            if (isTouchOrMobile) {
+                              return;
+                            }
                             e.preventDefault();
                             setRowMenu({
                               index: idx,
@@ -2821,12 +2895,12 @@ export const TranslationOutput: React.FC<TranslationOutputProps> = ({
 
       {selectionPopup && createPortal(
         <div 
-          className="absolute z-50 selection-popup-container bg-[#FFFDF7] rounded-xl shadow-[0_12px_40px_rgba(62,39,35,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col"
+          className="fixed z-[95] selection-popup-container bg-[#FFFDF7] rounded-xl shadow-[0_12px_40px_rgba(62,39,35,0.25)] border border-[#D7CCC8] animate-in fade-in zoom-in-95 duration-150 overflow-hidden flex flex-col"
           style={{ 
             left: `${popupCoords.left}px`, 
             top: `${popupCoords.top}px`, 
             width: `${popupCoords.width}px`,
-            maxHeight: '380px'
+            maxHeight: 'min(380px, calc(100dvh - 24px))'
           }}
         >
           {/* Header */}

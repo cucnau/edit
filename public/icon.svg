@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#4E342E"/>
+  <rect x="36" y="36" width="440" height="440" rx="88" fill="none" stroke="#FFECB3" stroke-opacity="0.25" stroke-width="10"/>
+  <!-- Open Book -->
+  <path d="M124 166c0-14 11-26 25-26 38 0 74 10 107 28 33-18 69-28 107-28 14 0 25 12 25 26v178c0 12-10 22-22 22-36 0-72 9-103 26-4 2-10 2-14 0-31-17-67-26-103-26-12 0-22-10-22-22V166z" fill="#F5E6D3"/>
+  <path d="M256 168v218" stroke="#8D6E63" stroke-width="8" stroke-linecap="round"/>
+  <!-- Text lines on left page -->
+  <line x1="156" y1="208" x2="224" y2="216" stroke="#5D4037" stroke-width="12" stroke-linecap="round"/>
+  <line x1="156" y1="248" x2="224" y2="256" stroke="#8D6E63" stroke-width="10" stroke-linecap="round"/>
+  <line x1="156" y1="288" x2="216" y2="295" stroke="#8D6E63" stroke-width="10" stroke-linecap="round"/>
+  <!-- Pen accent on right page -->
+  <path d="M352 192l26 26-74 74-34 8 8-34 74-74z" fill="#4E342E"/>
+  <path d="M342 202l26 26" stroke="#FFECB3" stroke-width="8" stroke-linecap="round"/>
+</svg>

@@ -17,6 +17,7 @@ import {
   deleteChapterFromCloud,
   clearNovelChaptersFromCloud,
   syncFirestoreData,
+  listenToFirestoreBundleRealtime,
   getDocCollabSessionFromCloud,
   listenToDocCollabSession,
   saveDocCollabFullSession,
@@ -41,8 +42,9 @@ import { ShortcutModal } from './components/ShortcutModal';
 import { AuthPanel } from './components/AuthPanel';
 import { NovelSelector } from './components/NovelSelector';
 import { HomeScreen } from './components/HomeScreen';
+import { PWAInstallButton, OfflineIndicator } from './components/PWAControls';
 import { BookOpen, Loader2, Eraser, Quote, Layout, History, AlertTriangle, Layers, PenLine, FolderOpen, Keyboard, X, Users, RefreshCw, Smartphone, Laptop, AlignJustify, Type, RotateCcw, ArrowLeft } from 'lucide-react';
-import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud } from './services/shortcutService';
+import { checkAndApplyShortcut, getStoredShortcuts, isShortcutsEnabled, syncShortcutsFromCloud, saveStoredShortcuts } from './services/shortcutService';
 import { convertToSmartQuotes, cleanTextArtifacts } from './services/textUtils';
 import { getScopedStorageItem, setScopedStorageItem, getScopedSessionItem, setScopedSessionItem } from './services/storageScope';
 
@@ -348,20 +350,102 @@ function AppContent() {
   }, [currentFont]);
 
   useEffect(() => {
-    setShortcuts(getStoredShortcuts(session.currentNovelId));
-    if (session.currentNovelId) {
-      syncShortcutsFromCloud(session.currentNovelId).then(cloudList => {
-        if (cloudList) setShortcuts(cloudList);
-      }).catch(console.warn);
-    }
-  }, [session.currentNovelId]);
+    const novelId = session.currentNovelId;
+    setShortcuts(getStoredShortcuts(novelId));
+    if (!novelId || !isSignedIn || !auth.currentUser) return;
 
-  // Khi đổi truyện (novelId): Tải chính xác Nhân vật, Xưng hô & Từ vựng của đúng truyện này từ Cloud
+    syncShortcutsFromCloud(novelId).then(cloudList => {
+      if (cloudList) setShortcuts(cloudList);
+    }).catch(console.warn);
+
+    const unsubShortcuts = listenToFirestoreBundleRealtime<any>('shortcut', novelId, (liveShortcuts, meta) => {
+      if (meta.hasPendingWrites) return;
+      const scopedList = liveShortcuts.map(s => ({ ...s, novelId }));
+      saveStoredShortcuts(scopedList, novelId, true);
+      setShortcuts(scopedList);
+    });
+
+    return () => {
+      if (unsubShortcuts) unsubShortcuts();
+    };
+  }, [session.currentNovelId, isSignedIn]);
+
+  // Khi đổi truyện hoặc đăng nhập xong: Tải & lắng nghe realtime Nhân vật, Xưng hô & Từ vựng của đúng truyện này
   useEffect(() => {
     const novelId = session.currentNovelId;
-    if (!novelId || !auth.currentUser) return;
+    if (!novelId || !isSignedIn || !auth.currentUser) return;
 
     let isMounted = true;
+
+    const applyNovelBundlesToState = (updates: {
+      chars?: Character[];
+      rels?: Relationship[];
+      terms?: CustomTerm[];
+    }) => {
+      if (!isMounted) return;
+      setSession(prev => {
+        if (prev.currentNovelId !== novelId) return prev;
+
+        const nextChars = updates.chars !== undefined
+          ? [
+              ...(prev.characters || []).filter(c => c.novelId && c.novelId !== novelId),
+              ...updates.chars.map(c => ({ ...c, novelId }))
+            ]
+          : prev.characters || [];
+
+        const nextRels = updates.rels !== undefined
+          ? [
+              ...(prev.relationships || []).filter(r => r.novelId && r.novelId !== novelId),
+              ...updates.rels.map(r => ({ ...r, novelId }))
+            ]
+          : prev.relationships || [];
+
+        const nextTerms = updates.terms !== undefined
+          ? [
+              ...(prev.customTerms || []).filter(t => t.novelId && t.novelId !== novelId),
+              ...updates.terms.map(t => ({ ...t, novelId }))
+            ]
+          : prev.customTerms || [];
+
+        if (updates.terms !== undefined) {
+          db.bulkSaveCustomTerms(nextTerms).catch(console.warn);
+        }
+
+        const novelChars = nextChars.filter(c => c.novelId === novelId);
+        const novelTerms = nextTerms.filter(t => t.novelId === novelId);
+        const customMap = new Map<string, string>();
+        novelChars.forEach(c => {
+          if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
+        });
+        novelTerms.forEach(t => {
+          if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
+        });
+        vietphraseEngine.setCustomMap(customMap);
+        vietphraseEngine.notify();
+
+        let updatedResult = prev.result;
+        if (prev.result?.segments && prev.result.segments.length > 0) {
+          const updatedSegments = prev.result.segments.map(seg => ({
+            ...seg,
+            quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
+          }));
+          updatedResult = {
+            ...prev.result,
+            segments: updatedSegments,
+            quickTrans: updatedSegments.map(s => s.quick).join('\n')
+          };
+        }
+
+        return {
+          ...prev,
+          characters: nextChars,
+          relationships: nextRels,
+          customTerms: nextTerms,
+          result: updatedResult
+        };
+      });
+    };
+
     (async () => {
       try {
         const [cloudChars, cloudRels, cloudVocab] = await Promise.all([
@@ -370,61 +454,36 @@ function AppContent() {
           syncFirestoreData<CustomTerm>('vocab', novelId, 'GET').catch(() => [] as CustomTerm[])
         ]);
 
-        if (!isMounted) return;
-
-        setSession(prev => {
-          if (prev.currentNovelId !== novelId) return prev;
-
-          // Lọc giữ lại dữ liệu của các truyện khác
-          const otherChars = (prev.characters || []).filter(c => c.novelId && c.novelId !== novelId);
-          const otherRels = (prev.relationships || []).filter(r => r.novelId && r.novelId !== novelId);
-          const otherTerms = (prev.customTerms || []).filter(t => t.novelId && t.novelId !== novelId);
-
-          const mergedChars = [...otherChars, ...cloudChars.map(c => ({ ...c, novelId }))];
-          const mergedRels = [...otherRels, ...cloudRels.map(r => ({ ...r, novelId }))];
-          const mergedTerms = [...otherTerms, ...cloudVocab.map(t => ({ ...t, novelId }))];
-
-          // Cập nhật CustomMap chuẩn xác cho Vietphrase của truyện này
-          const customMap = new Map<string, string>();
-          cloudChars.forEach(c => {
-            if (c.chineseName && c.vietName) customMap.set(c.chineseName.trim(), c.vietName.trim());
-          });
-          cloudVocab.forEach(t => {
-            if (t.term && t.meaning) customMap.set(t.term.trim(), t.meaning.trim());
-          });
-          vietphraseEngine.setCustomMap(customMap);
-          vietphraseEngine.notify();
-
-          let updatedResult = prev.result;
-          if (prev.result?.segments && prev.result.segments.length > 0) {
-            const updatedSegments = prev.result.segments.map(seg => ({
-              ...seg,
-              quick: seg.source ? (vietphraseEngine.translate(seg.source, customMap) || seg.quick || '') : (seg.quick || '')
-            }));
-            updatedResult = {
-              ...prev.result,
-              segments: updatedSegments,
-              quickTrans: updatedSegments.map(s => s.quick).join('\n')
-            };
-          }
-
-          return {
-            ...prev,
-            characters: mergedChars,
-            relationships: mergedRels,
-            customTerms: mergedTerms,
-            result: updatedResult
-          };
+        applyNovelBundlesToState({
+          chars: cloudChars,
+          rels: cloudRels,
+          terms: cloudVocab
         });
       } catch (err) {
         console.warn("Lỗi tải dữ liệu truyện từ Cloud:", err);
       }
     })();
 
+    const unsubChars = listenToFirestoreBundleRealtime<Character>('char', novelId, (items, meta) => {
+      if (meta.hasPendingWrites) return;
+      applyNovelBundlesToState({ chars: items });
+    });
+    const unsubRels = listenToFirestoreBundleRealtime<Relationship>('rel', novelId, (items, meta) => {
+      if (meta.hasPendingWrites) return;
+      applyNovelBundlesToState({ rels: items });
+    });
+    const unsubVocab = listenToFirestoreBundleRealtime<CustomTerm>('vocab', novelId, (items, meta) => {
+      if (meta.hasPendingWrites) return;
+      applyNovelBundlesToState({ terms: items });
+    });
+
     return () => {
       isMounted = false;
+      if (unsubChars) unsubChars();
+      if (unsubRels) unsubRels();
+      if (unsubVocab) unsubVocab();
     };
-  }, [session.currentNovelId]);
+  }, [session.currentNovelId, isSignedIn]);
 
   useEffect(() => {
     const handleUpdate = () => {
@@ -483,6 +542,23 @@ function AppContent() {
     setTimeout(() => setRealtimeNotify(null), 2400);
   };
 
+  const saveChapterOfflineSafe = async (chapter: Chapter) => {
+    const localPending: Chapter = { ...chapter, pendingSync: true };
+    setChapters(prev => [localPending, ...prev.filter(c => c.id !== localPending.id)].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
+    await db.saveChapter(localPending).catch(console.warn);
+
+    if (auth.currentUser && (typeof navigator === 'undefined' || navigator.onLine)) {
+      try {
+        await saveChapterToCloud(localPending);
+        const syncedChap: Chapter = { ...chapter, pendingSync: false };
+        await db.saveChapter(syncedChap).catch(console.warn);
+        setChapters(prev => prev.map(c => (c.id === syncedChap.id ? syncedChap : c)));
+      } catch (err) {
+        console.warn("Lưu chương lên Cloud thất bại (đã giữ bản ngoại tuyến để đồng bộ lại sau):", err);
+      }
+    }
+  };
+
   // Đồng bộ chương hiện tại vào IndexedDB & Cloud dựa trên trạng thái đã hợp nhất mới nhất
   const flushChapterProgressNow = async (
     overrideResult?: TranslationResponse,
@@ -522,9 +598,7 @@ function AppContent() {
       timestamp: now
     };
 
-    setChapters(prev => prev.map(c => (c.id === chapId ? updatedChap : c)));
-    await db.saveChapter(updatedChap).catch(console.warn);
-    await saveChapterToCloud(updatedChap).catch(console.warn);
+    await saveChapterOfflineSafe(updatedChap);
   };
 
   const scheduleChapterProgressSave = () => {
@@ -774,10 +848,54 @@ function AppContent() {
     };
   }, [activeView, activeDocKey, deviceId]);
 
-  // 2. LẮNG NGHE TOÀN BỘ DANH SÁCH TRUYỆN & CHƯƠNG REALTIME CHO MÀN HÌNH CHÍNH VÀ KHO CHƯƠNG
+  // 2. LẮNG NGHE TOÀN BỘ DANH SÁCH TRUYỆN & CHƯƠNG REALTIME + BẢO VỆ BẢN EDIT NGOẠI TUYẾN
   useEffect(() => {
     let unsubNovels: (() => void) | null = null;
     let unsubAllChapters: (() => void) | null = null;
+
+    const mergeChaptersSafely = (localList: Chapter[], cloudList: Chapter[]): Chapter[] => {
+      const mergedMap = new Map<string, Chapter>();
+      (localList || []).forEach(c => {
+        if (c?.id) mergedMap.set(c.id, c);
+      });
+      (cloudList || []).forEach(cloudChap => {
+        if (!cloudChap?.id) return;
+        const localChap = mergedMap.get(cloudChap.id);
+        if (!localChap) {
+          mergedMap.set(cloudChap.id, { ...cloudChap, pendingSync: false });
+          return;
+        }
+        // Giữ nguyên bản chỉnh sửa ngoại tuyến chưa đồng bộ xong trên máy này
+        if (localChap.pendingSync) {
+          return;
+        }
+        const localTs = Math.max(localChap.timestamp || 0, localChap.resultUpdatedAt || 0);
+        const cloudTs = Math.max(cloudChap.timestamp || 0, cloudChap.resultUpdatedAt || 0);
+        if (cloudTs >= localTs) {
+          mergedMap.set(cloudChap.id, { ...cloudChap, pendingSync: false });
+        }
+      });
+      return Array.from(mergedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    };
+
+    const flushPendingChaptersToCloud = async () => {
+      if (!auth.currentUser || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+      try {
+        const localChapters = await db.getAllChapters();
+        const pending = (localChapters || []).filter(c => c?.id && c.pendingSync);
+        if (pending.length === 0) return;
+
+        await bulkSaveChaptersToCloud(pending);
+        const cleared = pending.map(c => ({ ...c, pendingSync: false }));
+        for (const c of cleared) {
+          await db.saveChapter(c).catch(console.warn);
+        }
+        const clearedIds = new Set(cleared.map(c => c.id));
+        setChapters(prev => prev.map(c => (clearedIds.has(c.id) ? { ...c, pendingSync: false } : c)));
+      } catch (err) {
+        console.warn("Chưa thể đẩy các chỉnh sửa ngoại tuyến lên Cloud:", err);
+      }
+    };
 
     const setupGlobalLibrarySync = async () => {
       const user = auth.currentUser;
@@ -801,24 +919,34 @@ function AppContent() {
           setSession(prev => prev.currentNovelId ? prev : { ...prev, currentNovelId: initialNovels[0].id });
         }
 
-        // Đẩy các chương cục bộ chưa có trên đám mây lên Cloud
-        const cloudIds = new Set((cloudChapters || []).map(c => c.id));
-        const unsyncedLocal = (localChapters || []).filter(c => c.id && !cloudIds.has(c.id));
-        if (unsyncedLocal.length > 0) {
-          await bulkSaveChaptersToCloud(unsyncedLocal).catch(console.warn);
-        }
+        const cloudMap = new Map<string, Chapter>();
+        (cloudChapters || []).forEach(c => { if (c?.id) cloudMap.set(c.id, c); });
 
-        const mergedMap = new Map<string, Chapter>();
-        (localChapters || []).forEach(c => { if (c?.id) mergedMap.set(c.id, c); });
-        (cloudChapters || []).forEach(c => { if (c?.id) mergedMap.set(c.id, c); });
-        const initialMerged = Array.from(mergedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const initialMerged = mergeChaptersSafely(localChapters, cloudChapters);
         setChapters(initialMerged);
         initialMerged.forEach(c => db.saveChapter(c).catch(console.warn));
+
+        // Đẩy các chương mới tạo cục bộ hoặc các chương edit ngoại tuyến mới hơn Cloud lên Cloud
+        const toPushToCloud = initialMerged.filter(c => {
+          if (!c.id) return false;
+          const cloudChap = cloudMap.get(c.id);
+          if (!cloudChap) return true;
+          if (c.pendingSync) return true;
+          return (c.timestamp || 0) > (cloudChap.timestamp || 0);
+        });
+
+        if (toPushToCloud.length > 0 && (typeof navigator === 'undefined' || navigator.onLine)) {
+          await bulkSaveChaptersToCloud(toPushToCloud).catch(console.warn);
+          const pushedIds = new Set(toPushToCloud.map(c => c.id));
+          toPushToCloud.forEach(c => db.saveChapter({ ...c, pendingSync: false }).catch(console.warn));
+          setChapters(prev => prev.map(c => (pushedIds.has(c.id) ? { ...c, pendingSync: false } : c)));
+        }
       } finally {
         setIsLoadingHomeData(false);
       }
 
       unsubNovels = listenToNovelsRealtime((liveNovels) => {
+        if (liveNovels.length === 0 && typeof navigator !== 'undefined' && !navigator.onLine) return;
         setNovels(liveNovels);
         try { setScopedStorageItem('app_novels_cache', JSON.stringify(liveNovels)); } catch {}
         if (liveNovels.length > 0) {
@@ -827,10 +955,25 @@ function AppContent() {
       });
 
       unsubAllChapters = listenToAllChaptersRealtime((liveChapters) => {
-        setChapters(liveChapters);
-        liveChapters.forEach(c => db.saveChapter(c).catch(console.warn));
+        if (liveChapters.length === 0 && typeof navigator !== 'undefined' && !navigator.onLine) return;
+        const mergedLive = mergeChaptersSafely(chaptersRef.current, liveChapters);
+        setChapters(mergedLive);
+        liveChapters.forEach(c => {
+          const currentLocal = chaptersRef.current.find(lc => lc.id === c.id);
+          if (!currentLocal?.pendingSync) {
+            db.saveChapter({ ...c, pendingSync: false }).catch(console.warn);
+          }
+        });
       });
     };
+
+    const handleBackOnline = () => {
+      flushPendingChaptersToCloud().then(() => {
+        if (auth.currentUser) setupGlobalLibrarySync();
+      }).catch(console.warn);
+    };
+
+    window.addEventListener('online', handleBackOnline);
 
     const authUnsub = onAuthStateChanged(auth, (user) => {
       setIsSignedIn(!!user);
@@ -843,6 +986,7 @@ function AppContent() {
     });
 
     return () => {
+      window.removeEventListener('online', handleBackOnline);
       authUnsub();
       if (unsubNovels) unsubNovels();
       if (unsubAllChapters) unsubAllChapters();
@@ -923,21 +1067,29 @@ function AppContent() {
       }
     });
 
-    // 2. Chỉ tự động phục hồi từ vựng từ Cloud nếu thiết bị này chưa có dữ liệu nào (thiết bị mới hoàn toàn)
+    // 2. Luôn gộp toàn bộ từ vựng từ Cloud vào thiết bị (kể cả khi thiết bị đã có một ít từ vựng cũ)
     const restoreCloudTerms = async () => {
       const user = auth.currentUser;
       if (!user) return;
       try {
-        const localTerms = await db.getAllCustomTerms();
-        if (!localTerms || localTerms.length === 0) {
-          const cloudTerms = await getAllUserCustomTermsFromCloud();
-          if (cloudTerms && cloudTerms.length > 0) {
-            setSession(prev => ({
-              ...prev,
-              customTerms: cloudTerms
-            }));
-            db.bulkSaveCustomTerms(cloudTerms).catch(console.error);
-          }
+        const [localTerms, cloudTerms] = await Promise.all([
+          db.getAllCustomTerms(),
+          getAllUserCustomTermsFromCloud()
+        ]);
+        if (cloudTerms && cloudTerms.length > 0) {
+          const mergedMap = new Map<string, CustomTerm>();
+          (localTerms || []).forEach(t => {
+            if (t?.id) mergedMap.set(t.id, t);
+          });
+          cloudTerms.forEach(ct => {
+            if (ct?.id) mergedMap.set(ct.id, ct);
+          });
+          const merged = Array.from(mergedMap.values());
+          setSession(prev => ({
+            ...prev,
+            customTerms: merged
+          }));
+          db.bulkSaveCustomTerms(merged).catch(console.error);
         }
       } catch (e) {
         console.warn("Lỗi tự động phục hồi từ vựng từ Cloud:", e);
@@ -1167,6 +1319,21 @@ function AppContent() {
     }
   };
 
+  const bundleSyncTimersRef = useRef<Record<string, any>>({});
+  const scheduleBundleCloudSync = (type: 'vocab' | 'char' | 'rel', novelId: string, payload: any[]) => {
+    if (!novelId || !auth.currentUser) return;
+    const key = `${type}_${novelId}`;
+    if (bundleSyncTimersRef.current[key]) {
+      clearTimeout(bundleSyncTimersRef.current[key]);
+    }
+    bundleSyncTimersRef.current[key] = setTimeout(() => {
+      delete bundleSyncTimersRef.current[key];
+      syncFirestoreData(type, novelId, 'POST', payload).catch(err => {
+        console.error(`App: syncFirestoreData ${type} failed`, err);
+      });
+    }, 500);
+  };
+
   // Quản lý cập nhật từ vựng an toàn tuyệt đối - đảm bảo 100% ghi đè chuẩn xác lên Vietphrase
   const handleUpdateTerms = (novelTerms: CustomTerm[]) => {
     try {
@@ -1218,9 +1385,7 @@ function AppContent() {
         console.error("App: db.bulkSaveCustomTerms failed", err);
       });
       if (currentId && auth.currentUser) {
-        syncFirestoreData('vocab', currentId, 'POST', Array.from(novelTermsMap.values())).catch(err => {
-          console.error("App: syncFirestoreData vocab failed", err);
-        });
+        scheduleBundleCloudSync('vocab', currentId, Array.from(novelTermsMap.values()));
       }
     } catch (err) {
       console.error("App: handleUpdateTerms caught error:", err);
@@ -1273,9 +1438,7 @@ function AppContent() {
 
       updateSession({ characters: merged, result: updatedResult }, false);
       if (currentId && auth.currentUser) {
-        syncFirestoreData('char', currentId, 'POST', currentNovelChars).catch(err => {
-          console.error("App: syncFirestoreData char failed", err);
-        });
+        scheduleBundleCloudSync('char', currentId, currentNovelChars);
       }
     } catch (err) {
       console.error("App: handleUpdateCharacters caught error:", err);
@@ -1291,9 +1454,7 @@ function AppContent() {
       const merged = [...otherRels, ...scopedNovelRels];
       updateSession({ relationships: merged }, false);
       if (currentId && auth.currentUser) {
-        syncFirestoreData('rel', currentId, 'POST', scopedNovelRels).catch(err => {
-          console.error("App: syncFirestoreData rel failed", err);
-        });
+        scheduleBundleCloudSync('rel', currentId, scopedNovelRels);
       }
     } catch (err) {
       console.error("App: handleUpdateRelationships caught error:", err);
@@ -1704,9 +1865,7 @@ function AppContent() {
         deeplText: currentSession.deeplText || '',
         timestamp: Date.now()
       };
-      setChapters(prev => prev.map(c => c.id === existingChapter.id ? updatedChapter : c));
-      await db.saveChapter(updatedChapter);
-      saveChapterToCloud(updatedChapter).catch(console.warn);
+      await saveChapterOfflineSafe(updatedChapter);
     } else {
       // CHƯA CÓ TRONG KHO: Người dùng quên lưu nên tự động lưu kho
       const firstLine = inputTrim.split('\n')[0].trim();
@@ -1728,9 +1887,7 @@ function AppContent() {
         completedSegments: currentSession.completedSegments || []
       };
 
-      setChapters(prev => [newChapter, ...prev]);
-      await db.saveChapter(newChapter);
-      saveChapterToCloud(newChapter).catch(console.warn);
+      await saveChapterOfflineSafe(newChapter);
     }
   };
 
@@ -1979,6 +2136,14 @@ function AppContent() {
       });
     }
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      updateSession({
+        status: AppStatus.ERROR,
+        error: 'Bạn đang ngoại tuyến (không có mạng). Chế độ Edit cần kết nối mạng để gọi AI phân tích — bạn có thể chuyển sang nút Beta ở thanh trên để chia đoạn và edit offline ngay.'
+      }, false);
+      return;
+    }
+
     // CHẾ ĐỘ EDIT: Hiển thị LOADING trong khi gọi AI
     updateSession({
       status: AppStatus.LOADING,
@@ -2137,9 +2302,7 @@ function AppContent() {
       completedSegments: session.completedSegments
     };
 
-    await db.saveChapter(newChapter);
-    await saveChapterToCloud(newChapter);
-    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId)]);
+    await saveChapterOfflineSafe(newChapter);
     setSession(prev => ({ ...prev, docKey: chapterId, currentChapterId: chapterId, resultUpdatedAt: now }));
     pushFullDocCollabToCloud({ docKey: chapterId, currentChapterId: chapterId, resultUpdatedAt: now }, chapterId);
   };
@@ -2209,9 +2372,7 @@ function AppContent() {
       completedSegments: []
     };
 
-    await db.saveChapter(newChapter);
-    await saveChapterToCloud(newChapter);
-    setChapters(prev => [newChapter, ...prev.filter(c => c.id !== chapterId)]);
+    await saveChapterOfflineSafe(newChapter);
 
     localResultResetAtRef.current = now;
     localSegmentTsRef.current = {};
@@ -2304,9 +2465,7 @@ function AppContent() {
     const chapter = chapters.find(c => c.id === id);
     if (!chapter) return;
     const updated: Chapter = { ...chapter, deletedAt: Date.now() };
-    await db.saveChapter(updated);
-    await saveChapterToCloud(updated);
-    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+    await saveChapterOfflineSafe(updated);
     if (session.currentChapterId === id) {
       setSession(prev => ({ ...prev, currentChapterId: undefined }));
     }
@@ -2318,15 +2477,13 @@ function AppContent() {
     if (!chapter) return;
     const { deletedAt, ...rest } = chapter;
     const updated: Chapter = { ...rest, timestamp: Date.now() };
-    await db.saveChapter(updated);
-    await saveChapterToCloud(updated);
-    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+    await saveChapterOfflineSafe(updated);
   };
 
   // 3. Xóa vĩnh viễn 1 chương khỏi Thùng rác
   const handlePermanentDeleteChapter = async (id: string) => {
     await db.deleteChapter(id);
-    await deleteChapterFromCloud(id);
+    await deleteChapterFromCloud(id).catch(console.warn);
     setChapters(prev => prev.filter(c => c.id !== id));
     if (session.currentChapterId === id) {
       setSession(prev => ({ ...prev, currentChapterId: undefined }));
@@ -2351,10 +2508,8 @@ function AppContent() {
   const handleRenameChapter = async (id: string, newName: string) => {
     const chapter = chapters.find(c => c.id === id);
     if (!chapter) return;
-    const updated = { ...chapter, name: newName };
-    await db.saveChapter(updated);
-    await saveChapterToCloud(updated);
-    setChapters(prev => prev.map(c => c.id === id ? updated : c));
+    const updated = { ...chapter, name: newName, timestamp: Date.now() };
+    await saveChapterOfflineSafe(updated);
   };
 
   // Chuyển toàn bộ chương đang hoạt động vào thùng rác (an toàn hơn là xóa hẳn)
@@ -2365,13 +2520,8 @@ function AppContent() {
     const now = Date.now();
     const toTrash = activeItems.map(c => ({ ...c, deletedAt: now }));
     for (const c of toTrash) {
-      await db.saveChapter(c);
-      await saveChapterToCloud(c);
+      await saveChapterOfflineSafe(c);
     }
-    setChapters(prev => prev.map(c => {
-      const found = toTrash.find(t => t.id === c.id);
-      return found || c;
-    }));
     if (session.currentChapterId) {
       setSession(prev => ({ ...prev, currentChapterId: undefined }));
     }
@@ -2404,24 +2554,27 @@ function AppContent() {
 
   if (activeView === 'home') {
     return (
-      <HomeScreen
-        novels={novels}
-        chapters={chapters}
-        customTerms={session.customTerms || []}
-        selectedNovelFilter={homeNovelFilter}
-        onSelectNovelFilter={setHomeNovelFilter}
-        onCreateNovel={handleCreateNovelFromHome}
-        onRenameNovel={handleRenameNovelFromHome}
-        onOpenChapter={handleRestoreChapter}
-        onCreateNewChapter={handleCreateNewChapterFromHome}
-        onRenameChapter={handleRenameChapter}
-        onMoveToTrash={handleMoveToTrash}
-        onRestoreFromTrash={handleRestoreFromTrash}
-        onPermanentDeleteChapter={handlePermanentDeleteChapter}
-        onEmptyTrash={() => handleEmptyTrash(true, homeNovelFilter)}
-        isLoadingData={isLoadingHomeData}
-        isSignedIn={isSignedIn}
-      />
+      <>
+        <HomeScreen
+          novels={novels}
+          chapters={chapters}
+          customTerms={session.customTerms || []}
+          selectedNovelFilter={homeNovelFilter}
+          onSelectNovelFilter={setHomeNovelFilter}
+          onCreateNovel={handleCreateNovelFromHome}
+          onRenameNovel={handleRenameNovelFromHome}
+          onOpenChapter={handleRestoreChapter}
+          onCreateNewChapter={handleCreateNewChapterFromHome}
+          onRenameChapter={handleRenameChapter}
+          onMoveToTrash={handleMoveToTrash}
+          onRestoreFromTrash={handleRestoreFromTrash}
+          onPermanentDeleteChapter={handlePermanentDeleteChapter}
+          onEmptyTrash={() => handleEmptyTrash(true, homeNovelFilter)}
+          isLoadingData={isLoadingHomeData}
+          isSignedIn={isSignedIn}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -2551,6 +2704,7 @@ function AppContent() {
                 <span className="font-semibold text-[#C8E6C9]">Realtime Sync</span>
               </div>
             )}
+            <PWAInstallButton />
             <AuthPanel />
         </div>
       </header>
@@ -2909,6 +3063,7 @@ function AppContent() {
         currentNovelId={session.currentNovelId || ''}
         onSelectNovel={handleSelectNovel}
       />
+      <OfflineIndicator />
     </div>
   );
 }
